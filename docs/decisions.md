@@ -86,3 +86,58 @@ implements (spec §4.1, §11 critical-path note — same pattern as `OutboxWrite
 - Invoice numbers `{prefix}-{YYYY}-{counter:04d}` are assigned once per booking and are
   immutable afterwards (`bookings.invoice_number`); allocation is idempotent.
 - All amounts are Long paise (ADR-002), rendered via `AmountFormatter` only.
+
+## ADR-007 — Additive sync bookkeeping in `core:database` (2026-08-25, W1-E)
+
+**Status:** accepted.
+
+The sync engine needs local-only bookkeeping beyond the Wave-0 `outbox` table. Added as
+ADDITIVE changes (no existing column/signature touched; database still version 1 —
+pre-release, no installed base, exported schema regenerated):
+
+- New tables `sync_cursors` (per-business × per-table incremental pull cursor,
+  `updated_at > last_pulled_at`; business-agnostic tables use the `*` scope) and
+  `sync_conflicts` (persisted LWW conflict log: entity, title, overridden fields,
+  resolution `rebased`/`dropped`, acknowledged flag driving the in-app banner). Neither
+  table syncs.
+- New DAOs `SyncCursorDao`, `SyncConflictDao`; new `SamarohDatabase`/`DatabaseModule`
+  accessors.
+- Additive `OutboxDao` methods: `pendingForEntity` (LWW lookup), `rewritePayload`
+  (rebase), `erroredEntries` (Settings → Sync status per-item errors).
+- Additive `ExpenseAttachmentDao.byId` so pulled attachment rows preserve the Room-only
+  `local_cache_path`.
+
+Pull-cursor edge case: the incremental filter is strict (`updated_at > cursor`), so two
+rows sharing the exact same `updated_at` across a 200-row page boundary could skip one
+row until its next update; accepted for v1 (server bumps `updated_at` per write).
+
+## ADR-008 — Additive sync contracts in `core:data` (2026-08-25, W1-E)
+
+**Status:** accepted.
+
+Two additive interfaces join the Wave-0 sync contracts in `core.data.sync`:
+
+- `SyncStatus` (+ `SyncItemError`, `SyncConflictEntry`, `ConflictResolution`): pending
+  count, per-item errors, conflict log, last sync time, banner state, `syncNow()`,
+  `acknowledgeConflict()`. Implemented by `core:sync` (`RoomSyncStatus`), consumed by the
+  Menu tab (Settings → Sync status) and the app-bar cloud icon (§4.4/§4.5).
+- `AttachmentUploader`: the §8 attachment queue contract — the sync engine uploads an
+  `expense_attachments` file to Drive BEFORE pushing its metadata row. Declared as an
+  OPTIONAL Hilt binding (`@BindsOptionalOf` in `core:sync`); `core:google` (W1-F)
+  provides the real Drive implementation. While unbound/unlinked, attachment ops stay
+  queued with the machine-readable per-item error code
+  `attachment-pending-storage-link`.
+
+LWW semantics implemented by W1-E (§8 "rebased or dropped", never silent): a pulled row
+older than the newest pending op ⇒ local wins (remote row skipped; push will carry the
+local edit up). A pulled row newer ⇒ pending DELETE (or a remote tombstone) drops the
+local op; a pending UPSERT is REBASED — the local field values that differ from the
+remote row (audit columns excluded) are re-applied on top of it, the consolidated op is
+requeued with a fresh `updated_at`, and Room gets the merged row. Both paths persist a
+`sync_conflicts` entry, fire a localized notification and set the banner state. A pending
+edit whose fields all match the newer remote row is simply cleared (no conflict).
+
+Versions-catalog additions (additive): `supabase-postgrest` (supabase-kt 3.0.3) +
+`ktor-client-okhttp` (Ktor 3.0.3) for the Postgrest wire, `androidx-lifecycle-process` +
+`androidx-startup-runtime` for the app-foreground sync trigger (registered from the
+`core:sync` manifest — no `:app` change).
