@@ -71,3 +71,18 @@ by Postgres; repositories enforce app-level invariants (e.g. positive amounts).
 The `outbox` table is local-only (never synced), so the client-UUID rule does not apply.
 An `INTEGER PRIMARY KEY AUTOINCREMENT` id gives collision-free, monotonic FIFO ordering:
 `ORDER BY id` IS the queue order, immune to same-millisecond `created_at` ties.
+
+## ADR-006 — Invoice contract in `core:data` (2026-08-25)
+
+**Status:** accepted.
+
+`InvoiceGenerator` and `InvoiceNumberAllocator` (package
+`core.data.invoice`) join the Wave 0 frozen contracts so `feature:booking` (W1-A) can wire
+the invoice/share actions without depending on the renderer, which `core:invoice` (W1-E)
+implements (spec §4.1, §11 critical-path note — same pattern as `OutboxWriter`).
+
+- `generateInvoicePdf(bookingId): Result<String>` — absolute path of the rendered PDF.
+- `buildInvoiceText(bookingId): String` — localized plain-text receipt (share-as-text).
+- Invoice numbers `{prefix}-{YYYY}-{counter:04d}` are assigned once per booking and are
+  immutable afterwards (`bookings.invoice_number`); allocation is idempotent.
+- All amounts are Long paise (ADR-002), rendered via `AmountFormatter` only.
