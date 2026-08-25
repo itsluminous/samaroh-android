@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  check:
+    name: Full CI gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Legal-hygiene check
+        run: bash scripts/legal-check.sh
+      - name: Generate strings & verify no diff
+        run: |
+          ./gradlew generateStrings
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "generateStrings produced a working-tree diff" >&2
+            exit 1
+          fi
+      - name: ktlint, Android Lint, unit tests
+        run: ./gradlew ktlintCheck lintDebug testDebugUnitTest
+
+  release:
+    name: Build signed release APK
+    needs: check
+    runs-on: ubuntu-latest
+    # Creating a GitHub Release writes to the repository.
+    permissions:
+      contents: write
+    env:
+      # True only when all four signing secrets are configured; forks fall back
+      # to an unsigned release APK instead of failing.
+      HAS_SIGNING_SECRETS: >-
+        ${{
+          secrets.KEYSTORE_B64 != '' &&
+          secrets.KEYSTORE_PASSWORD != '' &&
+          secrets.KEY_ALIAS != '' &&
+          secrets.KEY_PASSWORD != ''
+        }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode release keystore
+        if: env.HAS_SIGNING_SECRETS == 'true'
+        run: printf '%s' "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+
+      # versionName derives from the tag (v0.1.0 -> 0.1.0); versionCode from run number.
+      - name: Assemble release APK
+        env:
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ "$HAS_SIGNING_SECRETS" = "true" ]; then
+            export SIGNING_KEYSTORE_FILE="$RUNNER_TEMP/keystore.jks"
+          fi
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          ./gradlew assembleRelease -PappVersionName="$VERSION_NAME" -PappVersionCode="$GITHUB_RUN_NUMBER"
+
+      - name: Verify APK signature
+        if: env.HAS_SIGNING_SECRETS == 'true'
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          for apk in app/build/outputs/apk/release/*.apk; do
+            echo "==> $apk"
+            "$APKSIGNER" verify --print-certs "$apk"
+          done
+
+      - name: Rename artifact with version
+        run: |
+          VERSION_NAME="${GITHUB_REF_NAME#v}"
+          mv app/build/outputs/apk/release/Samaroh.apk "app/build/outputs/apk/release/Samaroh-$VERSION_NAME.apk"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
