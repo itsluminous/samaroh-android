@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash background at night follows the dark scheme background
+         (shared/brand/palette.md) so launch doesn't flash a bright surface. -->
+    <color name="samaroh_splash_background">#1C1B1F</color>
+</resources>

@@ -3,4 +3,6 @@
     <!-- Seed color from shared/brand/palette.md. -->
     <color name="samaroh_primary">#6750A4</color>
     <color name="ic_launcher_background">#6750A4</color>
+    <!-- Splash background by day: the brand seed (shared/brand/palette.md). -->
+    <color name="samaroh_splash_background">#6750A4</color>
 </resources>

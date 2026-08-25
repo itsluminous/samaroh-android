@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,11 +20,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
+import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
+import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -74,8 +81,14 @@ private fun WeekRow(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            week.days.forEach { day ->
-                DayCell(day = day, onTapped = onDayTapped, modifier = Modifier.weight(1f))
+            week.days.forEachIndexed { index, day ->
+                val summaries = week.segments.filter { index in it.startCol..it.endCol }.map { it.label }
+                DayCell(
+                    day = day,
+                    bookingSummaries = summaries,
+                    onTapped = onDayTapped,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
         week.segments.forEach { segment ->
@@ -88,16 +101,38 @@ private fun WeekRow(
 @Composable
 private fun DayCell(
     day: CalendarMonthMapper.Day,
+    bookingSummaries: List<String>,
     onTapped: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val outline = MaterialTheme.colorScheme.primary
     val stripe = MaterialTheme.colorScheme.outline
+    // TalkBack announcement (§6): full date + today/blocked state + booking summary,
+    // so the calendar is navigable cell by cell without sight.
+    val description =
+        buildList {
+            add(formatFullDate(day.date))
+            if (day.isToday) add(stringResource(R.string.booking_calendar_a11y_today))
+            if (day.isBlocked) add(stringResource(R.string.booking_calendar_a11y_blocked_day))
+            if (bookingSummaries.isEmpty()) {
+                add(stringResource(R.string.booking_calendar_a11y_no_bookings))
+            } else {
+                add(
+                    pluralStringResource(
+                        R.plurals.booking_calendar_a11y_bookings_on_day,
+                        bookingSummaries.size,
+                        bookingSummaries.size,
+                        bookingSummaries.joinToString(),
+                    ),
+                )
+            }
+        }.joinToString()
     Box(
         modifier =
             modifier
                 .padding(2.dp)
-                .size(40.dp)
+                // ≥48dp touch target (§6); width comes from the 1/7 column weight.
+                .heightIn(min = 48.dp)
                 .clip(MaterialTheme.shapes.small)
                 .then(
                     if (day.isBlocked && day.inMonth) {
@@ -111,7 +146,8 @@ private fun DayCell(
                     } else {
                         Modifier
                     },
-                ).clickable(enabled = day.inMonth) { onTapped(day.date) },
+                ).clickable(enabled = day.inMonth) { onTapped(day.date) }
+                .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -171,7 +207,10 @@ private fun SegmentBar(
                             else -> Modifier.background(confirmedContainer)
                         },
                     ).clickable { onDayTapped(days[segment.startCol].date) }
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    // Hidden from TalkBack: the day cells already announce every booking
+                    // with a ≥48dp target; these thin bars would be duplicate tiny stops.
+                    .clearAndSetSemantics {},
         ) {
             Text(
                 text = segment.label,

@@ -10,6 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.feature.booking.reminders.EXTRA_BOOKING_ID
@@ -35,6 +36,9 @@ class MainActivity : AppCompatActivity() {
     private var pendingBookingId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // AndroidX splash (Theme.Samaroh.Splash): must be installed before
+        // super.onCreate() so the handoff to postSplashScreenTheme is seamless.
+        installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         pendingBookingId = intent?.getStringExtra(EXTRA_BOOKING_ID)

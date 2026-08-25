@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,6 +38,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
+import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 
 /** Expenses tab home (§4.2): totals card, search, party list, add-person FAB. */
@@ -78,10 +80,20 @@ fun ExpensesHomeScreen(
                     title = stringResource(R.string.expenses_home_empty_title),
                     message = stringResource(R.string.expenses_home_empty_message),
                 )
+            } else if (state.parties.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Filled.Search,
+                    title = stringResource(R.string.expenses_home_no_results_title),
+                    message = stringResource(R.string.expenses_home_no_results_message),
+                )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(state.parties, key = { it.party.id }) { item ->
-                        PartyRow(item = item, onClick = { onPartyClick(item.party.id) })
+                        PartyRow(
+                            item = item,
+                            onClick = { onPartyClick(item.party.id) },
+                            modifier = animatedListItem(),
+                        )
                         HorizontalDivider()
                     }
                 }
@@ -131,9 +143,10 @@ private fun TotalsCell(
 private fun PartyRow(
     item: PartyListItem,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     ListItem(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         leadingContent = { InitialsAvatar(initials = item.initials) },
         headlineContent = { Text(item.party.name, style = MaterialTheme.typography.bodyLarge) },
         supportingContent = {

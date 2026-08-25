@@ -28,16 +28,16 @@ class InvoiceTextBuilderTest {
     fun `hindi receipt is fully localized`() {
         val text = InvoiceTextBuilder(localizedContext("hi")).build(invoiceData())
 
-        assertThat(text).contains("चालान")
+        assertThat(text).contains("बिल")
         assertThat(text).contains("INV-2026-0001")
         assertThat(text).contains("बिल प्राप्तकर्ता: fixture-customer")
         assertThat(text).contains("कुल राशि: \u20B92,00,000")
-        assertThat(text).contains("सुरक्षा जमा: \u20B950,000")
+        assertThat(text).contains("सिक्योरिटी जमा: \u20B950,000")
         assertThat(text).contains("भुगतान इतिहास:")
         assertThat(text).contains("नकद")
         assertThat(text).contains("कुल भुगतान: \u20B950,000")
         assertThat(text).contains("बकाया राशि: \u20B91,50,000")
-        assertThat(text).contains("समारोह द्वारा निर्मित")
+        assertThat(text).contains("समारोह द्वारा तैयार किया गया")
         // No stray English labels.
         assertThat(text).doesNotContain("Balance due")
         assertThat(text).doesNotContain("Payment history")
