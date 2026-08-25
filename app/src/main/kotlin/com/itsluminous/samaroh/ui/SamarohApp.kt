@@ -50,7 +50,9 @@ import com.itsluminous.samaroh.feature.expenses.expensesGraph
 import com.itsluminous.samaroh.feature.inventory.INVENTORY_ROUTE
 import com.itsluminous.samaroh.feature.inventory.inventoryGraph
 import com.itsluminous.samaroh.feature.menu.MENU_ROUTE
+import com.itsluminous.samaroh.feature.menu.SYNC_STATUS_ROUTE
 import com.itsluminous.samaroh.feature.menu.menuGraph
+import com.itsluminous.samaroh.feature.menu.syncStatusGraph
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.onboardingGraph
 import com.itsluminous.samaroh.feature.reports.REPORTS_ROUTE
@@ -121,9 +123,17 @@ fun SamarohApp(
     Scaffold(
         topBar = {
             if (!inOnboarding) {
+                // §4.5 app bar: the active business name (fallback: app name pre-onboarding).
+                val businessName by viewModel.activeBusinessName.collectAsStateWithLifecycle()
                 TopAppBar(
-                    title = { Text(stringResource(R.string.common_app_name)) },
-                    actions = { SyncCloudIcon(indicator = syncIndicator) },
+                    title = { Text(businessName ?: stringResource(R.string.common_app_name)) },
+                    actions = {
+                        SyncCloudIcon(
+                            indicator = syncIndicator,
+                            // Badge > 0 → open the Sync-status pending list (§4.5).
+                            onOpenSyncStatus = { navController.navigate(SYNC_STATUS_ROUTE) },
+                        )
+                    },
                 )
             }
         },
@@ -199,6 +209,7 @@ fun SamarohApp(
                     onConnectGoogle = { viewModel.connectGoogle(activityContext) },
                 )
                 reportsGraph()
+                syncStatusGraph(onBack = { navController.popBackStack() })
             }
         }
     }
@@ -208,9 +219,12 @@ fun SamarohApp(
 @Composable
 private fun SyncCloudIcon(
     indicator: SyncIndicator,
+    onOpenSyncStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val badgeCount = if (indicator.errorCount > 0) indicator.errorCount else indicator.pendingCount
+    // Tapping the icon while items are pending/errored opens the Sync-status list (§4.5).
+    val onTap: (() -> Unit)? = if (badgeCount > 0) onOpenSyncStatus else null
     BadgedBox(
         badge = {
             if (badgeCount > 0) {
@@ -225,11 +239,13 @@ private fun SyncCloudIcon(
                     icon = Icons.Filled.CloudOff,
                     explanationRes = R.string.settings_sync_errors_title,
                     tint = MaterialTheme.colorScheme.error,
+                    onClick = onTap,
                 )
             indicator.pendingCount > 0 ->
                 ExplainableIcon(
                     icon = Icons.Filled.CloudSync,
                     explanationRes = R.string.common_state_pending,
+                    onClick = onTap,
                 )
             else ->
                 ExplainableIcon(

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
@@ -49,6 +50,7 @@ class MainViewModel
     constructor(
         @SettingsDataStore private val settings: DataStore<Preferences>,
         syncStatus: SyncStatus,
+        activeBusinessProvider: ActiveBusinessProvider,
         private val googleAccountLinker: GoogleAccountLinker,
     ) : ViewModel() {
         /** Null while the DataStore read is in flight — the shell waits before routing. */
@@ -56,6 +58,15 @@ class MainViewModel
             settings.data
                 .map { prefs -> prefs[KEY_ONBOARDING_COMPLETE] ?: false }
                 .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        /**
+         * Active business name for the top app bar; null before onboarding creates one
+         * (the shell falls back to the app name).
+         */
+        val activeBusinessName: StateFlow<String?> =
+            activeBusinessProvider.activeBusiness
+                .map { it?.name?.ifBlank { null } }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         val themePrefs: StateFlow<ThemePrefs> =
             settings.data
