@@ -86,3 +86,77 @@ implements (spec §4.1, §11 critical-path note — same pattern as `OutboxWrite
 - Invoice numbers `{prefix}-{YYYY}-{counter:04d}` are assigned once per booking and are
   immutable afterwards (`bookings.invoice_number`); allocation is idempotent.
 - All amounts are Long paise (ADR-002), rendered via `AmountFormatter` only.
+
+## ADR-007 — Additive `SyncStatusProvider` contract in `core:data` (2026-08-25, W1-F)
+
+**Status:** accepted.
+
+The §4.4 "Sync status" screen needs pending count / per-item errors / last-sync time, but
+Wave 0 defined no read-side sync contract. W1-F adds **additive** types to
+`core:data/sync/SyncStatus.kt` (`SyncStatus`, `SyncItemError`, `SyncStatusProvider`) next
+to the frozen `SyncScheduler`/`OutboxWriter`. Nothing existing changed.
+
+- `feature:menu` ships a FALLBACK implementation (`OutboxSyncStatusProvider`) that reads
+  the outbox directly: pending count and errors are real, `lastSyncAt` stays null.
+- **INTEGRATOR:** the real provider is a W1-E (`core:sync`) deliverable. When it lands,
+  remove the `@Binds` for `OutboxSyncStatusProvider` in `feature:menu`'s `MenuModule` —
+  it is the only wiring point.
+
+## ADR-008 — `DriveUploader` contract lives in `core:google` (2026-08-25, W1-F)
+
+**Status:** accepted.
+
+No `AttachmentUploadQueue` contract existed in `core:data` when W1-F implemented the
+Drive REST v3 uploader, so the additive `DriveUploader` interface (+ `DriveTarget`,
+`DriveFileRef`, `DriveLayout` §9.1 path mapping) is defined in `core:google` itself.
+
+- Root folder id is cached in `google_accounts.drive_root_folder_id` per §9.1.
+- **INTEGRATOR:** if W1-B lands an `AttachmentUploadQueue` contract in `core:data`, its
+  implementation should delegate to `DriveUploader` (queue semantics on top of this
+  transport) rather than duplicating the folder/upload logic.
+
+## ADR-009 — Calendar sync targets the primary calendar (2026-08-25, W1-F)
+
+**Status:** accepted.
+
+The task-mandated incremental scopes are `drive.file` + `calendar.events` (least
+privilege). `calendar.events` can create/update/delete events but **cannot create
+calendars** (that would need the full `calendar` scope). The one-way push (§4.1)
+therefore writes to the linked account's **primary** calendar; `google_accounts.
+calendar_id` stores `"primary"` (schema slot kept so a dedicated calendar can be adopted
+later without migration). Per-device change detection (bookingId → eventId +
+content fingerprint) lives in a local DataStore (`gcal_sync_state`); the synced
+`bookings.gcal_event_id` column still records event ids for other devices, written
+through `BookingRepository.saveBooking` (Room + outbox).
+
+## Wave 1-F additive-change log (2026-08-25)
+
+Non-ADR changes W1-F made outside its owned modules, all additive:
+
+- `gradle/libs.versions.toml`: added `androidx-credentials` (+ play-services-auth
+  variant) 1.3.0, `googleid` 1.1.1, `play-services-auth` 21.3.0,
+  `kotlinx-coroutines-play-services`, `androidx-hilt-work`, `androidx-work-testing`.
+  No existing versions changed.
+- `core:google/build.gradle.kts` now mirrors :app's `local.properties` →
+  `BuildConfig.GOOGLE_WEB_CLIENT_ID` pattern (a library module cannot read :app's
+  BuildConfig). Empty value = localized "not configured" degradation
+  (docs/google-setup.md).
+- `google_accounts` link writes also enqueue an outbox upsert of the non-secret columns
+  (consistent with offline-first writes; ADR-003 respected — no token column exists
+  client-side).
+- Device settings DataStore file **"settings"** is provided by `feature:menu`'s
+  `MenuModule` (`@SettingsDataStore DataStore<Preferences>`). Contract keys (consumed by
+  `feature:booking`'s reminder engine): `booking_reminder_lead_days: Set<String>`,
+  `booking_reminder_style: String (notification|fullscreen)`,
+  `booking_reminder_sound_uri: String`. **INTEGRATOR:** if W1-A also needs the store,
+  inject this binding rather than opening the file twice (DataStore forbids two
+  instances on one file).
+- Theme preferences (`theme_mode`, `dynamic_color`) are written by `feature:menu`;
+  **INTEGRATOR:** the app shell should read `SettingsPreferencesDataSource.settings` and
+  feed `SamarohTheme(darkTheme, dynamicColor)` — W1-F must not touch `:app`.
+- `feature:menu`'s Members screen embeds a clearly-marked `PermissionMatrixEditorSlot`
+  placeholder; swap for `core:auth`'s `PermissionMatrixEditor` (W1-D) at merge.
+- `menuGraph()` gained an optional `onOpenReports: () -> Unit = {}` parameter — the :app
+  call site compiles unchanged; wire it to the reports graph when W2-A lands.
+- Workers in `core:google` are plain `CoroutineWorker`s resolved via Hilt entry points,
+  so no `Configuration.Provider` change in `:app` is required.
