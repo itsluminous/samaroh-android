@@ -152,9 +152,11 @@ private fun DayCell(
     ) {
         if (day.eventIcons.isNotEmpty() && day.inMonth) {
             // Booked date: the event icon(s) REPLACE the date number (the a11y
-            // description above still carries the full date). Cap at
-            // [MAX_DAY_CELL_ICONS] icons; the rest collapse into a "+N" overflow.
-            val shown = day.eventIcons.take(MAX_DAY_CELL_ICONS)
+            // description above still carries the full date). Up to
+            // [MAX_DAY_CELL_ICONS] icons fit a cell; more collapse into ONE icon
+            // plus a "+N" overflow so the badge never clips.
+            val shown =
+                if (day.eventIcons.size > MAX_DAY_CELL_ICONS) day.eventIcons.take(1) else day.eventIcons
             val overflow = day.eventIcons.size - shown.size
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -303,15 +302,31 @@ internal fun RecordPaymentSheet(
     var amountError by rememberSaveable { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        // IME handling (§6 UX round): fields scroll under the keyboard; the action row
-        // stays pinned and visible above it.
+        // IME handling (§6 UX round): the M3 sheet window never receives IME insets on
+        // API 30+ (SOFT_INPUT_ADJUST_NOTHING; imePadding is a no-op inside it), so the
+        // action row is pinned in the HEADER where the keyboard can never cover it.
         Column(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
-                    .imePadding(),
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
         ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = stringResource(R.string.booking_card_action_record_payment),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_action_cancel)) }
+                TextButton(onClick = {
+                    val paise = parseRupeesToPaise(amountText)
+                    if (paise <= 0) {
+                        amountError = true
+                    } else {
+                        onSave(paise, date, method, notes.ifBlank { null })
+                    }
+                }) { Text(stringResource(R.string.common_action_save)) }
+            }
             Column(
                 modifier =
                     Modifier
@@ -319,7 +334,6 @@ internal fun RecordPaymentSheet(
                         .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(text = stringResource(R.string.booking_card_action_record_payment), style = MaterialTheme.typography.titleLarge)
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = {
@@ -350,18 +364,6 @@ internal fun RecordPaymentSheet(
                     label = { Text(stringResource(R.string.booking_form_notes)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
-            }
-            // Pinned action row — always visible, also above the keyboard.
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_action_cancel)) }
-                TextButton(onClick = {
-                    val paise = parseRupeesToPaise(amountText)
-                    if (paise <= 0) {
-                        amountError = true
-                    } else {
-                        onSave(paise, date, method, notes.ifBlank { null })
-                    }
-                }) { Text(stringResource(R.string.common_action_save)) }
             }
         }
     }
