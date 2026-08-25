@@ -1,0 +1,208 @@
+package com.itsluminous.samaroh.feature.inventory.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
+import com.itsluminous.samaroh.core.designsystem.component.AmountText
+import com.itsluminous.samaroh.core.designsystem.component.EmptyState
+import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
+import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import java.io.File
+
+/**
+ * Current Inventory screen (§4.3): searchable per-item stock list with image
+ * (tap-to-expand), quantity + unit, FIFO total value and last-updated date. The top-bar
+ * icon toggles to the item (master) list; the FAB opens the record-transaction dialog.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CurrentInventoryScreen(
+    onOpenMasterlist: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: CurrentInventoryViewModel = hiltViewModel(),
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    var showTransactionDialog by remember { mutableStateOf(false) }
+    var expandedImagePath by remember { mutableStateOf<String?>(null) }
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.inventory_list_title)) },
+                actions = {
+                    ExplainableIcon(
+                        icon = Icons.AutoMirrored.Filled.ListAlt,
+                        explanationRes = R.string.inventory_toggle_masterlist,
+                        onClick = onOpenMasterlist,
+                    )
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showTransactionDialog = true }) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.inventory_fab_record_transaction),
+                )
+            }
+        },
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = viewModel::onSearchQueryChange,
+                label = { Text(stringResource(R.string.inventory_list_search_placeholder)) },
+                leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            when {
+                !uiState.loading && uiState.lines.isEmpty() && uiState.noSearchResults ->
+                    EmptyState(
+                        icon = Icons.Filled.Search,
+                        title = stringResource(R.string.inventory_list_no_results),
+                        message = stringResource(R.string.inventory_list_empty_message),
+                    )
+                !uiState.loading && uiState.lines.isEmpty() ->
+                    EmptyState(
+                        icon = Icons.Filled.Inventory2,
+                        title = stringResource(R.string.inventory_list_empty_title),
+                        message = stringResource(R.string.inventory_list_empty_message),
+                    )
+                else ->
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(uiState.lines, key = { it.masterItemId }) { line ->
+                            CurrentInventoryRowCard(
+                                line = line,
+                                onImageTap = { path -> expandedImagePath = path },
+                            )
+                        }
+                    }
+            }
+        }
+    }
+
+    if (showTransactionDialog) {
+        RecordTransactionDialog(onDismiss = { showTransactionDialog = false })
+    }
+
+    expandedImagePath?.let { path ->
+        Dialog(onDismissRequest = { expandedImagePath = null }) {
+            AsyncImage(
+                model = File(path),
+                contentDescription = stringResource(R.string.inventory_image_expanded),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { expandedImagePath = null },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CurrentInventoryRowCard(
+    line: CurrentInventoryLine,
+    onImageTap: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (line.imagePath != null) {
+                AsyncImage(
+                    model = File(line.imagePath),
+                    contentDescription = line.name,
+                    modifier =
+                        Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onImageTap(line.imagePath ?: return@clickable) },
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Image,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp),
+                    tint = MaterialTheme.colorScheme.surfaceVariant,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = line.name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text =
+                        stringResource(
+                            R.string.inventory_list_quantity_with_unit,
+                            formatQuantity(line.currentQuantity),
+                            unitDisplayLabel(line.unit),
+                        ),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                line.lastTransactionAt?.let {
+                    Text(
+                        text = stringResource(R.string.inventory_list_last_updated, formatDate(it)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            AmountText(
+                amountPaise = line.totalValuePaise,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+    }
+}
