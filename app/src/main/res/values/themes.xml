@@ -6,4 +6,13 @@
         <item name="colorPrimary">@color/samaroh_primary</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>
+
+    <!-- AndroidX splash screen: brand-colored window with the three-arch launcher mark,
+         handing over to Theme.Samaroh once the activity draws. Applied to MainActivity;
+         MainActivity calls installSplashScreen() before super.onCreate(). -->
+    <style name="Theme.Samaroh.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/samaroh_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Samaroh</item>
+    </style>
 </resources>

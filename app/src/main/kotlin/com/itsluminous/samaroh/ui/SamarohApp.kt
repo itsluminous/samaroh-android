@@ -40,6 +40,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.OfflineBanner
+import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
+import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.booking.bookingGraph
@@ -149,12 +151,36 @@ fun SamarohApp(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Offline-banner slot (§4.5): persistent thin banner while disconnected.
-            AnimatedVisibility(visible = !isOnline) {
+            val bannerReducedMotion = rememberReducedMotion()
+            AnimatedVisibility(
+                visible = !isOnline,
+                enter =
+                    if (bannerReducedMotion) {
+                        androidx.compose.animation.EnterTransition.None
+                    } else {
+                        androidx.compose.animation.expandVertically(SamarohMotion.enterSpec()) +
+                            androidx.compose.animation.fadeIn(SamarohMotion.enterSpec())
+                    },
+                exit =
+                    if (bannerReducedMotion) {
+                        androidx.compose.animation.ExitTransition.None
+                    } else {
+                        androidx.compose.animation.shrinkVertically(SamarohMotion.exitSpec()) +
+                            androidx.compose.animation.fadeOut(SamarohMotion.exitSpec())
+                    },
+            ) {
                 OfflineBanner()
             }
+            // Nav-level motion (§6 polish): consistent fade-through from the shared spec,
+            // disabled entirely when the user has reduced motion on.
+            val reducedMotion = rememberReducedMotion()
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
+                enterTransition = { SamarohMotion.screenEnter(reducedMotion) },
+                exitTransition = { SamarohMotion.screenExit(reducedMotion) },
+                popEnterTransition = { SamarohMotion.screenEnter(reducedMotion) },
+                popExitTransition = { SamarohMotion.screenExit(reducedMotion) },
             ) {
                 bookingGraph(
                     bookingIdToOpen = pendingBookingId,
