@@ -195,10 +195,54 @@ interface MasterItemDao {
     )
 }
 
+/**
+ * One row of the Current Inventory screen (§4.3), aggregated per live master item:
+ * stock = Σ(add qty) − Σ(remove qty); value = Σ(remaining_quantity × unit_price) over
+ * open `add` lots (FIFO valuation — mirrors the canonical Postgres helper). Added by
+ * W1-C (docs/decisions.md ADR-007).
+ */
+data class CurrentInventoryRow(
+    val masterItemId: String,
+    val name: String,
+    val unit: String,
+    val imagePath: String?,
+    val currentQuantity: Double,
+    /** Long paise (ADR-002); per-lot products are rounded to whole paise. */
+    val totalValuePaise: Long,
+    val lastTransactionAt: Instant?,
+)
+
 @Dao
 interface InventoryTransactionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(txn: InventoryTransactionEntity)
+
+    /** Live master items with computed stock, FIFO value and last movement (ADR-007). */
+    @Query(
+        """
+        SELECT mi.id AS masterItemId, mi.name AS name, mi.unit AS unit, mi.image_path AS imagePath,
+            COALESCE(SUM(CASE t.transaction_type WHEN 'add' THEN t.quantity WHEN 'remove' THEN -t.quantity END), 0)
+                AS currentQuantity,
+            CAST(ROUND(COALESCE(SUM(
+                CASE WHEN t.transaction_type = 'add' THEN t.remaining_quantity * t.unit_price ELSE 0 END), 0)) AS INTEGER)
+                AS totalValuePaise,
+            MAX(t.transaction_date) AS lastTransactionAt
+        FROM master_items mi
+        LEFT JOIN inventory_transactions t ON t.master_item_id = mi.id AND t.deleted_at IS NULL
+        WHERE mi.business_id = :businessId AND mi.deleted_at IS NULL
+        GROUP BY mi.id
+        ORDER BY mi.name COLLATE NOCASE ASC
+        """,
+    )
+    fun currentInventory(businessId: String): Flow<List<CurrentInventoryRow>>
+
+    /**
+     * Total transaction rows ever recorded for an item, INCLUDING tombstoned ones — the
+     * can-delete rule input: a master item is deletable only while this is 0 (tombstoned
+     * transactions still exist server-side, so they keep blocking deletion). ADR-007.
+     */
+    @Query("SELECT COUNT(*) FROM inventory_transactions WHERE master_item_id = :masterItemId")
+    suspend fun transactionCountForItem(masterItemId: String): Int
 
     @Query(
         """
