@@ -2,7 +2,6 @@ package com.itsluminous.samaroh.core.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -91,18 +90,6 @@ data class Booking(
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
 )
 
-/**
- * The icon a booking renders with EVERYWHERE (calendar cells/pills, agenda, card title,
- * calendar-sync event title): tentative bookings show 👤 regardless of event type, so
- * unconfirmed slots are recognizable at a glance; confirming reverts to the event icon.
- * Additive presentation helper (ADR-020) — the stored `event_icon` column is untouched.
- */
-val Booking.displayIcon: String
-    get() = if (status == BookingStatus.TENTATIVE) TENTATIVE_ICON else eventIcon
-
-/** The tentative-booking glyph used by [Booking.displayIcon]. */
-const val TENTATIVE_ICON: String = "👤"
-
 @Serializable
 data class DateBlock(
     val id: String,
@@ -139,12 +126,6 @@ data class PaymentReminder(
     @SerialName("remind_on") @Serializable(LocalDateSerializer::class) val remindOn: LocalDate,
     val status: ReminderStatus = ReminderStatus.PENDING,
     @SerialName("amount_due_snapshot") val amountDueSnapshotPaise: Long,
-    /**
-     * LOCAL-ONLY reminder kind (ADR-020): payment confirmation vs tentative-booking
-     * follow-up. `@Transient` keeps it out of outbox/sync payloads — the canonical
-     * Postgres table has no such column.
-     */
-    @Transient val kind: ReminderKind = ReminderKind.PAYMENT,
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,

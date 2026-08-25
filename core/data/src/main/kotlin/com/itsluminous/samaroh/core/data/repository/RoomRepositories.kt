@@ -161,6 +161,12 @@ class RoomBookingRepository
             businessId: String,
             date: LocalDate,
         ): List<Booking> = bookingDao.bookingsStartingOn(businessId, date).map { it.toModel() }
+
+        override suspend fun invoiceNumberExists(
+            businessId: String,
+            invoiceNumber: String,
+            excludingBookingId: String?,
+        ): Boolean = bookingDao.countInvoiceNumberUses(businessId, invoiceNumber, excludingBookingId.orEmpty()) > 0
     }
 
 @Singleton

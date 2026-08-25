@@ -88,10 +88,10 @@ internal fun BookingPayment.toEntity() =
     BookingPaymentEntity(id, bookingId, businessId, amountPaise, paidOn, method, notes, createdBy, createdAt, updatedAt, deletedAt)
 
 internal fun PaymentReminderEntity.toModel() =
-    PaymentReminder(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, createdAt, updatedAt, deletedAt)
+    PaymentReminder(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, kind, createdAt, updatedAt, deletedAt)
 
 internal fun PaymentReminder.toEntity() =
-    PaymentReminderEntity(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, createdAt, updatedAt, deletedAt)
+    PaymentReminderEntity(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, kind, createdAt, updatedAt, deletedAt)
 
 internal fun PartyEntity.toModel() = Party(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt)
 

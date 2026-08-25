@@ -396,3 +396,39 @@ Everything else `feature:reports` consumes comes from existing contracts:
 `BookingRepository.bookingsBetween`/`paymentsForBookings` (revenue, dues aging,
 occupancy, breakdowns, collection efficiency), `ExpensesRepository.partiesWithBalance`
 (party names), and `InventoryOverviewRepository.currentInventory` (FIFO valuation).
+
+## ADR-020 — UX-feedback wave: reminder kinds, display icon, manual invoice numbers, form-field prefs (2026-08-25)
+
+**Status:** accepted.
+
+Additive contract changes for the owner's UX-feedback round:
+
+1. **`core:model` `ReminderKind`** (`payment` | `follow_up`) and
+   `PaymentReminder.kind: ReminderKind = PAYMENT` marked `@Transient`: tentative-booking
+   follow-up reminders reuse the `payment_reminders` row shape, discriminated by a
+   LOCAL-ONLY kind. The canonical Postgres table has no such column, so the kind never
+   enters outbox/sync payloads; sync pulls preserve the local value via
+   `PaymentReminderDao.byId` in `LocalApplier` (exact `local_cache_path` precedent from
+   ADR-007/ADR-008). Trade-off: on another device the same reminder row appears as a
+   plain payment reminder — acceptable for v1 (follow-ups are dismissed engine-side when
+   the booking is no longer tentative).
+2. **`core:database` v2** (first real migration — pre-release installs exist now):
+   `ALTER TABLE payment_reminders ADD COLUMN kind TEXT NOT NULL DEFAULT 'payment'`
+   (`SamarohDatabase.MIGRATION_1_2`, wired in `DatabaseModule`; exported schema 2.json).
+3. **`core:model` `Booking.displayIcon`** (+ `TENTATIVE_ICON` 👤): presentation helper —
+   tentative bookings render 👤 everywhere (calendar cells/pills, agenda, card title,
+   calendar-sync event title) regardless of event type; confirming reverts to the stored
+   `event_icon`, which is untouched.
+4. **Manual invoice numbers**: `BookingDao.countInvoiceNumberUses` +
+   `BookingRepository.invoiceNumberExists(businessId, invoiceNumber, excludingBookingId)`
+   — the booking form's optional manual invoice-number field validates per-business
+   uniqueness before persisting. The number stays editable ONLY while
+   `bookings.invoice_number` is null; once set (manually or by the allocator) it is
+   frozen, and `RoomInvoiceNumberAllocator` keeps returning it without consuming a
+   counter value (existing idempotence covers manual numbers).
+5. **Settings DataStore keys** (device-local, shared `"settings"` file — contract like
+   the `booking_reminder_*` keys): booking-form field visibility booleans
+   `booking_form_show_security_deposit` (default **false**),
+   `booking_form_show_source` (default true), `booking_form_show_times` (default true).
+   Written by `feature:menu` (Settings → Booking form fields), read by
+   `feature:booking`'s form.

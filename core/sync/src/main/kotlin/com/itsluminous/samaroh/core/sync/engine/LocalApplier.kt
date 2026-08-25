@@ -26,6 +26,7 @@ import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.core.model.PaymentReminder
+import com.itsluminous.samaroh.core.model.ReminderKind
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -74,8 +75,12 @@ class LocalApplier
                 "date_blocks" -> dateBlockDao.upsert(json.decodeFromJsonElement(DateBlock.serializer(), row).toEntity())
                 "booking_payments" ->
                     bookingPaymentDao.upsert(json.decodeFromJsonElement(BookingPayment.serializer(), row).toEntity())
-                "payment_reminders" ->
-                    paymentReminderDao.upsert(json.decodeFromJsonElement(PaymentReminder.serializer(), row).toEntity())
+                "payment_reminders" -> {
+                    val model = json.decodeFromJsonElement(PaymentReminder.serializer(), row)
+                    // kind is Room-only state (ADR-020); preserve it across pulled updates.
+                    val kind = paymentReminderDao.byId(model.id)?.kind ?: ReminderKind.PAYMENT
+                    paymentReminderDao.upsert(model.toEntity(kind))
+                }
                 "parties" -> partyDao.upsert(json.decodeFromJsonElement(Party.serializer(), row).toEntity())
                 "expenses" -> expenseDao.upsert(json.decodeFromJsonElement(Expense.serializer(), row).toEntity())
                 "expense_attachments" -> {

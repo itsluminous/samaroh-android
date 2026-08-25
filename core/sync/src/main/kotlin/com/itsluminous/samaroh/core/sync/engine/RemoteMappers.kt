@@ -26,6 +26,7 @@ import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.core.model.PaymentReminder
+import com.itsluminous.samaroh.core.model.ReminderKind
 
 /*
  * Mechanical model → Room-entity mapping for pulled rows. The core:data mappers are
@@ -112,7 +113,7 @@ internal fun BookingPayment.toEntity() =
         deletedAt,
     )
 
-internal fun PaymentReminder.toEntity() =
+internal fun PaymentReminder.toEntity(localKind: ReminderKind) =
     PaymentReminderEntity(
         id,
         bookingId,
@@ -120,6 +121,7 @@ internal fun PaymentReminder.toEntity() =
         remindOn,
         status,
         amountDueSnapshotPaise,
+        localKind,
         createdAt,
         updatedAt,
         deletedAt,

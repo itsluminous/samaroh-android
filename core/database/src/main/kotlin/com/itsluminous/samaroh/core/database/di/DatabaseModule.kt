@@ -36,6 +36,7 @@ object DatabaseModule {
     ): SamarohDatabase =
         Room
             .databaseBuilder(context, SamarohDatabase::class.java, SamarohDatabase.DATABASE_NAME)
+            .addMigrations(SamarohDatabase.MIGRATION_1_2)
             .build()
 
     @Provides fun provideBusinessDao(db: SamarohDatabase): BusinessDao = db.businessDao()

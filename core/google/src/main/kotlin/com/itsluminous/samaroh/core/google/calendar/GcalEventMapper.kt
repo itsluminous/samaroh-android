@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.google.calendar
 
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.displayIcon
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -37,7 +38,7 @@ object GcalEventMapper {
         zoneId: ZoneId,
     ): GcalEvent {
         // §4.1: event title = the booking's formatted title "{icon} {EventType} - {Customer}".
-        val baseTitle = "${booking.eventIcon} ${booking.eventType} - ${booking.customerName}"
+        val baseTitle = "${booking.displayIcon} ${booking.eventType} - ${booking.customerName}"
         val summary = if (booking.status == BookingStatus.TENTATIVE) baseTitle + tentativeSuffix else baseTitle
         val startTime = booking.startTime
         val endTime = booking.endTime

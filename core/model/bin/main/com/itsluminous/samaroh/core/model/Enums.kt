@@ -103,24 +103,3 @@ enum class BookingSource(
         fun fromWire(value: String): BookingSource = entries.first { it.wire == value }
     }
 }
-
-/**
- * What a reminder row is about (ADR-020). LOCAL-ONLY discriminator: the canonical
- * `payment_reminders` Postgres table has no such column, so the kind never enters sync
- * payloads (`@Transient` on [PaymentReminder.kind]) and pulls preserve the local value
- * (same pattern as `expense_attachments.local_cache_path`).
- */
-enum class ReminderKind(
-    val wire: String,
-) {
-    /** "Did {customer} pay ₹{due}?" payment confirmation (§4.1). */
-    PAYMENT("payment"),
-
-    /** "Follow up with {customer}" nudge for a tentative booking. */
-    FOLLOW_UP("follow_up"),
-    ;
-
-    companion object {
-        fun fromWire(value: String): ReminderKind = entries.first { it.wire == value }
-    }
-}

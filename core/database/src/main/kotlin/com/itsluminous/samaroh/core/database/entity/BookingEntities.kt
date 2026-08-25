@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
+import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import java.time.Instant
 import java.time.LocalDate
@@ -88,6 +89,12 @@ data class PaymentReminderEntity(
     @ColumnInfo(name = "remind_on") val remindOn: LocalDate,
     val status: ReminderStatus = ReminderStatus.PENDING,
     @ColumnInfo(name = "amount_due_snapshot") val amountDueSnapshotPaise: Long,
+    /**
+     * LOCAL-ONLY reminder kind (ADR-020): `payment` confirmation vs tentative-booking
+     * `follow_up`. Never synced — pulls preserve the local value (same pattern as
+     * `expense_attachments.local_cache_path`). Added in schema v2.
+     */
+    @ColumnInfo(name = "kind", defaultValue = "payment") val kind: ReminderKind = ReminderKind.PAYMENT,
     @ColumnInfo(name = "created_at") val createdAt: Instant,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,

@@ -101,6 +101,25 @@ interface BookingDao {
         businessId: String,
         date: LocalDate,
     ): List<BookingEntity>
+
+    /**
+     * Live bookings of the business (other than [excludeBookingId]) already carrying
+     * [invoiceNumber] — the manual invoice-number uniqueness check (ADR-020).
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM bookings
+        WHERE business_id = :businessId
+          AND invoice_number = :invoiceNumber
+          AND id != :excludeBookingId
+          AND deleted_at IS NULL
+        """,
+    )
+    suspend fun countInvoiceNumberUses(
+        businessId: String,
+        invoiceNumber: String,
+        excludeBookingId: String,
+    ): Int
 }
 
 @Dao

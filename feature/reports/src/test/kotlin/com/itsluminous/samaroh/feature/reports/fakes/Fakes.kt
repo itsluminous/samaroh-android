@@ -119,6 +119,12 @@ class FakeBookingRepository : BookingRepository {
         businessId: String,
         date: LocalDate,
     ): List<Booking> = emptyList()
+
+    override suspend fun invoiceNumberExists(
+        businessId: String,
+        invoiceNumber: String,
+        excludingBookingId: String?,
+    ): Boolean = false
 }
 
 class FakeExpensesRepository : ExpensesRepository {

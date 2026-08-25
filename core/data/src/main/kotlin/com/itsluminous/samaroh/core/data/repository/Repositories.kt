@@ -98,6 +98,17 @@ interface BookingRepository {
         businessId: String,
         date: LocalDate,
     ): List<Booking>
+
+    /**
+     * Whether another live booking of the business already carries [invoiceNumber] —
+     * validates the manual invoice-number field before a save (additive; ADR-020).
+     * [excludingBookingId] is the booking being edited (never counts as its own duplicate).
+     */
+    suspend fun invoiceNumberExists(
+        businessId: String,
+        invoiceNumber: String,
+        excludingBookingId: String? = null,
+    ): Boolean
 }
 
 /** A party with its computed running balance for the Expenses home list. */

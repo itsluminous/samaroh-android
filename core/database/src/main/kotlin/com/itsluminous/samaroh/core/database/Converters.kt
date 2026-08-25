@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
+import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.model.TxnType
 import kotlinx.serialization.builtins.ListSerializer
@@ -53,6 +54,10 @@ class Converters {
     @TypeConverter fun reminderStatusToString(value: ReminderStatus?): String? = value?.wire
 
     @TypeConverter fun stringToReminderStatus(value: String?): ReminderStatus? = value?.let(ReminderStatus::fromWire)
+
+    @TypeConverter fun reminderKindToString(value: ReminderKind?): String? = value?.wire
+
+    @TypeConverter fun stringToReminderKind(value: String?): ReminderKind? = value?.let(ReminderKind::fromWire)
 
     @TypeConverter fun txnTypeToString(value: TxnType?): String? = value?.wire
 

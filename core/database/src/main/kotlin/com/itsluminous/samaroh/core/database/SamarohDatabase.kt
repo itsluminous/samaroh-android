@@ -3,6 +3,8 @@ package com.itsluminous.samaroh.core.database
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.itsluminous.samaroh.core.database.dao.BookingDao
 import com.itsluminous.samaroh.core.database.dao.BookingPaymentDao
 import com.itsluminous.samaroh.core.database.dao.BusinessDao
@@ -60,7 +62,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -99,5 +101,18 @@ abstract class SamarohDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "samaroh.db"
+
+        /**
+         * v1 → v2 (ADR-020): local-only `payment_reminders.kind` discriminator
+         * (`payment` | `follow_up`) for tentative-booking follow-up reminders.
+         */
+        val MIGRATION_1_2: Migration =
+            object : Migration(1, 2) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE payment_reminders ADD COLUMN kind TEXT NOT NULL DEFAULT 'payment'",
+                    )
+                }
+            }
     }
 }

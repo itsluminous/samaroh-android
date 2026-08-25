@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.google.calendar
 
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.TENTATIVE_ICON
 import com.itsluminous.samaroh.core.testing.Fixtures
 import org.junit.Test
 import java.time.LocalDate
@@ -24,9 +25,15 @@ class GcalEventMapperTest {
     }
 
     @Test
-    fun `tentative bookings get the tentative suffix`() {
+    fun `tentative bookings get the tentative suffix and the tentative icon`() {
         val event = map(Fixtures.booking(status = BookingStatus.TENTATIVE))
-        assertThat(event.summary).isEqualTo("💒 wedding - fixture-customer (Tentative)")
+        // Tentative bookings render 👤 instead of the event icon (ADR-020).
+        assertThat(event.summary).isEqualTo("$TENTATIVE_ICON wedding - fixture-customer (Tentative)")
+    }
+
+    @Test
+    fun `confirming reverts the title to the event icon`() {
+        assertThat(map(Fixtures.booking(status = BookingStatus.CONFIRMED)).summary).startsWith("💒")
     }
 
     @Test

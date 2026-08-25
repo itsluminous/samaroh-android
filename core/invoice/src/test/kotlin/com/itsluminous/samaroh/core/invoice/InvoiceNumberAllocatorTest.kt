@@ -62,6 +62,25 @@ class InvoiceNumberAllocatorTest {
         }
 
     @Test
+    fun `manually-set invoice number is respected - no reallocation, no counter consumed`() =
+        runTest {
+            // ADR-020: the booking form may set bookings.invoice_number manually before
+            // any invoice is generated; the allocator must return it verbatim.
+            harness.seedBusinessAndBooking(bookingId = "booking-1")
+            harness.bookingRepository.saveBooking(
+                Fixtures.booking(id = "booking-manual").copy(invoiceNumber = "CUSTOM-77"),
+            )
+
+            val number = harness.allocator.allocate("booking-manual")
+
+            assertThat(number).isEqualTo("CUSTOM-77")
+            assertThat(harness.businessRepository.business(Fixtures.BUSINESS_ID)!!.invoiceCounter).isEqualTo(0)
+            assertThat(harness.bookingRepository.booking("booking-manual")!!.invoiceNumber).isEqualTo("CUSTOM-77")
+            // The next automatic allocation still starts at the untouched counter.
+            assertThat(harness.allocator.allocate("booking-1")).isEqualTo("INV-2026-0001")
+        }
+
+    @Test
     fun `allocation queues both rows on the outbox in the same logical step`() =
         runTest {
             harness.seedBusinessAndBooking(bookingId = "booking-1")
