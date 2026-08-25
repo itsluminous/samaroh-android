@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.booking.domain
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.TENTATIVE_ICON
 import com.itsluminous.samaroh.core.testing.Fixtures
 import org.junit.Test
 import java.time.LocalDate
@@ -112,6 +113,59 @@ class CalendarMonthMapperTest {
                 .single()
                 .status,
         ).isEqualTo(BookingStatus.TENTATIVE)
+    }
+
+    @Test
+    fun `booked dates carry event icons instead of only the date number`() {
+        val single = Fixtures.booking(id = "b1", startDate = LocalDate.of(2026, 9, 10))
+        val spanning =
+            Fixtures.booking(
+                id = "b2",
+                startDate = LocalDate.of(2026, 9, 9),
+                endDate = LocalDate.of(2026, 9, 11),
+            )
+        val grid = CalendarMonthMapper.map(month, today, listOf(single, spanning), emptyList())
+        val days = grid.weeks.flatMap { it.days }.associateBy { it.date }
+        // The 10th is covered by BOTH bookings → two icons (spanning starts earlier, so first).
+        assertThat(days.getValue(LocalDate.of(2026, 9, 10)).eventIcons)
+            .containsExactly(spanning.eventIcon, single.eventIcon)
+            .inOrder()
+        // The 9th and 11th are covered by the spanning booking only.
+        assertThat(days.getValue(LocalDate.of(2026, 9, 9)).eventIcons).containsExactly(spanning.eventIcon)
+        // Empty dates keep no icons (the cell renders the date number).
+        assertThat(days.getValue(LocalDate.of(2026, 9, 20)).eventIcons).isEmpty()
+    }
+
+    @Test
+    fun `cancelled bookings contribute no day icons`() {
+        val cancelled = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.CANCELLED)
+        val grid = CalendarMonthMapper.map(month, today, listOf(cancelled), emptyList())
+        assertThat(grid.weeks.flatMap { it.days }.flatMap { it.eventIcons }).isEmpty()
+    }
+
+    @Test
+    fun `tentative bookings render the tentative icon in day cells and segment labels`() {
+        val tentative =
+            Fixtures
+                .booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.TENTATIVE)
+                .copy(customerName = "Asha Devi")
+        val grid = CalendarMonthMapper.map(month, today, listOf(tentative), emptyList())
+        val day = grid.weeks.flatMap { it.days }.first { it.date == LocalDate.of(2026, 9, 10) }
+        assertThat(day.eventIcons).containsExactly(TENTATIVE_ICON)
+        assertThat(
+            grid.weeks
+                .flatMap { it.segments }
+                .single()
+                .label,
+        ).isEqualTo("$TENTATIVE_ICON Asha")
+    }
+
+    @Test
+    fun `confirming reverts the icon to the event icon`() {
+        val confirmed = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.CONFIRMED)
+        val grid = CalendarMonthMapper.map(month, today, listOf(confirmed), emptyList())
+        val day = grid.weeks.flatMap { it.days }.first { it.date == LocalDate.of(2026, 9, 10) }
+        assertThat(day.eventIcons).containsExactly(confirmed.eventIcon)
     }
 
     @Test

@@ -6,12 +6,15 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.ReminderKind
+import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.booking.FakeActorProvider
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.FakeFormFieldPrefs
 import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import kotlinx.coroutines.test.runTest
@@ -36,6 +39,7 @@ class BookingFormViewModelTest {
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
     private val syncScheduler = RecordingSyncScheduler()
     private val actorProvider = FakeActorProvider()
+    private val fieldPrefs = FakeFormFieldPrefs()
 
     private fun viewModel(
         bookingId: String? = null,
@@ -47,6 +51,7 @@ class BookingFormViewModelTest {
         actorProvider = actorProvider,
         eventTypesProvider = FakeEventTypeCatalog(),
         syncScheduler = syncScheduler,
+        fieldPrefs = fieldPrefs,
         clock = clock,
     )
 
@@ -250,6 +255,227 @@ class BookingFormViewModelTest {
         assertThat(parseRupeesToPaise("")).isEqualTo(0L)
         assertThat(parseRupeesToPaise("abc")).isEqualTo(0L)
     }
+
+    // ---- manual invoice number (ADR-020) ----
+
+    @Test
+    fun `manual invoice number persists on save`() =
+        runTest {
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.setInvoiceNumber(" INV-CUSTOM-7 ")
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .invoiceNumber,
+                ).isEqualTo("INV-CUSTOM-7")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `duplicate manual invoice number blocks the save`() =
+        runTest {
+            repository.bookings.value =
+                listOf(Fixtures.booking(startDate = today.plusDays(30)).copy(invoiceNumber = "INV-CUSTOM-7"))
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.setInvoiceNumber("INV-CUSTOM-7")
+                vm.save()
+                assertThat(awaitItemMatching { it.blocker != null }.blocker)
+                    .isEqualTo(FormBlocker.DuplicateInvoiceNumber)
+                assertThat(repository.bookings.value).hasSize(1)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `blank manual invoice number leaves the booking unnumbered`() =
+        runTest {
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .invoiceNumber,
+                ).isNull()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `frozen invoice number is exposed and never overwritten`() =
+        runTest {
+            val existing = Fixtures.booking(startDate = today).copy(invoiceNumber = "INV-2026-0001")
+            repository.bookings.value = listOf(existing)
+            val vm = viewModel(bookingId = existing.id)
+            vm.state.test {
+                val loaded = awaitItemMatching { it.loaded && it.editingId == existing.id }
+                assertThat(loaded.frozenInvoiceNumber).isEqualTo("INV-2026-0001")
+                // A stray edit of the text field must not touch the frozen number.
+                vm.setInvoiceNumber("INV-HACK")
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .invoiceNumber,
+                ).isEqualTo("INV-2026-0001")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- tentative follow-up (ADR-020) ----
+
+    @Test
+    fun `saving a tentative booking creates a follow-up reminder at today plus N`() =
+        runTest {
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.setStatus(BookingStatus.TENTATIVE)
+                vm.selectFollowUpPreset(7)
+                vm.save()
+                awaitItemMatching { it.saved }
+                val reminder = repository.reminders.value.single()
+                assertThat(reminder.kind).isEqualTo(ReminderKind.FOLLOW_UP)
+                assertThat(reminder.status).isEqualTo(ReminderStatus.PENDING)
+                assertThat(reminder.remindOn).isEqualTo(today.plusDays(7))
+                assertThat(reminder.bookingId).isEqualTo(
+                    repository.bookings.value
+                        .single()
+                        .id,
+                )
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `custom follow-up day count is honoured`() =
+        runTest {
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.setStatus(BookingStatus.TENTATIVE)
+                vm.selectFollowUpCustom()
+                vm.setFollowUpCustomText("12")
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(
+                    repository.reminders.value
+                        .single()
+                        .remindOn,
+                ).isEqualTo(today.plusDays(12))
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `re-saving as confirmed dismisses the pending follow-up`() =
+        runTest {
+            val existing = Fixtures.booking(startDate = today, status = BookingStatus.TENTATIVE)
+            repository.bookings.value = listOf(existing)
+            repository.reminders.value =
+                listOf(
+                    com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
+                        .create(existing, 3, today, { "follow-up-1" }, Fixtures.NOW),
+                )
+            val vm = viewModel(bookingId = existing.id)
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.editingId == existing.id }
+                vm.setStatus(BookingStatus.CONFIRMED)
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .status,
+                ).isEqualTo(BookingStatus.CONFIRMED)
+                assertThat(
+                    repository.reminders.value
+                        .single()
+                        .status,
+                ).isEqualTo(ReminderStatus.DISMISSED)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `confirmed bookings create no follow-up`() =
+        runTest {
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(repository.reminders.value).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- field visibility prefs (ADR-020) ----
+
+    @Test
+    fun `field visibility defaults hide only the security deposit`() =
+        runTest {
+            val vm = viewModel()
+            vm.state.test {
+                val state = awaitItemMatching { it.loaded }
+                assertThat(state.fieldVisibility.showSecurityDeposit).isFalse()
+                assertThat(state.fieldVisibility.showSource).isTrue()
+                assertThat(state.fieldVisibility.showTimes).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `field visibility changes flow into the form state`() =
+        runTest {
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                fieldPrefs.state.value =
+                    com.itsluminous.samaroh.feature.booking.ui.form
+                        .BookingFormFieldVisibility(showSecurityDeposit = true, showSource = false, showTimes = false)
+                val state = awaitItemMatching { it.fieldVisibility.showSecurityDeposit }
+                assertThat(state.fieldVisibility.showSource).isFalse()
+                assertThat(state.fieldVisibility.showTimes).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `hidden deposit field still preserves the stored value on edit`() =
+        runTest {
+            val existing = Fixtures.booking(startDate = today, securityDepositPaise = 25_000_00L)
+            repository.bookings.value = listOf(existing)
+            val vm = viewModel(bookingId = existing.id)
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.editingId == existing.id }
+                vm.setCustomerName("New Name")
+                vm.save()
+                awaitItemMatching { it.saved }
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .securityDepositPaise,
+                ).isEqualTo(25_000_00L)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
 }
 
 /** Awaits until the state stream emits an item satisfying [predicate]. */

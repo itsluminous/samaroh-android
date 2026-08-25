@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.booking.domain
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.displayIcon
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -19,6 +20,12 @@ object CalendarMonthMapper {
         val inMonth: Boolean,
         val isToday: Boolean,
         val isBlocked: Boolean,
+        /**
+         * Display icons of the live bookings covering this date (booking order:
+         * start date, then creation). Non-empty ⇒ the cell renders these icons INSTEAD
+         * of the date number; tentative bookings contribute 👤 ([Booking.displayIcon]).
+         */
+        val eventIcons: List<String> = emptyList(),
     )
 
     /**
@@ -79,6 +86,11 @@ object CalendarMonthMapper {
                         inMonth = YearMonth.from(date) == month,
                         isToday = date == today,
                         isBlocked = liveBlocks.any { date in it.startDate..it.endDate },
+                        eventIcons =
+                            visible
+                                .filter { date in it.startDate..it.endDate }
+                                .sortedWith(compareBy({ it.startDate }, { it.createdAt }))
+                                .map { it.displayIcon },
                     )
                 }
             val segments =
@@ -90,7 +102,7 @@ object CalendarMonthMapper {
                         val segEnd = minOf(booking.endDate, weekEnd)
                         Segment(
                             bookingId = booking.id,
-                            label = "${booking.eventIcon} ${BookingTitleFormatter.firstName(booking.customerName)}",
+                            label = "${booking.displayIcon} ${BookingTitleFormatter.firstName(booking.customerName)}",
                             status = booking.status,
                             startCol = weekStart.until(segStart).days,
                             endCol = weekStart.until(segEnd).days,

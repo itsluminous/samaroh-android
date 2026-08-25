@@ -51,11 +51,13 @@ import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
+import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
@@ -189,22 +191,34 @@ fun BookingCalendarScreen(
                 }
             }
 
-            // ★ Month summary card: "Received ₹X · Pending ₹Y" (§4.1).
+            // ★ Month summary card: "Received ₹X · Pending ₹Y" (§4.1) — received is
+            // green (moneyIn), pending is red (moneyOut), per shared/brand/palette.md.
             SamarohCard {
                 Text(
                     text = stringResource(R.string.booking_summary_this_month),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.semantics { heading() },
                 )
-                Text(
-                    text =
-                        stringResource(
-                            R.string.booking_summary_received_pending,
-                            AmountFormatter.format(state.receivedPaise),
-                            AmountFormatter.format(state.pendingPaise),
-                        ),
-                    style = MaterialTheme.typography.titleMedium,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.booking_summary_received,
+                                AmountFormatter.format(state.receivedPaise),
+                            ),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = SamarohTheme.semanticColors.moneyIn,
+                    )
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.booking_summary_pending,
+                                AmountFormatter.format(state.pendingPaise),
+                            ),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = SamarohTheme.semanticColors.moneyOut,
+                    )
+                }
             }
 
             // ★ In-app pending-confirmations card — the reliable reminder path (§4.1).
@@ -239,6 +253,40 @@ fun BookingCalendarScreen(
                             }
                             TextButton(onClick = { viewModel.snoozeReminder(confirmation) }) {
                                 Text(stringResource(R.string.booking_reminder_action_not_yet))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ★ Tentative follow-ups due today (ADR-020): Confirm / Cancel / Snooze.
+            if (state.pendingFollowUps.isNotEmpty()) {
+                SamarohCard {
+                    Text(
+                        text = stringResource(R.string.booking_reminder_follow_up_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    state.pendingFollowUps.forEach { followUp ->
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.booking_reminder_follow_up_question,
+                                    followUp.booking.customerName,
+                                    eventTypeLabel(eventTypes, followUp.booking.eventType),
+                                ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Row {
+                            TextButton(onClick = { viewModel.confirmTentativeBooking(followUp) }) {
+                                Text(stringResource(R.string.booking_reminder_action_confirm_booking))
+                            }
+                            TextButton(onClick = { viewModel.cancelTentativeBooking(followUp) }) {
+                                Text(stringResource(R.string.booking_card_action_cancel_booking))
+                            }
+                            TextButton(onClick = { viewModel.snoozeFollowUp(followUp) }) {
+                                Text(stringResource(R.string.booking_reminder_action_snooze))
                             }
                         }
                     }
@@ -319,7 +367,7 @@ fun BookingCalendarScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "${booking.eventIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
+                                text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textDecoration = if (cancelled) TextDecoration.LineThrough else null,
                             )

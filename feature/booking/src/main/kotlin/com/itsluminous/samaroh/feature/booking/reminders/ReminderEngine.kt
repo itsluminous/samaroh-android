@@ -5,10 +5,13 @@ import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.PaymentReminder
+import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
+import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.PaymentReminderPlanner
+import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import com.itsluminous.samaroh.feature.booking.domain.UpcomingReminderPlanner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
@@ -41,6 +44,7 @@ class ReminderEngine
             val businesses = businessRepository.businesses().first().filter { it.deletedAt == null }
             for (business in businesses) {
                 runPaymentReminders(business.id, today)
+                runFollowUpReminders(business.id, today)
                 runUpcomingReminders(business.id, today)
             }
         }
@@ -51,7 +55,12 @@ class ReminderEngine
         ) {
             val ended = bookingRepository.bookingsEndedBefore(businessId, today)
             val dueByBooking = ended.associate { it.id to DueCalculator.duePaise(it, bookingRepository.totalPaidPaise(it.id)) }
-            val remindersByBooking = ended.associate { it.id to bookingRepository.remindersForBooking(it.id) }
+            // Follow-up rows (ADR-020) never participate in payment planning.
+            val remindersByBooking =
+                ended.associate { booking ->
+                    booking.id to
+                        bookingRepository.remindersForBooking(booking.id).filter { it.kind == ReminderKind.PAYMENT }
+                }
 
             val plan =
                 PaymentReminderPlanner.plan(
@@ -78,16 +87,46 @@ class ReminderEngine
             }
         }
 
-        /** Pending reminders whose booking was cancelled/deleted since creation. */
+        /** Pending PAYMENT reminders whose booking was cancelled/deleted since creation. */
         private suspend fun orphans(
             businessId: String,
             candidates: List<Booking>,
             today: LocalDate,
         ): List<PaymentReminder> =
             PaymentReminderPlanner.orphanDismissals(
-                pendingReminders = bookingRepository.duePendingRemindersOnce(businessId, today),
+                pendingReminders =
+                    bookingRepository
+                        .duePendingRemindersOnce(businessId, today)
+                        .filter { it.kind == ReminderKind.PAYMENT },
                 liveCandidateBookingIds = candidates.map { it.id }.toSet(),
             )
+
+        /**
+         * Tentative-booking follow-ups (ADR-020): notify the due ones while the booking
+         * is still tentative; dismiss those whose booking was confirmed/cancelled/deleted
+         * in the meantime (possibly on another device).
+         */
+        private suspend fun runFollowUpReminders(
+            businessId: String,
+            today: LocalDate,
+        ) {
+            val dueFollowUps =
+                bookingRepository
+                    .duePendingRemindersOnce(businessId, today)
+                    .filter { it.kind == ReminderKind.FOLLOW_UP }
+            for (reminder in dueFollowUps) {
+                val booking = bookingRepository.booking(reminder.bookingId)
+                if (TentativeFollowUpPlanner.isObsolete(booking)) {
+                    dismiss(reminder)
+                    continue
+                }
+                notifier.postFollowUpReminder(
+                    reminder = reminder,
+                    booking = checkNotNull(booking),
+                    eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
+                )
+            }
+        }
 
         private suspend fun dismiss(reminder: PaymentReminder) {
             bookingRepository.saveReminder(
@@ -109,7 +148,7 @@ class ReminderEngine
             for (upcoming in reminders) {
                 val booking = upcoming.booking
                 val label = eventTypes.labelFor(booking.eventType, context::getString)
-                val title = "${booking.eventIcon} $label - ${booking.customerName}"
+                val title = "${booking.displayIcon} $label - ${booking.customerName}"
                 when (settings.style) {
                     ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking, title, upcoming.daysAway)
                     ReminderStyle.FULLSCREEN ->

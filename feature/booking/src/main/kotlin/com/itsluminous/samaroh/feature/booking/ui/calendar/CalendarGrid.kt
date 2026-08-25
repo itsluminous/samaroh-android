@@ -150,18 +150,45 @@ private fun DayCell(
                 .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = day.date.dayOfMonth.toString(),
-            style = MaterialTheme.typography.bodyMedium,
-            color =
-                if (day.inMonth) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                },
-        )
+        if (day.eventIcons.isNotEmpty() && day.inMonth) {
+            // Booked date: the event icon(s) REPLACE the date number (the a11y
+            // description above still carries the full date). Cap at
+            // [MAX_DAY_CELL_ICONS] icons; the rest collapse into a "+N" overflow.
+            val shown = day.eventIcons.take(MAX_DAY_CELL_ICONS)
+            val overflow = day.eventIcons.size - shown.size
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = shown.joinToString(""),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                )
+                if (overflow > 0) {
+                    Text(
+                        text = stringResource(R.string.booking_calendar_icon_overflow, overflow.toString()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = day.date.dayOfMonth.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    if (day.inMonth) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    },
+            )
+        }
     }
 }
+
+/** How many booking icons fit a 1/7-width day cell before collapsing into "+N". */
+private const val MAX_DAY_CELL_ICONS = 2
 
 /** Grey diagonal stripes for blocked (maintenance/closure) dates. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStripes(color: Color) {

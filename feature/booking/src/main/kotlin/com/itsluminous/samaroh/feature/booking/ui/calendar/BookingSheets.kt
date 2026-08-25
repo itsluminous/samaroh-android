@@ -5,9 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -39,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
@@ -46,6 +51,7 @@ import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.PaymentMethod
+import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.eventTypeLabel
@@ -92,7 +98,7 @@ internal fun BookingCardSheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "${booking.eventIcon} ${eventTypeLabel(eventTypes, booking.eventType)}",
+                    text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)}",
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
@@ -297,41 +303,56 @@ internal fun RecordPaymentSheet(
     var amountError by rememberSaveable { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        // IME handling (§6 UX round): fields scroll under the keyboard; the action row
+        // stays pinned and visible above it.
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .imePadding(),
         ) {
-            Text(text = stringResource(R.string.booking_card_action_record_payment), style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(
-                value = amountText,
-                onValueChange = {
-                    amountText = it
-                    amountError = false
-                },
-                label = { Text(stringResource(R.string.booking_payment_amount)) },
-                isError = amountError,
-                supportingText = { if (amountError) Text(stringResource(R.string.booking_payment_invalid_amount)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            DateField(labelRes = R.string.booking_payment_date, date = date, onDateChange = { date = it })
-            Text(text = stringResource(R.string.booking_payment_method), style = MaterialTheme.typography.labelLarge)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(PaymentMethod.entries) { candidate ->
-                    FilterChip(
-                        selected = method == candidate,
-                        onClick = { method = candidate },
-                        label = { Text(paymentMethodLabel(candidate)) },
-                    )
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(text = stringResource(R.string.booking_card_action_record_payment), style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = {
+                        amountText = it
+                        amountError = false
+                    },
+                    label = { Text(stringResource(R.string.booking_payment_amount)) },
+                    isError = amountError,
+                    supportingText = { if (amountError) Text(stringResource(R.string.booking_payment_invalid_amount)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                DateField(labelRes = R.string.booking_payment_date, date = date, onDateChange = { date = it })
+                Text(text = stringResource(R.string.booking_payment_method), style = MaterialTheme.typography.labelLarge)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(PaymentMethod.entries) { candidate ->
+                        FilterChip(
+                            selected = method == candidate,
+                            onClick = { method = candidate },
+                            label = { Text(paymentMethodLabel(candidate)) },
+                        )
+                    }
                 }
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text(stringResource(R.string.booking_form_notes)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text(stringResource(R.string.booking_form_notes)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            // Pinned action row — always visible, also above the keyboard.
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_action_cancel)) }
                 TextButton(onClick = {
                     val paise = parseRupeesToPaise(amountText)
@@ -430,7 +451,7 @@ internal fun BookingChooserSheet(
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
             bookings.forEach { booking ->
                 Text(
-                    text = "${booking.eventIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
+                    text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
                     style = MaterialTheme.typography.bodyLarge,
                     modifier =
                         Modifier

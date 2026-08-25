@@ -19,6 +19,8 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldPrefs
+import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldVisibility
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -147,6 +149,26 @@ class FakeBookingRepository : BookingRepository {
         bookings.value.filter {
             it.businessId == businessId && it.startDate == date && it.status != BookingStatus.CANCELLED && it.deletedAt == null
         }
+
+    override suspend fun invoiceNumberExists(
+        businessId: String,
+        invoiceNumber: String,
+        excludingBookingId: String?,
+    ): Boolean =
+        bookings.value.any {
+            it.businessId == businessId &&
+                it.invoiceNumber == invoiceNumber &&
+                it.id != excludingBookingId &&
+                it.deletedAt == null
+        }
+}
+
+/** In-memory booking-form field-visibility prefs (ADR-020). */
+class FakeFormFieldPrefs(
+    initial: BookingFormFieldVisibility = BookingFormFieldVisibility(),
+) : BookingFormFieldPrefs {
+    val state = MutableStateFlow(initial)
+    override val visibility: Flow<BookingFormFieldVisibility> = state
 }
 
 class FakeBusinessRepository(

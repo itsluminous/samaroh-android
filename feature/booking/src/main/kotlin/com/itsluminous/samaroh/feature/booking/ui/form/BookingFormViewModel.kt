@@ -11,10 +11,13 @@ import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
+import com.itsluminous.samaroh.core.model.ReminderKind
+import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +48,9 @@ sealed interface FormBlocker {
     data class BlockedDates(
         val canOverride: Boolean,
     ) : FormBlocker
+
+    /** Manually entered invoice number already used by another booking (ADR-020). */
+    data object DuplicateInvoiceNumber : FormBlocker
 }
 
 data class BookingFormState(
@@ -67,6 +73,17 @@ data class BookingFormState(
     val advanceText: String = "",
     val source: BookingSource? = null,
     val notes: String = "",
+    /** Which optional fields render (ADR-020, Settings → Booking form fields). */
+    val fieldVisibility: BookingFormFieldVisibility = BookingFormFieldVisibility(),
+    /** Manual invoice number as typed; editable only while [frozenInvoiceNumber] is null. */
+    val invoiceNumberText: String = "",
+    /** The already-assigned (immutable) invoice number of the booking being edited. */
+    val frozenInvoiceNumber: String? = null,
+    /** Tentative follow-up selector (§4.1 UX round): preset chip value. */
+    val followUpDays: Int = TentativeFollowUpPlanner.DEFAULT_DAYS,
+    /** Whether the "Custom" chip is active (day count comes from [followUpCustomText]). */
+    val followUpCustom: Boolean = false,
+    val followUpCustomText: String = "",
     val blocker: FormBlocker? = null,
     val saved: Boolean = false,
 ) {
@@ -76,6 +93,15 @@ data class BookingFormState(
 
     /** Live-updating, read-only due (§4.1): total − advance (edit mode shows card due instead). */
     val duePaise: Long get() = (totalAmountPaise - advancePaise).coerceAtLeast(0)
+
+    /** The effective follow-up delay in days (custom text falls back to the default). */
+    val effectiveFollowUpDays: Int
+        get() =
+            if (followUpCustom) {
+                followUpCustomText.toIntOrNull()?.coerceIn(1, 365) ?: TentativeFollowUpPlanner.DEFAULT_DAYS
+            } else {
+                followUpDays
+            }
 }
 
 /** "1,200.50" → 120050 paise. Invalid input parses as 0 (field-level UX, not an error). */
@@ -101,6 +127,7 @@ class BookingFormViewModel
         private val actorProvider: BookingActorProvider,
         private val eventTypesProvider: EventTypeCatalog,
         private val syncScheduler: SyncScheduler,
+        fieldPrefs: BookingFormFieldPrefs,
         private val clock: Clock,
     ) : ViewModel() {
         private val editBookingId: String? = savedStateHandle.get<String?>("bookingId")?.ifBlank { null }
@@ -120,6 +147,12 @@ class BookingFormViewModel
         private var editing: Booking? = null
 
         init {
+            // Optional-field visibility (ADR-020): live so a Settings change mid-session applies.
+            viewModelScope.launch {
+                fieldPrefs.visibility.collect { visibility ->
+                    _state.update { it.copy(fieldVisibility = visibility) }
+                }
+            }
             viewModelScope.launch {
                 val types = eventTypesProvider.eventTypes
                 val business = businessRepository.businesses().first().firstOrNull { it.deletedAt == null }
@@ -154,6 +187,7 @@ class BookingFormViewModel
                             securityDepositText = paiseToRupeeText(existing.securityDepositPaise),
                             source = existing.source,
                             notes = existing.notes.orEmpty(),
+                            frozenInvoiceNumber = existing.invoiceNumber,
                         )
                     }
                 }
@@ -195,6 +229,17 @@ class BookingFormViewModel
 
         fun setNotes(value: String) = _state.update { it.copy(notes = value) }
 
+        /** Manual invoice number — only meaningful while no number is frozen (ADR-020). */
+        fun setInvoiceNumber(value: String) = _state.update { it.copy(invoiceNumberText = value) }
+
+        /** Tentative follow-up: preset chip (1/3/7 days). */
+        fun selectFollowUpPreset(days: Int) = _state.update { it.copy(followUpDays = days, followUpCustom = false) }
+
+        /** Tentative follow-up: "Custom" chip. */
+        fun selectFollowUpCustom() = _state.update { it.copy(followUpCustom = true) }
+
+        fun setFollowUpCustomText(value: String) = _state.update { it.copy(followUpCustomText = value.filter(Char::isDigit).take(3)) }
+
         fun dismissBlocker() = _state.update { it.copy(blocker = null) }
 
         // ---- save pipeline (§4.1): validate → blocked dates → conflict warning → persist ----
@@ -227,6 +272,16 @@ class BookingFormViewModel
             }
             if (form.endDate.isBefore(form.startDate)) {
                 _state.update { it.copy(blocker = FormBlocker.EndBeforeStart) }
+                return
+            }
+
+            // Manual invoice number (ADR-020): unique per business while still unfrozen.
+            val manualInvoice = form.invoiceNumberText.trim()
+            if (form.frozenInvoiceNumber == null &&
+                manualInvoice.isNotEmpty() &&
+                bookingRepository.invoiceNumberExists(business.id, manualInvoice, form.editingId)
+            ) {
+                _state.update { it.copy(blocker = FormBlocker.DuplicateInvoiceNumber) }
                 return
             }
 
@@ -309,7 +364,9 @@ class BookingFormViewModel
                     notes = form.notes.trim().ifBlank { null },
                     status = form.status,
                     gcalEventId = base?.gcalEventId,
-                    invoiceNumber = base?.invoiceNumber,
+                    // Frozen once set (manually or by the allocator, ADR-006/ADR-020);
+                    // otherwise an optional manual number, validated unique in attemptSave.
+                    invoiceNumber = base?.invoiceNumber ?: form.invoiceNumberText.trim().ifBlank { null },
                     createdBy = base?.createdBy ?: currentActor.userId,
                     updatedBy = if (base != null) currentActor.userId else null,
                     createdAt = base?.createdAt ?: now,
@@ -335,8 +392,40 @@ class BookingFormViewModel
                 )
             }
 
+            reconcileFollowUp(booking, form)
+
             syncScheduler.requestImmediateSync()
             _state.update { it.copy(blocker = null, saved = true) }
+        }
+
+        /**
+         * Tentative follow-up loop (ADR-020): saving as Tentative supersedes any pending
+         * follow-up with one at `today + N`; saving with any other status dismisses them
+         * (the icon and reminders revert once the booking is confirmed/cancelled).
+         */
+        private suspend fun reconcileFollowUp(
+            booking: Booking,
+            form: BookingFormState,
+        ) {
+            val now = clock.instant()
+            val pendingFollowUps =
+                bookingRepository
+                    .remindersForBooking(booking.id)
+                    .filter { it.kind == ReminderKind.FOLLOW_UP && it.status == ReminderStatus.PENDING }
+            pendingFollowUps.forEach {
+                bookingRepository.saveReminder(it.copy(status = ReminderStatus.DISMISSED, updatedAt = now))
+            }
+            if (form.status == BookingStatus.TENTATIVE) {
+                bookingRepository.saveReminder(
+                    TentativeFollowUpPlanner.create(
+                        booking = booking,
+                        daysFromNow = form.effectiveFollowUpDays,
+                        today = LocalDate.now(clock),
+                        newId = { UUID.randomUUID().toString() },
+                        now = now,
+                    ),
+                )
+            }
         }
     }
 

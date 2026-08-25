@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
+import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
@@ -20,6 +21,7 @@ import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.PaymentReminderPlanner
+import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -92,6 +94,8 @@ data class BookingCalendarUiState(
     val agenda: List<AgendaItem> = emptyList(),
     /** In-app Pending-confirmations card rows (§4.1 — the reliable reminder path). */
     val pendingConfirmations: List<PendingConfirmationUi> = emptyList(),
+    /** Tentative-booking follow-ups due today (ADR-020) — Confirm / Cancel / Snooze. */
+    val pendingFollowUps: List<PendingConfirmationUi> = emptyList(),
     val actor: BookingActor? = null,
 )
 
@@ -213,12 +217,25 @@ class BookingCalendarViewModel
                     DueCalculator.duePaise(booking, paymentsByBooking[booking.id].orEmpty().sumOf { it.amountPaise })
                 }
             val confirmations =
-                data.reminders.mapNotNull { reminder ->
-                    val booking =
-                        data.bookings.firstOrNull { it.id == reminder.bookingId }
-                            ?: bookingRepository.booking(reminder.bookingId)
-                    booking?.takeIf { it.status != BookingStatus.CANCELLED }?.let { PendingConfirmationUi(reminder, it) }
-                }
+                data.reminders
+                    .filter { it.kind == ReminderKind.PAYMENT }
+                    .mapNotNull { reminder ->
+                        val booking =
+                            data.bookings.firstOrNull { it.id == reminder.bookingId }
+                                ?: bookingRepository.booking(reminder.bookingId)
+                        booking?.takeIf { it.status != BookingStatus.CANCELLED }?.let { PendingConfirmationUi(reminder, it) }
+                    }
+            // Follow-ups only surface while the booking is still tentative — a booking
+            // confirmed elsewhere drops off immediately (the engine dismisses it later).
+            val followUps =
+                data.reminders
+                    .filter { it.kind == ReminderKind.FOLLOW_UP }
+                    .mapNotNull { reminder ->
+                        val booking =
+                            data.bookings.firstOrNull { it.id == reminder.bookingId }
+                                ?: bookingRepository.booking(reminder.bookingId)
+                        booking?.takeIf { it.status == BookingStatus.TENTATIVE }?.let { PendingConfirmationUi(reminder, it) }
+                    }
             return BookingCalendarUiState(
                 loaded = true,
                 business = business,
@@ -235,6 +252,7 @@ class BookingCalendarViewModel
                         .sortedBy { it.startDate }
                         .map { AgendaItem(it) },
                 pendingConfirmations = confirmations,
+                pendingFollowUps = followUps,
                 actor = actor,
             )
         }
@@ -388,6 +406,45 @@ class BookingCalendarViewModel
                 PaymentReminderPlanner
                     .nextAfterAction(confirmation.reminder, due, LocalDate.now(clock), { UUID.randomUUID().toString() }, now)
                     ?.let { bookingRepository.saveReminder(it) }
+                syncScheduler.requestImmediateSync()
+            }
+        }
+
+        // ---- tentative follow-up card actions (ADR-020) ----
+
+        /** "Confirm booking" on a follow-up row: tentative → confirmed, follow-up settled. */
+        fun confirmTentativeBooking(followUp: PendingConfirmationUi) {
+            viewModelScope.launch {
+                val actor = uiState.value.actor ?: return@launch
+                if (!(actor.isOwner || actor.permissions.edit)) return@launch
+                val booking = bookingRepository.booking(followUp.booking.id) ?: return@launch
+                val now = clock.instant()
+                bookingRepository.saveBooking(
+                    booking.copy(status = BookingStatus.CONFIRMED, updatedBy = actor.userId, updatedAt = now),
+                )
+                bookingRepository.saveReminder(followUp.reminder.copy(status = ReminderStatus.CONFIRMED, updatedAt = now))
+                syncScheduler.requestImmediateSync()
+            }
+        }
+
+        /** "Cancel booking" on a follow-up row — same path as the card action (§4.1). */
+        fun cancelTentativeBooking(followUp: PendingConfirmationUi) {
+            cancelBooking(followUp.booking.id)
+        }
+
+        /** "Snooze" on a follow-up row: re-remind in [TentativeFollowUpPlanner.SNOOZE_DAYS]. */
+        fun snoozeFollowUp(followUp: PendingConfirmationUi) {
+            viewModelScope.launch {
+                val now = clock.instant()
+                bookingRepository.saveReminder(followUp.reminder.copy(status = ReminderStatus.SNOOZED, updatedAt = now))
+                bookingRepository.saveReminder(
+                    TentativeFollowUpPlanner.nextAfterSnooze(
+                        current = followUp.reminder,
+                        today = LocalDate.now(clock),
+                        newId = { UUID.randomUUID().toString() },
+                        now = now,
+                    ),
+                )
                 syncScheduler.requestImmediateSync()
             }
         }

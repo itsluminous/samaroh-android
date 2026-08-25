@@ -150,6 +150,38 @@ class BookingNotifier
             NotificationManagerCompat.from(context).cancel(PAYMENT_NOTIFICATION_TAG, reminderId.hashCode())
         }
 
+        /**
+         * "Follow up with {customer} about {event}" for a tentative booking (ADR-020).
+         * Tap opens the app on the booking; Confirm/Cancel/Snooze live on the in-app
+         * follow-up card — the reliable path, like payment confirmations.
+         */
+        @SuppressLint("MissingPermission") // guarded by canNotify()
+        fun postFollowUpReminder(
+            reminder: PaymentReminder,
+            booking: Booking,
+            eventLabel: String,
+        ) {
+            if (!canNotify()) return
+            val channel = ensurePaymentChannel()
+            val question =
+                context.getString(
+                    R.string.booking_reminder_follow_up_question,
+                    booking.customerName,
+                    eventLabel,
+                )
+            val notification =
+                NotificationCompat
+                    .Builder(context, channel)
+                    .setSmallIcon(android.R.drawable.ic_menu_my_calendar)
+                    .setContentTitle(context.getString(R.string.booking_reminder_follow_up_title))
+                    .setContentText(question)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(question))
+                    .setContentIntent(launchAppIntent(booking.id))
+                    .setAutoCancel(true)
+                    .build()
+            NotificationManagerCompat.from(context).notify(PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode(), notification)
+        }
+
         /** Simple upcoming-event notification: title line + "in {n} days" (§4.1). */
         @SuppressLint("MissingPermission") // guarded by canNotify()
         fun postUpcomingReminder(
