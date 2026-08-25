@@ -43,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,6 +56,7 @@ import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
+import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
@@ -81,7 +84,11 @@ fun PartyLedgerScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(state.party?.name.orEmpty(), style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            state.party?.name.orEmpty(),
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.semantics { heading() },
+                        )
                         state.party?.phone?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                     }
                 },
@@ -134,6 +141,7 @@ fun PartyLedgerScreen(
                             canEdit = state.canEditEntries,
                             onEdit = { onEditEntry(row.expense.direction, row.expense.id) },
                             onDelete = { confirmDeleteId = row.expense.id },
+                            modifier = animatedListItem(),
                         )
                         HorizontalDivider()
                     }
