@@ -2,14 +2,15 @@ package com.itsluminous.samaroh.feature.menu.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.itsluminous.samaroh.core.data.sync.SyncScheduler
+import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
+import com.itsluminous.samaroh.core.data.sync.SyncItemError
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
-import com.itsluminous.samaroh.core.data.sync.SyncStatusProvider
 import com.itsluminous.samaroh.feature.menu.data.ReminderStyle
 import com.itsluminous.samaroh.feature.menu.data.SettingsPreferencesDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -51,18 +52,41 @@ class ReminderSettingsViewModel
         }
     }
 
-/** Sync status screen (§4.4/§4.5): pending count, per-item errors, last sync, Sync now. */
+/** Sync-status screen state (§4.4/§4.5) assembled from the `core:data` [SyncStatus] flows. */
+data class SyncStatusUiState(
+    val pendingCount: Int,
+    val errors: List<SyncItemError>,
+    val conflicts: List<SyncConflictEntry>,
+    val lastSyncAt: java.time.Instant?,
+)
+
+/** Sync status screen (§4.4/§4.5): pending count, per-item errors, conflict log, last sync, Sync now. */
 @HiltViewModel
 class SyncStatusViewModel
     @Inject
     constructor(
-        syncStatusProvider: SyncStatusProvider,
-        private val syncScheduler: SyncScheduler,
+        private val syncStatus: SyncStatus,
     ) : ViewModel() {
-        val status: StateFlow<SyncStatus?> =
-            syncStatusProvider.status.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        val status: StateFlow<SyncStatusUiState?> =
+            combine(
+                syncStatus.pendingCount,
+                syncStatus.itemErrors,
+                syncStatus.conflictLog,
+                syncStatus.lastSyncTime,
+            ) { pending, errors, conflicts, lastSync ->
+                SyncStatusUiState(
+                    pendingCount = pending,
+                    errors = errors,
+                    conflicts = conflicts,
+                    lastSyncAt = lastSync,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         fun syncNow() {
-            syncScheduler.requestImmediateSync()
+            syncStatus.syncNow()
+        }
+
+        fun acknowledgeConflict(id: Long) {
+            viewModelScope.launch { syncStatus.acknowledgeConflict(id) }
         }
     }

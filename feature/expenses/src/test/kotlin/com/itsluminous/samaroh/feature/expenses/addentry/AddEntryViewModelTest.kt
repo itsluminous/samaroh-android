@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
+import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -62,6 +63,7 @@ class AddEntryViewModelTest {
             ledgerRepository = ledgerRepository,
             uploadQueue = uploadQueue,
             compressor = AttachmentCompressor(context, ioDispatcher = mainDispatcherRule.dispatcher),
+            session = fakeExpensesSession(),
             clock = Clock.fixed(Fixtures.NOW, ZoneOffset.UTC),
         )
 

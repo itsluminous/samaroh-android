@@ -1,12 +1,10 @@
 package com.itsluminous.samaroh.feature.booking.reminders
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -14,15 +12,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Per-device upcoming-reminder preferences (§4.1/§4.4), stored in the DataStore file
- * "settings" under the agreed keys so the Settings screen (W1-F) reads/writes the SAME
- * values:
+ * Per-device upcoming-reminder preferences (§4.1/§4.4), stored in the SHARED settings
+ * DataStore (single Hilt-provided instance from `core:data` — two instances on the same
+ * file crash at runtime) under the agreed keys so the Settings screen reads/writes the
+ * SAME values:
  * - `booking_reminder_lead_days`: Set<String> of day counts (e.g. "1","3","7");
  * - `booking_reminder_style`: "notification" | "fullscreen";
  * - `booking_reminder_sound_uri`: ringtone uri for the full-screen style.
  */
-private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
-
 enum class ReminderStyle(
     val wire: String,
 ) {
@@ -50,14 +47,14 @@ data class UpcomingReminderPrefs(
 class BookingReminderPrefs
     @Inject
     constructor(
-        @ApplicationContext private val context: Context,
+        @SettingsDataStore private val dataStore: DataStore<Preferences>,
     ) {
         private val leadDaysKey = stringSetPreferencesKey("booking_reminder_lead_days")
         private val styleKey = stringPreferencesKey("booking_reminder_style")
         private val soundUriKey = stringPreferencesKey("booking_reminder_sound_uri")
 
         val prefs: Flow<UpcomingReminderPrefs> =
-            context.settingsDataStore.data.map { store ->
+            dataStore.data.map { store ->
                 UpcomingReminderPrefs(
                     leadDays =
                         store[leadDaysKey]

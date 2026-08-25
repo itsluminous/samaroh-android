@@ -1,8 +1,10 @@
 package com.itsluminous.samaroh.feature.booking.domain
 
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.Business
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,6 +48,33 @@ class OwnerBookingActorProvider
                         recordPayment = true,
                         generateInvoice = true,
                     ),
+            )
+        }
+    }
+
+/**
+ * Session-aware provider (Wave-1 integration, docs/decisions.md ADR-017): resolves the
+ * actor from the app-wide current-user source. Signed-out/offline keeps the historical
+ * owner-mode default; a signed-in non-owner acts with their granted §3 booking
+ * permissions (unknown users get view-only).
+ */
+@Singleton
+class SessionBookingActorProvider
+    @Inject
+    constructor(
+        private val memberRepository: MemberRepository,
+        private val currentUserProvider: CurrentUserProvider,
+        private val ownerProvider: OwnerBookingActorProvider,
+    ) : BookingActorProvider {
+        override suspend fun actorFor(business: Business): BookingActor {
+            val userId = currentUserProvider.currentUserId.first()
+            if (userId == null || userId == business.ownerUserId) return ownerProvider.actorFor(business)
+            val member = memberRepository.memberForUser(business.id, userId)
+            return BookingActor(
+                userId = userId,
+                displayName = member?.displayName ?: business.ownerName,
+                isOwner = false,
+                permissions = member?.permissions?.booking ?: BookingPermissions(view = true),
             )
         }
     }

@@ -6,13 +6,14 @@ import com.itsluminous.samaroh.core.data.repository.ExpenseTotals
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.model.Party
-import com.itsluminous.samaroh.feature.expenses.ExpensesSessionDefaults
+import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
 import javax.inject.Inject
@@ -48,32 +49,36 @@ class ExpensesHomeViewModel
     constructor(
         expensesRepository: ExpensesRepository,
         ledgerRepository: ExpensesLedgerRepository,
+        session: ExpensesSession,
     ) : ViewModel() {
-        private val businessId = ExpensesSessionDefaults.BUSINESS_ID
         private val searchQuery = MutableStateFlow("")
 
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val state: StateFlow<ExpensesHomeState> =
-            combine(
-                expensesRepository.partiesWithBalance(businessId),
-                ledgerRepository.totals(businessId),
-                ledgerRepository.lastEntryPerParty(businessId),
-                searchQuery,
-            ) { parties, totals, lastEntries, query ->
-                val items =
-                    parties.map {
-                        PartyListItem(
-                            party = it.party,
-                            netBalancePaise = it.netBalancePaise,
-                            lastEntryAt = lastEntries[it.party.id],
+            session.businessIdFlow
+                .flatMapLatest { businessId ->
+                    combine(
+                        expensesRepository.partiesWithBalance(businessId),
+                        ledgerRepository.totals(businessId),
+                        ledgerRepository.lastEntryPerParty(businessId),
+                        searchQuery,
+                    ) { parties, totals, lastEntries, query ->
+                        val items =
+                            parties.map {
+                                PartyListItem(
+                                    party = it.party,
+                                    netBalancePaise = it.netBalancePaise,
+                                    lastEntryAt = lastEntries[it.party.id],
+                                )
+                            }
+                        ExpensesHomeState(
+                            totals = totals,
+                            searchQuery = query,
+                            parties = items.filterBy(query),
+                            hasAnyParty = items.isNotEmpty(),
                         )
                     }
-                ExpensesHomeState(
-                    totals = totals,
-                    searchQuery = query,
-                    parties = items.filterBy(query),
-                    hasAnyParty = items.isNotEmpty(),
-                )
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExpensesHomeState())
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExpensesHomeState())
 
         fun onSearchQueryChange(query: String) {
             searchQuery.value = query

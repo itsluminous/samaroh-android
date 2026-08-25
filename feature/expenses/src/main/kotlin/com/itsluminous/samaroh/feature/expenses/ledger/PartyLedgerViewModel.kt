@@ -7,7 +7,7 @@ import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.model.Party
-import com.itsluminous.samaroh.feature.expenses.ExpensesSessionDefaults
+import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.LedgerRow
 import com.itsluminous.samaroh.feature.expenses.domain.RunningBalanceCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,8 +30,8 @@ data class PartyLedgerState(
     val attachmentsByExpense: Map<String, List<AttachmentWithLocalState>> = emptyMap(),
     /** Net balance = the newest row's balance-after (0 when no entries). */
     val netBalancePaise: Long = 0,
-    /** Drives the PermissionGate around edit/delete (wired to PermissionGuard at integration). */
-    val canEditEntries: Boolean = ExpensesSessionDefaults.DEFAULT_CAN_EDIT_ENTRIES,
+    /** Drives the PermissionGate around edit/delete (`expenses.edit`, owner-mode default). */
+    val canEditEntries: Boolean = true,
     val loaded: Boolean = false,
 )
 
@@ -42,6 +42,7 @@ class PartyLedgerViewModel
         savedStateHandle: SavedStateHandle,
         private val expensesRepository: ExpensesRepository,
         private val ledgerRepository: ExpensesLedgerRepository,
+        session: ExpensesSession,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
 
@@ -50,13 +51,15 @@ class PartyLedgerViewModel
                 flow { emit(ledgerRepository.party(partyId)) },
                 expensesRepository.entriesForParty(partyId),
                 ledgerRepository.attachmentsForParty(partyId),
-            ) { party, entries, attachments ->
+                session.canEditEntries,
+            ) { party, entries, attachments, canEdit ->
                 val rows = RunningBalanceCalculator.withRunningBalance(entries)
                 PartyLedgerState(
                     party = party,
                     rows = rows,
                     attachmentsByExpense = attachments.groupBy { it.attachment.expenseId },
                     netBalancePaise = rows.firstOrNull()?.balanceAfterPaise ?: 0,
+                    canEditEntries = canEdit,
                     loaded = true,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PartyLedgerState())

@@ -59,6 +59,7 @@ class InvoiceTestHarness(
             bookingDao = db.bookingDao(),
             paymentDao = db.bookingPaymentDao(),
             dateBlockDao = db.dateBlockDao(),
+            reminderDao = db.paymentReminderDao(),
             outboxWriter = outboxWriter,
             clock = INVOICE_TEST_CLOCK,
         )

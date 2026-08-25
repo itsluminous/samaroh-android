@@ -10,6 +10,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_DIRECTION
+import com.itsluminous.samaroh.feature.expenses.addentry.ARG_EXPENSE_ID
 import com.itsluminous.samaroh.feature.expenses.addentry.AddEntryScreen
 import com.itsluminous.samaroh.feature.expenses.addperson.AddPersonScreen
 import com.itsluminous.samaroh.feature.expenses.home.ExpensesHomeScreen
@@ -22,14 +23,15 @@ const val EXPENSES_ROUTE = "expenses"
 private const val ROUTE_HOME = "expenses/home"
 private const val ROUTE_ADD_PERSON = "expenses/add_person"
 private const val ROUTE_LEDGER = "expenses/ledger/{$ARG_PARTY_ID}"
-private const val ROUTE_ADD_ENTRY = "expenses/entry/{$ARG_PARTY_ID}/{$ARG_DIRECTION}"
+private const val ROUTE_ADD_ENTRY = "expenses/entry/{$ARG_PARTY_ID}/{$ARG_DIRECTION}?$ARG_EXPENSE_ID={$ARG_EXPENSE_ID}"
 
 private fun ledgerRoute(partyId: String) = "expenses/ledger/$partyId"
 
 private fun addEntryRoute(
     partyId: String,
     direction: ExpenseDirection,
-) = "expenses/entry/$partyId/${direction.wire}"
+    expenseId: String? = null,
+) = "expenses/entry/$partyId/${direction.wire}?$ARG_EXPENSE_ID=${expenseId.orEmpty()}"
 
 /**
  * Expenses feature graph (§4.2). The outer signature is the Wave-0 contract the app shell
@@ -74,6 +76,9 @@ private fun ExpensesTabNavHost(modifier: Modifier = Modifier) {
             PartyLedgerScreen(
                 onBack = { navController.popBackStack() },
                 onAddEntry = { direction -> navController.navigate(addEntryRoute(partyId, direction)) },
+                onEditEntry = { direction, expenseId ->
+                    navController.navigate(addEntryRoute(partyId, direction, expenseId))
+                },
             )
         }
         composable(
@@ -82,6 +87,10 @@ private fun ExpensesTabNavHost(modifier: Modifier = Modifier) {
                 listOf(
                     navArgument(ARG_PARTY_ID) { type = NavType.StringType },
                     navArgument(ARG_DIRECTION) { type = NavType.StringType },
+                    navArgument(ARG_EXPENSE_ID) {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
                 ),
         ) {
             AddEntryScreen(

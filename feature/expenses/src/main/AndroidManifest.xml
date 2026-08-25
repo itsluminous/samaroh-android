@@ -6,7 +6,7 @@
              permission is declared anywhere, so ActivityResultContracts.TakePicture needs
              no runtime grant (§6: every permission optional). -->
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".ExpensesFileProvider"
             android:authorities="${applicationId}.expenses.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">

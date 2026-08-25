@@ -68,6 +68,7 @@ import java.time.format.FormatStyle
 fun PartyLedgerScreen(
     onBack: () -> Unit,
     onAddEntry: (direction: ExpenseDirection) -> Unit,
+    onEditEntry: (direction: ExpenseDirection, expenseId: String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PartyLedgerViewModel = hiltViewModel(),
 ) {
@@ -131,6 +132,7 @@ fun PartyLedgerScreen(
                             row = row,
                             attachments = state.attachmentsByExpense[row.expense.id].orEmpty(),
                             canEdit = state.canEditEntries,
+                            onEdit = { onEditEntry(row.expense.direction, row.expense.id) },
                             onDelete = { confirmDeleteId = row.expense.id },
                         )
                         HorizontalDivider()
@@ -182,6 +184,7 @@ private fun LedgerEntryRow(
     row: LedgerRow,
     attachments: List<AttachmentWithLocalState>,
     canEdit: Boolean,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -225,7 +228,7 @@ private fun LedgerEntryRow(
                 style = MaterialTheme.typography.titleMedium,
             )
             PermissionGate(allowed = canEdit) {
-                EntryMenu(onDelete = onDelete)
+                EntryMenu(onEdit = onEdit, onDelete = onDelete)
             }
         }
     }
@@ -233,6 +236,7 @@ private fun LedgerEntryRow(
 
 @Composable
 private fun EntryMenu(
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -244,6 +248,13 @@ private fun EntryMenu(
             onClick = { expanded = true },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.common_action_edit)) },
+                onClick = {
+                    expanded = false
+                    onEdit()
+                },
+            )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.common_action_delete)) },
                 onClick = {

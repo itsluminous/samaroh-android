@@ -243,7 +243,10 @@ Additive, inventory-domain-only extensions to the Wave 0 contracts (spec §4.3):
   itself is unchanged; `RoomRepositories.kt` is untouched.
 ## ADR-013 — Additive `SyncStatusProvider` contract in `core:data` (2026-08-25, W1-F)
 
-**Status:** accepted.
+**Status:** superseded at Wave-1 integration — W1-E's richer `SyncStatus` API (ADR-008
+addendum below) won the seam. The `SyncStatusProvider` contract and the `feature:menu`
+fallback (`OutboxSyncStatusProvider`) were DELETED; the menu Sync-status screen consumes
+`core:data`'s `SyncStatus` interface implemented by `core:sync` (`RoomSyncStatus`).
 
 The §4.4 "Sync status" screen needs pending count / per-item errors / last-sync time, but
 Wave 0 defined no read-side sync contract. W1-F adds **additive** types to
@@ -314,3 +317,56 @@ Non-ADR changes W1-F made outside its owned modules, all additive:
   call site compiles unchanged; wire it to the reports graph when W2-A lands.
 - Workers in `core:google` are plain `CoroutineWorker`s resolved via Hilt entry points,
   so no `Configuration.Provider` change in `:app` is required.
+
+## ADR-016 — Single shared settings DataStore in `core:data` (2026-08-25, integration)
+
+**Status:** accepted.
+
+`feature:booking` (reminder prefs delegate) and `feature:menu`
+(`SettingsPreferencesDataSource`) both opened the preferences file `"settings"` with their
+own DataStore instances. Two DataStore instances on one file throw
+`IllegalStateException` at runtime, so the instance itself is now a contract:
+`core:data`'s `SettingsDataStoreModule` provides the ONE Hilt singleton
+(`@SettingsDataStore DataStore<Preferences>`) and every consumer injects it. The key
+namespace already agreed across features (`theme_mode`, `dynamic_color`,
+`booking_reminder_*`); the `:app` shell adds `onboarding_complete` for first-launch
+routing.
+
+## ADR-017 — `ActiveBusinessProvider` / `CurrentUserProvider` session contract (2026-08-25, integration)
+
+**Status:** accepted.
+
+Every Wave-1 feature carried its own "which business / which user" assumption (booking's
+owner-mode actor provider, expenses' fixture-id defaults, inventory's and menu's
+first-live-business lookups). Integration unifies them behind a small ADDITIVE contract
+in `core:data/session/SessionContracts.kt`:
+
+- `ActiveBusinessProvider.activeBusiness: Flow<Business?>` — v1 single-business: the
+  first live local business.
+- `CurrentUserProvider.currentUserId: Flow<String?>` — null while signed out.
+
+Implementations live in `core:auth` (`SessionActiveBusinessProvider`,
+`SessionCurrentUserProvider` on top of `SessionHolder`). Signed-out/offline default is
+unchanged: owner-mode on the first local business, so the app stays fully usable before
+sign-in. Consumers: booking's `SessionBookingActorProvider`, expenses' `ExpensesSession`
+(also the `expenses.edit` gate), all three inventory view models, and menu's
+`CurrentBusinessProvider` façade.
+
+## ADR-018 — One Drive pipeline for expense attachments (2026-08-25, integration)
+
+**Status:** accepted.
+
+W1-B's `AttachmentUploadQueue` (`core:data.attachments`, ADR-011) and W1-E's optional
+`AttachmentUploader` (`core:data.sync`, ADR-008) genuinely overlap: both mean "upload this
+expense attachment to Drive and stamp `drive_file_id`". They are unified in `core:google`:
+
+- `DriveAttachmentUploader` implements `AttachmentUploader` using `DriveUploader`
+  (§9.1 `invoices/expenses/{party}/` layout); the sync engine invokes it while draining
+  the outbox (upload-before-row-push, §8) and patches `drive_file_id` into the payload
+  and the local row.
+- `DriveBackedAttachmentUploadQueue` implements `AttachmentUploadQueue`: callers persist
+  the metadata row + outbox upsert first (contract KDoc), so `enqueue` resolves the row
+  via `local_cache_path` scoped to the expense and nudges `SyncScheduler` — cheap,
+  idempotent, offline-safe.
+- `LocalOnlyAttachmentUploadQueue` is deprecated and unbound; both bindings live in
+  `GoogleModule`.

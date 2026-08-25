@@ -69,6 +69,12 @@ class FakeInventoryRepository :
 }
 
 /** Single-business fake for the interim active-business resolution. */
+class FakeActiveBusinessProvider(
+    fixedBusiness: Business = Fixtures.business(),
+) : com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider {
+    override val activeBusiness: Flow<Business?> = flowOf(fixedBusiness)
+}
+
 class FakeBusinessRepository(
     private val fixedBusiness: Business = Fixtures.business(),
 ) : BusinessRepository {

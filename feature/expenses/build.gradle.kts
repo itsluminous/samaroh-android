@@ -42,6 +42,7 @@ android {
 dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:data"))
+    implementation(project(":core:auth"))
 
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

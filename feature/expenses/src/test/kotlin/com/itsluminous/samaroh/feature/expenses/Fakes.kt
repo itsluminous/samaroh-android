@@ -109,3 +109,31 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
         attachments.value = attachments.value.filter { it.attachment.id != id }
     }
 }
+
+/** Session fake: fixed business + optional signed-in user, full-access permissions. */
+fun fakeExpensesSession(
+    business: com.itsluminous.samaroh.core.model.Business? =
+        com.itsluminous.samaroh.core.testing.Fixtures
+            .business(),
+    userId: String? = null,
+): ExpensesSession =
+    ExpensesSession(
+        activeBusinessProvider =
+            object : com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider {
+                override val activeBusiness = kotlinx.coroutines.flow.MutableStateFlow(business)
+            },
+        currentUserProvider =
+            object : com.itsluminous.samaroh.core.data.session.CurrentUserProvider {
+                override val currentUserId = kotlinx.coroutines.flow.MutableStateFlow(userId)
+            },
+        permissionGuard =
+            object : com.itsluminous.samaroh.core.auth.PermissionGuard {
+                override fun permissions(businessId: String) =
+                    kotlinx.coroutines.flow.MutableStateFlow(
+                        com.itsluminous.samaroh.core.model
+                            .MemberPermissions(),
+                    )
+
+                override fun isOwner(businessId: String) = kotlinx.coroutines.flow.MutableStateFlow(true)
+            },
+    )

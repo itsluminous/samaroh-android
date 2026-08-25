@@ -34,10 +34,11 @@ interface AttachmentUploadQueue {
 }
 
 /**
- * Wave-1 placeholder bound until `core:google` (W1-F) provides the Drive-backed
- * implementation: attachments stay in their local pending state (metadata row with
- * `drive_file_id = null`), which is exactly what the UI's pending badge renders.
+ * Wave-1 placeholder, RETIRED at integration: `core:google` binds the Drive-backed
+ * implementation (docs/decisions.md ADR-018). Kept only for tests that need a no-op
+ * queue; no production binding refers to it anymore.
  */
+@Deprecated("Superseded by the Drive-backed queue in core:google (ADR-018).")
 class LocalOnlyAttachmentUploadQueue
     @javax.inject.Inject
     constructor() : AttachmentUploadQueue {

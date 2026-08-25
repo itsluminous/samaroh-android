@@ -89,6 +89,17 @@ class MembersViewModel
             }
         }
 
+        /** Persists an edited permission matrix for [member] (§3 owner grant UX). */
+        fun updatePermissions(
+            member: BusinessMember,
+            permissions: MemberPermissions,
+        ) {
+            if (!uiState.value.isOwner || member.isOwner) return
+            viewModelScope.launch {
+                memberRepository.saveMember(member.copy(permissions = permissions, updatedAt = clock.instant()))
+            }
+        }
+
         fun revokeMember(member: BusinessMember) {
             if (!uiState.value.isOwner || member.isOwner) return
             viewModelScope.launch {

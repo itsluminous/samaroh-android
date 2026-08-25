@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.model.TxnType
@@ -50,6 +51,7 @@ class RecordTransactionViewModel
     @Inject
     constructor(
         private val businessRepository: BusinessRepository,
+        private val activeBusinessProvider: ActiveBusinessProvider,
         private val inventoryRepository: InventoryRepository,
         private val clock: Clock,
     ) : ViewModel() {
@@ -167,10 +169,5 @@ class RecordTransactionViewModel
             }
         }
 
-        private suspend fun activeBusinessId(): String? =
-            businessRepository
-                .businesses()
-                .first()
-                .firstOrNull { it.deletedAt == null }
-                ?.id
+        private suspend fun activeBusinessId(): String? = activeBusinessProvider.activeBusiness.first()?.id
     }

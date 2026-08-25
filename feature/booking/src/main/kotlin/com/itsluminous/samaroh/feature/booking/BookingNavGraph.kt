@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.booking
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -24,18 +25,33 @@ private fun formRoute(
 
 /**
  * Booking feature graph (§4.1, W1-A): calendar-first booking management. The feature is
- * self-contained — it hosts its own internal NavHost so the app shell's `bookingGraph()`
- * call signature is unchanged from Wave 0.
+ * self-contained — it hosts its own internal NavHost; the Wave-0 `bookingGraph()` call
+ * signature is preserved via default parameters.
+ *
+ * @param bookingIdToOpen booking to open directly (reminder-notification deep link,
+ *   §4.1); the shell clears it through [onBookingOpened] once consumed.
  */
-fun NavGraphBuilder.bookingGraph() {
+fun NavGraphBuilder.bookingGraph(
+    bookingIdToOpen: String? = null,
+    onBookingOpened: () -> Unit = {},
+) {
     composable(BOOKING_ROUTE) {
-        BookingFeatureHost()
+        BookingFeatureHost(bookingIdToOpen = bookingIdToOpen, onBookingOpened = onBookingOpened)
     }
 }
 
 @Composable
-private fun BookingFeatureHost() {
+private fun BookingFeatureHost(
+    bookingIdToOpen: String?,
+    onBookingOpened: () -> Unit,
+) {
     val navController = rememberNavController()
+    LaunchedEffect(bookingIdToOpen) {
+        if (bookingIdToOpen != null) {
+            navController.navigate(formRoute(bookingId = bookingIdToOpen))
+            onBookingOpened()
+        }
+    }
     NavHost(navController = navController, startDestination = CALENDAR_ROUTE) {
         composable(CALENDAR_ROUTE) {
             BookingCalendarScreen(

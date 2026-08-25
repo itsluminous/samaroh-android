@@ -5,9 +5,13 @@ import com.itsluminous.samaroh.core.auth.AuthRepository
 import com.itsluminous.samaroh.core.auth.DefaultPermissionGuard
 import com.itsluminous.samaroh.core.auth.MembershipRefresher
 import com.itsluminous.samaroh.core.auth.PermissionGuard
+import com.itsluminous.samaroh.core.auth.SessionActiveBusinessProvider
+import com.itsluminous.samaroh.core.auth.SessionCurrentUserProvider
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.auth.SupabaseAuthManager
 import com.itsluminous.samaroh.core.auth.SupabaseMembershipRefresher
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -29,6 +33,11 @@ abstract class AuthModule {
     @Binds abstract fun bindPermissionGuard(impl: DefaultPermissionGuard): PermissionGuard
 
     @Binds abstract fun bindMembershipRefresher(impl: SupabaseMembershipRefresher): MembershipRefresher
+
+    /** Wave-1 session seam (docs/decisions.md ADR-017). */
+    @Binds abstract fun bindActiveBusinessProvider(impl: SessionActiveBusinessProvider): ActiveBusinessProvider
+
+    @Binds abstract fun bindCurrentUserProvider(impl: SessionCurrentUserProvider): CurrentUserProvider
 
     companion object {
         @Provides

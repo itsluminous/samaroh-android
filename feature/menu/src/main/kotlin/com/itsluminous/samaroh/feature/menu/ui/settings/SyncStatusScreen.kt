@@ -7,6 +7,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -15,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 import com.itsluminous.samaroh.feature.menu.ui.formatInstant
@@ -53,6 +55,42 @@ fun SyncStatusScreen(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
         ) {
             Text(stringResource(R.string.settings_sync_sync_now))
+        }
+
+        if (current.conflicts.isNotEmpty()) {
+            HorizontalDivider()
+            Text(
+                text = stringResource(R.string.sync_notification_conflict_title),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(16.dp),
+            )
+            for (conflict in current.conflicts) {
+                val fields = conflict.overriddenFields.joinToString()
+                ListItem(
+                    headlineContent = { Text(conflict.title) },
+                    supportingContent = {
+                        Text(
+                            when (conflict.resolution) {
+                                ConflictResolution.REBASED ->
+                                    stringResource(R.string.sync_notification_conflict_rebased, conflict.title, fields)
+                                ConflictResolution.DROPPED ->
+                                    stringResource(R.string.sync_notification_conflict_dropped, conflict.title, fields)
+                            },
+                        )
+                    },
+                    trailingContent =
+                        if (conflict.acknowledged) {
+                            null
+                        } else {
+                            {
+                                TextButton(onClick = { viewModel.acknowledgeConflict(conflict.id) }) {
+                                    Text(stringResource(R.string.common_action_close))
+                                }
+                            }
+                        },
+                )
+                HorizontalDivider()
+            }
         }
 
         if (current.errors.isNotEmpty()) {

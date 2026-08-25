@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.model.Party
-import com.itsluminous.samaroh.feature.expenses.ExpensesSessionDefaults
+import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -50,10 +50,9 @@ class AddPersonViewModel
     @Inject
     constructor(
         private val expensesRepository: ExpensesRepository,
+        private val session: ExpensesSession,
         private val clock: Clock,
     ) : ViewModel() {
-        private val businessId = ExpensesSessionDefaults.BUSINESS_ID
-
         private val _state = MutableStateFlow(AddPersonState())
         val state: StateFlow<AddPersonState> = _state.asStateFlow()
 
@@ -122,7 +121,7 @@ class AddPersonViewModel
                 val party =
                     Party(
                         id = UUID.randomUUID().toString(),
-                        businessId = businessId,
+                        businessId = session.businessId(),
                         name = name,
                         phone =
                             _state.value.phone
@@ -136,5 +135,5 @@ class AddPersonViewModel
             }
         }
 
-        private suspend fun allParties(): List<Party> = expensesRepository.partiesWithBalance(businessId).first().map { it.party }
+        private suspend fun allParties(): List<Party> = expensesRepository.partiesWithBalance(session.businessId()).first().map { it.party }
     }

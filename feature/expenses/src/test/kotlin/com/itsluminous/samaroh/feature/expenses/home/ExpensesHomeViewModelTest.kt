@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
+import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
@@ -25,7 +26,7 @@ class ExpensesHomeViewModelTest {
         ledgerRepository = FakeExpensesLedgerRepository()
     }
 
-    private fun viewModel() = ExpensesHomeViewModel(expensesRepository, ledgerRepository)
+    private fun viewModel() = ExpensesHomeViewModel(expensesRepository, ledgerRepository, fakeExpensesSession())
 
     @Test
     fun `totals split by direction and net balances flow through`() =

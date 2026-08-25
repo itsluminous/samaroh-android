@@ -10,7 +10,7 @@ import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
-import com.itsluminous.samaroh.feature.expenses.ExpensesSessionDefaults
+import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
 import com.itsluminous.samaroh.feature.expenses.domain.AmountInput
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
@@ -21,9 +21,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.math.BigDecimal
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
@@ -32,6 +34,9 @@ import javax.inject.Inject
 
 /** Route argument: entry direction ('paid' = you gave, 'received' = you got). */
 const val ARG_DIRECTION = "direction"
+
+/** Optional route argument: id of an existing entry to edit (§4.2 edit, reuses this screen). */
+const val ARG_EXPENSE_ID = "expenseId"
 
 /** Attachments per entry are capped at 4 (§4.2). */
 const val MAX_ATTACHMENTS = 4
@@ -72,17 +77,38 @@ class AddEntryViewModel
         private val ledgerRepository: ExpensesLedgerRepository,
         private val uploadQueue: AttachmentUploadQueue,
         private val compressor: AttachmentCompressor,
+        private val session: ExpensesSession,
         private val clock: Clock,
     ) : ViewModel() {
-        private val businessId = ExpensesSessionDefaults.BUSINESS_ID
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
         private val direction = ExpenseDirection.fromWire(checkNotNull(savedStateHandle[ARG_DIRECTION]))
+
+        /** Non-null when editing an existing entry (gated by `expenses.edit`, §4.2). */
+        private val editingExpenseId: String? = savedStateHandle.get<String>(ARG_EXPENSE_ID)?.ifEmpty { null }
+        private var editingExpense: Expense? = null
 
         private val _state =
             MutableStateFlow(
                 AddEntryState(direction = direction, date = LocalDate.now(clock.withZone(ZoneId.systemDefault()))),
             )
         val state: StateFlow<AddEntryState> = _state.asStateFlow()
+
+        init {
+            editingExpenseId?.let { id ->
+                viewModelScope.launch {
+                    val existing = expensesRepository.entriesForParty(partyId).first().find { it.id == id } ?: return@launch
+                    editingExpense = existing
+                    _state.update {
+                        it.copy(
+                            direction = existing.direction,
+                            amountText = BigDecimal(existing.amountPaise).movePointLeft(2).toPlainString(),
+                            date = existing.expenseDate,
+                            notes = existing.notes.orEmpty(),
+                        )
+                    }
+                }
+            }
+        }
 
         private val _events = MutableSharedFlow<AddEntryEvent>(extraBufferCapacity = 1)
         val events: SharedFlow<AddEntryEvent> = _events.asSharedFlow()
@@ -168,8 +194,15 @@ class AddEntryViewModel
             viewModelScope.launch {
                 _state.update { it.copy(saving = true) }
                 val now = clock.instant()
+                val businessId = session.businessId()
                 val expense =
-                    Expense(
+                    editingExpense?.copy(
+                        direction = current.direction,
+                        amountPaise = amountPaise,
+                        expenseDate = current.date,
+                        notes = current.notes.trim().ifEmpty { null },
+                        updatedAt = now,
+                    ) ?: Expense(
                         id = UUID.randomUUID().toString(),
                         businessId = businessId,
                         partyId = partyId,
@@ -177,7 +210,7 @@ class AddEntryViewModel
                         amountPaise = amountPaise,
                         expenseDate = current.date,
                         notes = current.notes.trim().ifEmpty { null },
-                        createdBy = ExpensesSessionDefaults.USER_ID,
+                        createdBy = session.userId(),
                         createdAt = now,
                         updatedAt = now,
                     )

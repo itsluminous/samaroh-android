@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import com.itsluminous.samaroh.feature.menu.data.SettingsPreferencesDataSource
+import com.itsluminous.samaroh.feature.menu.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.menu.fakes.FakeGoogleAccountLinker
 import com.itsluminous.samaroh.feature.menu.fakes.FakePermissionGuard
@@ -63,7 +64,7 @@ class SettingsViewModelTest {
         linker = FakeGoogleAccountLinker()
         viewModel =
             SettingsViewModel(
-                currentBusinessProvider = CurrentBusinessProvider(businessRepository),
+                currentBusinessProvider = CurrentBusinessProvider(FakeActiveBusinessProvider(businessRepository)),
                 preferences = SettingsPreferencesDataSource(dataStore),
                 googleAccountLinker = linker,
                 permissionGuard = permissionGuard,

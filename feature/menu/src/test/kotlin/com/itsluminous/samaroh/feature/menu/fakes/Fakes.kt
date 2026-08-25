@@ -89,3 +89,11 @@ class FakeGoogleAccountLinker(
         return result
     }
 }
+
+/** Adapter: wraps a [BusinessRepository] as the ADR-017 active-business session source. */
+class FakeActiveBusinessProvider(
+    repository: BusinessRepository,
+) : com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider {
+    override val activeBusiness: Flow<Business?> =
+        repository.businesses().map { list -> list.firstOrNull { it.deletedAt == null } }
+}

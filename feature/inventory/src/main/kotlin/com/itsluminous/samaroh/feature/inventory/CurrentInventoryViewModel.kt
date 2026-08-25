@@ -2,9 +2,9 @@ package com.itsluminous.samaroh.feature.inventory
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -34,20 +34,16 @@ data class CurrentInventoryUiState(
 class CurrentInventoryViewModel
     @Inject
     constructor(
-        businessRepository: BusinessRepository,
+        activeBusinessProvider: ActiveBusinessProvider,
         overviewRepository: InventoryOverviewRepository,
     ) : ViewModel() {
         private val query = MutableStateFlow("")
         val searchQuery: StateFlow<String> = query.asStateFlow()
 
-        /**
-         * Interim active-business resolution: the first live business. The dedicated
-         * business switcher/session lands with the onboarding wave.
-         */
+        /** App-wide active-business session seam (docs/decisions.md ADR-017). */
         private val activeBusinessId: Flow<String?> =
-            businessRepository
-                .businesses()
-                .map { list -> list.firstOrNull { it.deletedAt == null }?.id }
+            activeBusinessProvider.activeBusiness
+                .map { it?.id }
                 .distinctUntilChanged()
 
         val uiState: StateFlow<CurrentInventoryUiState> =

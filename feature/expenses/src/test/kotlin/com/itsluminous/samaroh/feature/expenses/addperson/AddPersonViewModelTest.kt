@@ -5,6 +5,7 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
+import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
@@ -22,7 +23,7 @@ class AddPersonViewModelTest {
     @Before
     fun setUp() {
         repository = FakeExpensesRepository()
-        viewModel = AddPersonViewModel(repository, Clock.fixed(Fixtures.NOW, ZoneOffset.UTC))
+        viewModel = AddPersonViewModel(repository, fakeExpensesSession(), Clock.fixed(Fixtures.NOW, ZoneOffset.UTC))
     }
 
     @Test

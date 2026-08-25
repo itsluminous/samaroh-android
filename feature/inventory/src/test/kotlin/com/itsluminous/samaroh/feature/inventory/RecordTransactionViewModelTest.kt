@@ -28,7 +28,7 @@ class RecordTransactionViewModelTest {
     fun setUp() {
         inventory = FakeInventoryRepository()
         inventory.masterItemsFlow.value = listOf(plate, glass)
-        viewModel = RecordTransactionViewModel(FakeBusinessRepository(), inventory, clock)
+        viewModel = RecordTransactionViewModel(FakeBusinessRepository(), FakeActiveBusinessProvider(), inventory, clock)
     }
 
     private fun selectPlate() {

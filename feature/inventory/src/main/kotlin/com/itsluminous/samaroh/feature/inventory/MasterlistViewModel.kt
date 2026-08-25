@@ -3,9 +3,9 @@ package com.itsluminous.samaroh.feature.inventory
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.feature.inventory.domain.FuzzyMatcher
 import com.itsluminous.samaroh.feature.inventory.image.ItemImageStore
@@ -77,16 +77,15 @@ data class DeleteRequestState(
 class MasterlistViewModel
     @Inject
     constructor(
-        businessRepository: BusinessRepository,
+        activeBusinessProvider: ActiveBusinessProvider,
         private val inventoryRepository: InventoryRepository,
         private val overviewRepository: InventoryOverviewRepository,
         private val imageStore: ItemImageStore,
         private val clock: Clock,
     ) : ViewModel() {
         private val activeBusinessId: Flow<String?> =
-            businessRepository
-                .businesses()
-                .map { list -> list.firstOrNull { it.deletedAt == null }?.id }
+            activeBusinessProvider.activeBusiness
+                .map { it?.id }
                 .distinctUntilChanged()
 
         val items: StateFlow<List<MasterItem>> =

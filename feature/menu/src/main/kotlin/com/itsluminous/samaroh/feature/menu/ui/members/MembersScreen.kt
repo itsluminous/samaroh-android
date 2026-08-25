@@ -28,9 +28,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.auth.permissions.PermissionMatrixEditor
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BusinessMember
+import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 
@@ -90,6 +92,7 @@ fun MembersScreen(
                             expandedMemberId = if (expandedMemberId == member.id) null else member.id
                         },
                         onRevoke = { viewModel.revokeMember(member) },
+                        onSavePermissions = { permissions -> viewModel.updatePermissions(member, permissions) },
                     )
                     HorizontalDivider()
                 }
@@ -114,6 +117,7 @@ private fun MemberRow(
     expanded: Boolean,
     onToggleExpand: () -> Unit,
     onRevoke: () -> Unit,
+    onSavePermissions: (MemberPermissions) -> Unit,
 ) {
     Column {
         ListItem(
@@ -134,7 +138,7 @@ private fun MemberRow(
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            PermissionMatrixEditorSlot(member = member)
+            MemberPermissionsEditor(member = member, onSave = onSavePermissions)
             TextButton(
                 onClick = onRevoke,
                 enabled = member.status != MemberStatus.REVOKED,
@@ -147,22 +151,28 @@ private fun MemberRow(
 }
 
 /**
- * ═══ INTEGRATOR SLOT ═══
- * Placeholder for `core:auth`'s `PermissionMatrixEditor` (W1-D deliverable, §3 permission
- * matrix). Not on this branch yet — swap this composable for the real editor at wave
- * merge, keeping the [member] parameter as the editing target.
+ * `core:auth`'s [PermissionMatrixEditor] (§3 permission matrix) wired to the member row:
+ * edits accumulate locally and persist on Save (Wave-1 integration of the W1-F slot).
  */
 @Composable
-fun PermissionMatrixEditorSlot(
+private fun MemberPermissionsEditor(
     member: BusinessMember,
+    onSave: (MemberPermissions) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = stringResource(R.string.menu_members_permissions_placeholder),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(16.dp),
-    )
+    var draft by remember(member.id, member.permissions) { mutableStateOf(member.permissions) }
+    Column(modifier = modifier.padding(horizontal = 16.dp)) {
+        PermissionMatrixEditor(
+            permissions = draft,
+            onPermissionsChange = { draft = it },
+        )
+        TextButton(
+            onClick = { onSave(draft) },
+            enabled = draft != member.permissions,
+        ) {
+            Text(stringResource(R.string.common_action_save))
+        }
+    }
 }
 
 @Composable
