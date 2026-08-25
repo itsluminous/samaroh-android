@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.ReportsRepository
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.feature.reports.domain.AgingBucket
 import com.itsluminous.samaroh.feature.reports.domain.AgingEntry
 import com.itsluminous.samaroh.feature.reports.domain.BookingSourceBreakdownCalculator
@@ -130,6 +131,7 @@ class ReportDetailViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         activeBusinessProvider: ActiveBusinessProvider,
+        currentUserProvider: CurrentUserProvider,
         permissionGuard: PermissionGuard,
         private val bookingRepository: BookingRepository,
         private val expensesRepository: ExpensesRepository,
@@ -162,20 +164,30 @@ class ReportDetailViewModel
 
         @OptIn(ExperimentalCoroutinesApi::class)
         val uiState: StateFlow<ReportDetailUiState> =
-            combine(activeBusinessProvider.activeBusiness, rangeSelection) { business, selection -> business to selection }
-                .flatMapLatest { (business, selection) ->
-                    if (business == null) {
-                        flowOf(baseState(selection).copy(loading = false, allowed = false))
-                    } else {
-                        permissionGuard.permissions(business.id).flatMapLatest { permissions ->
-                            if (!permissions.reports.view) {
-                                flowOf(baseState(selection).copy(loading = false, allowed = false))
-                            } else {
-                                dataFlow(business.id, selection.range).map { data ->
-                                    baseState(selection).copy(loading = false, allowed = true, data = data)
+            combine(
+                activeBusinessProvider.activeBusiness,
+                currentUserProvider.currentUserId,
+                rangeSelection,
+            ) { business, userId, selection -> Triple(business, userId, selection) }
+                .flatMapLatest { (business, userId, selection) ->
+                    when {
+                        business == null ->
+                            flowOf(baseState(selection).copy(loading = false, allowed = false))
+                        // Signed-out/offline: owner-mode default on the local business (ADR-017, §3).
+                        userId == null ->
+                            dataFlow(business.id, selection.range).map { data ->
+                                baseState(selection).copy(loading = false, allowed = true, data = data)
+                            }
+                        else ->
+                            permissionGuard.permissions(business.id).flatMapLatest { permissions ->
+                                if (!permissions.reports.view) {
+                                    flowOf(baseState(selection).copy(loading = false, allowed = false))
+                                } else {
+                                    dataFlow(business.id, selection.range).map { data ->
+                                        baseState(selection).copy(loading = false, allowed = true, data = data)
+                                    }
                                 }
                             }
-                        }
                     }
                 }.stateIn(
                     viewModelScope,

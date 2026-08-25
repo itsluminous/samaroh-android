@@ -8,6 +8,7 @@ import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.PartyWithNetBalance
 import com.itsluminous.samaroh.core.data.repository.ReportsRepository
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
@@ -30,6 +31,14 @@ class FakeActiveBusinessProvider(
 ) : ActiveBusinessProvider {
     val businessFlow = MutableStateFlow(initial)
     override val activeBusiness: Flow<Business?> get() = businessFlow
+}
+
+/** Signed-in by default so tests exercise the permission path; set null for owner-mode. */
+class FakeCurrentUserProvider(
+    initial: String? = "user-reports-test",
+) : CurrentUserProvider {
+    val userIdFlow = MutableStateFlow(initial)
+    override val currentUserId: Flow<String?> get() = userIdFlow
 }
 
 class FakePermissionGuard(

@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.feature.reports.export.ReportExportFormat
 import com.itsluminous.samaroh.feature.reports.export.ReportTable
 import com.itsluminous.samaroh.feature.reports.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.reports.fakes.FakeBookingRepository
+import com.itsluminous.samaroh.feature.reports.fakes.FakeCurrentUserProvider
 import com.itsluminous.samaroh.feature.reports.fakes.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.reports.fakes.FakeInventoryOverviewRepository
 import com.itsluminous.samaroh.feature.reports.fakes.FakePermissionGuard
@@ -35,6 +36,7 @@ class ReportDetailViewModelTest {
     private val clock = Clock.fixed(Instant.parse("2026-08-25T09:00:00Z"), ZoneOffset.UTC)
 
     private val businessProvider = FakeActiveBusinessProvider(Fixtures.business())
+    private val currentUserProvider = FakeCurrentUserProvider()
     private val permissionGuard = FakePermissionGuard()
     private val bookingRepository = FakeBookingRepository()
     private val expensesRepository = FakeExpensesRepository()
@@ -46,6 +48,7 @@ class ReportDetailViewModelTest {
         ReportDetailViewModel(
             savedStateHandle = SavedStateHandle(mapOf(ReportDetailViewModel.REPORT_TYPE_ARG to type.routeArg)),
             activeBusinessProvider = businessProvider,
+            currentUserProvider = currentUserProvider,
             permissionGuard = permissionGuard,
             bookingRepository = bookingRepository,
             expensesRepository = expensesRepository,
