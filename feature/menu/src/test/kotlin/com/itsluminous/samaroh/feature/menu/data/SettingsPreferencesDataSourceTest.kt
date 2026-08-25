@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.menu.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.common.truth.Truth.assertThat
@@ -105,5 +106,33 @@ class SettingsPreferencesDataSourceTest {
             val raw = dataStore.data.first()
             assertThat(raw.contains(stringPreferencesKey("booking_reminder_sound_uri"))).isFalse()
             assertThat(dataSource.settings.first().reminderSoundUri).isNull()
+        }
+
+    @Test
+    fun `booking form fields default to deposit hidden and the rest visible`() =
+        testScope.runTest {
+            val settings = dataSource.settings.first()
+            assertThat(settings.bookingFormShowDeposit).isFalse()
+            assertThat(settings.bookingFormShowSource).isTrue()
+            assertThat(settings.bookingFormShowTimes).isTrue()
+        }
+
+    @Test
+    fun `booking form field prefs round-trip through the exact ADR-020 keys`() =
+        testScope.runTest {
+            dataSource.setBookingFormShowDeposit(true)
+            dataSource.setBookingFormShowSource(false)
+            dataSource.setBookingFormShowTimes(false)
+
+            val settings = dataSource.settings.first()
+            assertThat(settings.bookingFormShowDeposit).isTrue()
+            assertThat(settings.bookingFormShowSource).isFalse()
+            assertThat(settings.bookingFormShowTimes).isFalse()
+
+            // The raw keys ARE the contract read by feature:booking's form (ADR-020).
+            val raw = dataStore.data.first()
+            assertThat(raw[booleanPreferencesKey("booking_form_show_security_deposit")]).isTrue()
+            assertThat(raw[booleanPreferencesKey("booking_form_show_source")]).isFalse()
+            assertThat(raw[booleanPreferencesKey("booking_form_show_times")]).isFalse()
         }
 }

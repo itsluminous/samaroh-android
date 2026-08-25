@@ -18,6 +18,20 @@ import com.itsluminous.samaroh.feature.menu.ui.settings.SyncStatusScreen
 const val MENU_ROUTE = "menu"
 
 /**
+ * Top-level route for the Sync-status screen (§4.4/§4.5): registered by the app shell so
+ * the app-bar cloud icon can open the pending list directly; the Menu tab's nested
+ * Settings graph reuses the same [SyncStatusScreen].
+ */
+const val SYNC_STATUS_ROUTE = "sync_status"
+
+/** Registers the top-level Sync-status destination on the app's root NavHost. */
+fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
+    composable(SYNC_STATUS_ROUTE) {
+        SyncStatusScreen(onBack = onBack)
+    }
+}
+
+/**
  * Menu feature graph (§4.4): Settings (language/theme/reminders/Google/backup/sync/
  * business profile), Members (owner only), About. Sub-navigation is self-contained in a
  * nested NavHost so the app shell keeps calling `menuGraph()` unchanged; [onOpenReports]

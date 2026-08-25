@@ -119,6 +119,20 @@ class SettingsViewModel
             viewModelScope.launch { preferences.setDynamicColor(enabled) }
         }
 
+        // Booking-form field visibility (ADR-020, Settings → Booking form fields).
+
+        fun setBookingFormShowDeposit(show: Boolean) {
+            viewModelScope.launch { preferences.setBookingFormShowDeposit(show) }
+        }
+
+        fun setBookingFormShowSource(show: Boolean) {
+            viewModelScope.launch { preferences.setBookingFormShowSource(show) }
+        }
+
+        fun setBookingFormShowTimes(show: Boolean) {
+            viewModelScope.launch { preferences.setBookingFormShowTimes(show) }
+        }
+
         fun linkGoogle(activityContext: Context) {
             viewModelScope.launch {
                 googleAccountLinker.link(activityContext).onFailure(::handleLinkFailure)

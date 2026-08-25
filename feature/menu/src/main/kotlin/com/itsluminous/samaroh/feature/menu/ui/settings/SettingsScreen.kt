@@ -108,6 +108,43 @@ fun SettingsScreen(
         )
         HorizontalDivider()
 
+        // Booking form fields (ADR-020): choose which optional fields the form shows.
+        SettingsSectionHeader(R.string.settings_booking_form_title)
+        Text(
+            text = stringResource(R.string.settings_booking_form_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.settings_booking_form_show_deposit)) },
+            trailingContent = {
+                Switch(
+                    checked = state.device?.bookingFormShowDeposit == true,
+                    onCheckedChange = viewModel::setBookingFormShowDeposit,
+                )
+            },
+        )
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.settings_booking_form_show_source)) },
+            trailingContent = {
+                Switch(
+                    checked = state.device?.bookingFormShowSource != false,
+                    onCheckedChange = viewModel::setBookingFormShowSource,
+                )
+            },
+        )
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.settings_booking_form_show_times)) },
+            trailingContent = {
+                Switch(
+                    checked = state.device?.bookingFormShowTimes != false,
+                    onCheckedChange = viewModel::setBookingFormShowTimes,
+                )
+            },
+        )
+        HorizontalDivider()
+
         // Google account link/unlink with connected email (§4.4).
         SettingsSectionHeader(R.string.settings_google_title)
         when (val link = state.linkState) {

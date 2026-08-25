@@ -48,6 +48,10 @@ data class DeviceSettings(
     val reminderStyle: ReminderStyle,
     /** Ringtone URI for the full-screen popup, or null for the system default. */
     val reminderSoundUri: String?,
+    /** Booking-form optional fields (ADR-020): deposit hidden by default. */
+    val bookingFormShowDeposit: Boolean,
+    val bookingFormShowSource: Boolean,
+    val bookingFormShowTimes: Boolean,
 )
 
 /**
@@ -78,6 +82,9 @@ class SettingsPreferencesDataSource
                             ?: DEFAULT_LEAD_DAYS,
                     reminderStyle = ReminderStyle.fromWire(prefs[KEY_REMINDER_STYLE]),
                     reminderSoundUri = prefs[KEY_REMINDER_SOUND_URI]?.ifEmpty { null },
+                    bookingFormShowDeposit = prefs[KEY_BOOKING_FORM_SHOW_DEPOSIT] ?: false,
+                    bookingFormShowSource = prefs[KEY_BOOKING_FORM_SHOW_SOURCE] ?: true,
+                    bookingFormShowTimes = prefs[KEY_BOOKING_FORM_SHOW_TIMES] ?: true,
                 )
             }
 
@@ -103,6 +110,18 @@ class SettingsPreferencesDataSource
             }
         }
 
+        suspend fun setBookingFormShowDeposit(show: Boolean) {
+            dataStore.edit { it[KEY_BOOKING_FORM_SHOW_DEPOSIT] = show }
+        }
+
+        suspend fun setBookingFormShowSource(show: Boolean) {
+            dataStore.edit { it[KEY_BOOKING_FORM_SHOW_SOURCE] = show }
+        }
+
+        suspend fun setBookingFormShowTimes(show: Boolean) {
+            dataStore.edit { it[KEY_BOOKING_FORM_SHOW_TIMES] = show }
+        }
+
         companion object {
             /** DataStore preferences file name — the cross-feature contract. */
             const val FILE_NAME = "settings"
@@ -112,6 +131,11 @@ class SettingsPreferencesDataSource
             val KEY_REMINDER_SOUND_URI = stringPreferencesKey("booking_reminder_sound_uri")
             val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
             val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+
+            // Booking-form field visibility (ADR-020) — read by feature:booking's form.
+            val KEY_BOOKING_FORM_SHOW_DEPOSIT = booleanPreferencesKey("booking_form_show_security_deposit")
+            val KEY_BOOKING_FORM_SHOW_SOURCE = booleanPreferencesKey("booking_form_show_source")
+            val KEY_BOOKING_FORM_SHOW_TIMES = booleanPreferencesKey("booking_form_show_times")
 
             val DEFAULT_LEAD_DAYS: Set<Int> = sortedSetOf(1, 3)
         }

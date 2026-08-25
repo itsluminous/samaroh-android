@@ -3,8 +3,12 @@ package com.itsluminous.samaroh.feature.menu.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,7 +45,8 @@ fun BusinessProfileScreen(
         onBack = onBack,
         messageRes = message,
         onMessageShown = viewModel::onMessageShown,
-    ) {
+        scrollable = false,
+    ) { base ->
         val current = business ?: return@MenuScreenScaffold
 
         // remember(current.id): fields reset only when a different business loads.
@@ -51,25 +56,40 @@ fun BusinessProfileScreen(
         var ownerName by remember(current.id) { mutableStateOf(current.ownerName) }
         var invoicePrefix by remember(current.id) { mutableStateOf(current.invoicePrefix) }
 
-        ProfileField(value = name, onValueChange = { name = it }, labelRes = R.string.settings_business_name)
-        ProfileField(value = type, onValueChange = { type = it }, labelRes = R.string.settings_business_type)
-        ProfileField(value = address, onValueChange = { address = it }, labelRes = R.string.settings_business_address)
-        ProfileField(value = ownerName, onValueChange = { ownerName = it }, labelRes = R.string.settings_business_owner_name)
-        ProfileField(value = invoicePrefix, onValueChange = { invoicePrefix = it }, labelRes = R.string.settings_business_invoice_prefix)
+        // IME handling (§6 UX round): fields scroll; the save button stays pinned.
+        Column(modifier = base.imePadding()) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+            ) {
+                ProfileField(value = name, onValueChange = { name = it }, labelRes = R.string.settings_business_name)
+                ProfileField(value = type, onValueChange = { type = it }, labelRes = R.string.settings_business_type)
+                ProfileField(value = address, onValueChange = { address = it }, labelRes = R.string.settings_business_address)
+                ProfileField(value = ownerName, onValueChange = { ownerName = it }, labelRes = R.string.settings_business_owner_name)
+                ProfileField(
+                    value = invoicePrefix,
+                    onValueChange = { invoicePrefix = it },
+                    labelRes = R.string.settings_business_invoice_prefix,
+                )
 
-        OutlinedButton(
-            onClick = { logoPicker.launch("image/*") },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        ) {
-            Text(stringResource(R.string.settings_business_change_logo))
-        }
+                OutlinedButton(
+                    onClick = { logoPicker.launch("image/*") },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text(stringResource(R.string.settings_business_change_logo))
+                }
+            }
 
-        Button(
-            onClick = { viewModel.save(name, type, address, ownerName, invoicePrefix) },
-            enabled = name.isNotBlank() && ownerName.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-        ) {
-            Text(stringResource(R.string.common_action_save))
+            // Pinned action row — always visible, also above the keyboard.
+            Button(
+                onClick = { viewModel.save(name, type, address, ownerName, invoicePrefix) },
+                enabled = name.isNotBlank() && ownerName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+            ) {
+                Text(stringResource(R.string.common_action_save))
+            }
         }
     }
 }
