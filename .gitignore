@@ -24,3 +24,6 @@ captures/
 
 # Logs (incl. quality-gate build.log)
 *.log
+
+# IDE (VS Code / Eclipse) module output
+bin/
