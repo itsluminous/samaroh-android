@@ -2,8 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Offline banner / sync-state detection only; the app is fully usable offline. -->
+    <!-- Offline banner / sync-state detection; the app is fully usable offline. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Supabase sync/auth and Google Drive/Calendar REST (Wave 1). -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".SamarohApplication"

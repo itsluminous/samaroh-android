@@ -69,6 +69,7 @@ internal fun OnboardingRoute(
                 onModeChange = viewModel::setAuthMode,
                 onSubmit = viewModel::submitEmailAuth,
                 onGoogleSignIn = viewModel::signInWithGoogle,
+                onContinueOffline = viewModel::continueWithoutAccount,
             )
         OnboardingStep.FORK ->
             ForkScreen(

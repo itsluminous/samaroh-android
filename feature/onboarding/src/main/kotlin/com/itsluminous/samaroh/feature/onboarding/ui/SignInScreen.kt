@@ -45,6 +45,7 @@ internal fun SignInScreen(
     onModeChange: (AuthFormMode) -> Unit,
     onSubmit: (email: String, password: String) -> Unit,
     onGoogleSignIn: (Context) -> Unit,
+    onContinueOffline: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -145,6 +146,14 @@ internal fun SignInScreen(
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
         ) {
             Text(stringResource(if (signUp) R.string.auth_mode_to_sign_in else R.string.auth_mode_to_sign_up))
+        }
+        // Offline-first (§5): never a dead end — proceed in device-local owner mode.
+        TextButton(
+            onClick = onContinueOffline,
+            enabled = !state.isBusy,
+            modifier = Modifier.align(Alignment.CenterHorizontally).defaultMinSize(minHeight = 48.dp),
+        ) {
+            Text(stringResource(R.string.onboarding_sign_in_continue_offline))
         }
         if (state.isBusy) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 16.dp))

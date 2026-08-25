@@ -26,7 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -93,8 +93,10 @@ fun SamarohApp(
 
     // Wait for the DataStore read before choosing the start destination (no flicker).
     val onboarded = onboardingComplete ?: return
-    // Captured once: the completion navigation (not a graph swap) moves the user on.
-    val startDestination = remember { if (onboarded) BOOKING_ROUTE else ONBOARDING_ROUTE }
+    // Saveable so activity recreation (locale/theme change) keeps the SAME nav graph —
+    // a changed startDestination breaks NavController state restoration. The completion
+    // navigation (not a graph swap) moves the user on; a process restart re-reads the flag.
+    val startDestination = rememberSaveable { if (onboarded) BOOKING_ROUTE else ONBOARDING_ROUTE }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination

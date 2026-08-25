@@ -173,6 +173,15 @@ class OnboardingViewModel
             }
         }
 
+        /**
+         * Offline-first escape hatch (§5: the app never blocks on network): proceeds to
+         * the create/join fork without a session — device-local owner mode (ADR-017
+         * signed-out default). Data syncs after a later sign-in.
+         */
+        fun continueWithoutAccount() {
+            _uiState.value = _uiState.value.copy(isBusy = false, authError = null, step = OnboardingStep.FORK)
+        }
+
         // ---- Fork (step 4: create vs join, pending-invite auto-detect) ----
 
         private suspend fun onSignedIn() {
@@ -259,11 +268,16 @@ class OnboardingViewModel
                 return
             }
             viewModelScope.launch {
-                val session = sessionHolder.session.first() ?: return@launch
+                // Offline-first (§5): a missing session (signed out, or email-confirmation
+                // still pending after sign-up) must NOT block business creation — fall back
+                // to a device-local owner identity; the app runs in owner-mode on the first
+                // local business until a real session lands (ADR-017 default).
+                val session = sessionHolder.session.first()
                 _uiState.value = _uiState.value.copy(isBusy = true, createFailed = false)
                 try {
                     val now = clock.instant()
                     val businessId = UUID.randomUUID().toString()
+                    val ownerUserId = session?.userId ?: "local-${UUID.randomUUID()}"
                     val trimmedType = form.businessType.trim()
                     // A blank type keeps the model's canonical default (mirrors the Postgres column default).
                     val business =
@@ -273,7 +287,7 @@ class OnboardingViewModel
                             address = form.address.trim().ifBlank { null },
                             ownerName = form.ownerName.trim(),
                             logoPath = form.logoPath,
-                            ownerUserId = session.userId,
+                            ownerUserId = ownerUserId,
                             createdAt = now,
                             updatedAt = now,
                         ).let { if (trimmedType.isBlank()) it else it.copy(businessType = trimmedType) }
@@ -281,8 +295,8 @@ class OnboardingViewModel
                         BusinessMember(
                             id = UUID.randomUUID().toString(),
                             businessId = businessId,
-                            invitedEmail = session.email,
-                            userId = session.userId,
+                            invitedEmail = session?.email.orEmpty(),
+                            userId = ownerUserId,
                             displayName = form.ownerName.trim(),
                             isOwner = true,
                             status = MemberStatus.ACTIVE,
