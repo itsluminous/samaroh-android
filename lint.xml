@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared lint config for every module (referenced via lintConfig in each build file).
+  i18n is a hard requirement: user-visible string literals are CI-blocking errors.
+-->
+<lint>
+    <issue id="HardcodedText" severity="error" />
+    <issue id="SetTextI18n" severity="error" />
+</lint>
