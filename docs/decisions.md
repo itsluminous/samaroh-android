@@ -141,3 +141,27 @@ Versions-catalog additions (additive): `supabase-postgrest` (supabase-kt 3.0.3) 
 `ktor-client-okhttp` (Ktor 3.0.3) for the Postgrest wire, `androidx-lifecycle-process` +
 `androidx-startup-runtime` for the app-foreground sync trigger (registered from the
 `core:sync` manifest — no `:app` change).
+## ADR-009 — W1-D additive edits: auth dependencies + invite-lookup DAO query (2026-08-25)
+
+**Status:** accepted.
+
+W1-D (`feature:onboarding` + `core:auth`) makes two additive-only edits outside its
+exclusively-owned modules:
+
+1. **Versions catalog** (`gradle/libs.versions.toml`): adds `io.github.jan-tennert.supabase`
+   `auth-kt`/`postgrest-kt` 3.0.3, `io.ktor:ktor-client-okhttp` 3.0.3 (the supabase-kt 3.0.x
+   line pairs with Ktor 3.0.x), `androidx.credentials` 1.3.0 (+ `credentials-play-services-auth`)
+   and `com.google.android.libraries.identity.googleid:googleid` 1.1.1 — the §1.1 stack for
+   Supabase auth/Postgrest and Sign-in with Google via Credential Manager. No existing
+   entries changed.
+2. **`core:database` `BusinessMemberDao`**: adds one query method
+   `membershipsForEmail(email): Flow<List<BusinessMemberEntity>>` (case-insensitive
+   `invited_email` match, tombstones excluded). Purely additive — no entity, schema or
+   existing-signature change (DB version stays 1). Needed for pending-invite auto-detection
+   in onboarding (§4.0 step 4) and reusable by the Menu Members screen.
+
+Also note: `core:auth` gains its own `BuildConfig` fields (`SUPABASE_URL`,
+`SUPABASE_ANON_KEY`, `GOOGLE_WEB_CLIENT_ID`) read from `local.properties` with safe empty
+defaults, mirroring `:app` — feature/core modules must not depend on `:app`, and empty
+values degrade gracefully (auth reports "not configured"; the Google button shows a
+localized disabled state).

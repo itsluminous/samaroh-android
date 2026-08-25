@@ -43,6 +43,9 @@ interface BusinessMemberDao {
         userId: String,
     ): BusinessMemberEntity?
 
+    @Query("SELECT * FROM business_members WHERE invited_email = :email COLLATE NOCASE AND deleted_at IS NULL ORDER BY created_at ASC")
+    fun membershipsForEmail(email: String): Flow<List<BusinessMemberEntity>>
+
     @Query("UPDATE business_members SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,

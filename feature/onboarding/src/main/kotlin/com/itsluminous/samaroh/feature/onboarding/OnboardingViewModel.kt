@@ -1,0 +1,322 @@
+package com.itsluminous.samaroh.feature.onboarding
+
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.auth.AuthConfig
+import com.itsluminous.samaroh.core.auth.AuthFailureKind
+import com.itsluminous.samaroh.core.auth.AuthRepository
+import com.itsluminous.samaroh.core.auth.AuthResult
+import com.itsluminous.samaroh.core.auth.GoogleIdTokenFetcher
+import com.itsluminous.samaroh.core.auth.GoogleSignInOutcome
+import com.itsluminous.samaroh.core.auth.MembershipRefreshResult
+import com.itsluminous.samaroh.core.auth.MembershipRefresher
+import com.itsluminous.samaroh.core.auth.SessionHolder
+import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.model.Business
+import com.itsluminous.samaroh.core.model.BusinessMember
+import com.itsluminous.samaroh.core.model.MemberStatus
+import com.itsluminous.samaroh.feature.onboarding.logo.LogoProcessor
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.time.Clock
+import java.util.UUID
+import javax.inject.Inject
+
+/** The onboarding flow's step machine (§4.0, in order). */
+enum class OnboardingStep {
+    LANGUAGE,
+    WELCOME,
+    SIGN_IN,
+    FORK,
+    JOIN,
+    CREATE_BUSINESS,
+    LINK_GOOGLE,
+    DONE,
+}
+
+enum class AuthFormMode { SIGN_IN, SIGN_UP }
+
+/** A pending/accepted invitation auto-detected after sign-in (§4.0 step 4). */
+data class InviteSummary(
+    val memberId: String,
+    val businessId: String,
+    val businessName: String?,
+    val displayName: String,
+)
+
+/** Create-business form fields (§4.0 step 5). `name` and `ownerName` are required. */
+data class CreateBusinessForm(
+    val name: String = "",
+    val businessType: String = "",
+    val address: String = "",
+    val ownerName: String = "",
+    val logoPath: String? = null,
+)
+
+data class OnboardingUiState(
+    val step: OnboardingStep = OnboardingStep.LANGUAGE,
+    val selectedLanguage: String? = null,
+    val supportedLocales: List<String> = emptyList(),
+    val authMode: AuthFormMode = AuthFormMode.SIGN_IN,
+    val isBusy: Boolean = false,
+    /** False when this build carries no Supabase URL/key — auth is unavailable. */
+    val supabaseConfigured: Boolean = true,
+    /** False when `GOOGLE_WEB_CLIENT_ID` is empty — the Google button shows the localized "not configured" state. */
+    val googleSignInConfigured: Boolean = true,
+    val authError: AuthFailureKind? = null,
+    val invites: List<InviteSummary> = emptyList(),
+    val form: CreateBusinessForm = CreateBusinessForm(),
+    val nameMissing: Boolean = false,
+    val ownerNameMissing: Boolean = false,
+    val createFailed: Boolean = false,
+    /** The business the user created or joined; set before LINK_GOOGLE. */
+    val activeBusinessId: String? = null,
+)
+
+@HiltViewModel
+class OnboardingViewModel
+    @Inject
+    constructor(
+        private val authRepository: AuthRepository,
+        private val sessionHolder: SessionHolder,
+        private val membershipRefresher: MembershipRefresher,
+        private val businessRepository: BusinessRepository,
+        private val memberRepository: MemberRepository,
+        private val localeApplier: LocaleApplier,
+        private val logoProcessor: LogoProcessor,
+        private val googleIdTokenFetcher: GoogleIdTokenFetcher,
+        authConfig: AuthConfig,
+        private val clock: Clock,
+    ) : ViewModel() {
+        private val _uiState =
+            MutableStateFlow(
+                OnboardingUiState(
+                    supportedLocales = localeApplier.supportedLocales,
+                    selectedLanguage = localeApplier.current(),
+                    supabaseConfigured = authConfig.isSupabaseConfigured,
+                    googleSignInConfigured = authConfig.isGoogleSignInConfigured,
+                ),
+            )
+        val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
+
+        // ---- Language (step 1: FIRST screen, before anything else) ----
+
+        fun selectLanguage(languageTag: String) {
+            localeApplier.apply(languageTag)
+            _uiState.value = _uiState.value.copy(selectedLanguage = languageTag)
+        }
+
+        fun continueFromLanguage() {
+            _uiState.value = _uiState.value.copy(step = OnboardingStep.WELCOME)
+        }
+
+        // ---- Welcome carousel (step 2: 3 slides, skippable) ----
+
+        fun finishWelcome() {
+            _uiState.value = _uiState.value.copy(step = OnboardingStep.SIGN_IN)
+        }
+
+        // ---- Sign in (step 3: Google primary, email+password) ----
+
+        fun setAuthMode(mode: AuthFormMode) {
+            _uiState.value = _uiState.value.copy(authMode = mode, authError = null)
+        }
+
+        fun submitEmailAuth(
+            email: String,
+            password: String,
+        ) {
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(isBusy = true, authError = null)
+                val result =
+                    when (_uiState.value.authMode) {
+                        AuthFormMode.SIGN_IN -> authRepository.signInWithEmail(email.trim(), password)
+                        AuthFormMode.SIGN_UP -> authRepository.signUpWithEmail(email.trim(), password)
+                    }
+                when (result) {
+                    is AuthResult.Success -> onSignedIn()
+                    is AuthResult.Failure ->
+                        _uiState.value = _uiState.value.copy(isBusy = false, authError = result.kind)
+                }
+            }
+        }
+
+        /** Starts Credential Manager Google sign-in. [activityContext] must be an Activity context. */
+        fun signInWithGoogle(activityContext: android.content.Context) {
+            viewModelScope.launch {
+                onGoogleSignInOutcome(googleIdTokenFetcher(activityContext))
+            }
+        }
+
+        fun onGoogleSignInOutcome(outcome: GoogleSignInOutcome) {
+            when (outcome) {
+                is GoogleSignInOutcome.IdToken ->
+                    viewModelScope.launch {
+                        _uiState.value = _uiState.value.copy(isBusy = true, authError = null)
+                        when (val result = authRepository.signInWithGoogleIdToken(outcome.token)) {
+                            is AuthResult.Success -> onSignedIn()
+                            is AuthResult.Failure ->
+                                _uiState.value = _uiState.value.copy(isBusy = false, authError = result.kind)
+                        }
+                    }
+                is GoogleSignInOutcome.Cancelled -> Unit
+                is GoogleSignInOutcome.NotConfigured -> Unit // Button already shows the localized disabled state.
+                is GoogleSignInOutcome.Failed ->
+                    _uiState.value = _uiState.value.copy(authError = AuthFailureKind.NETWORK)
+            }
+        }
+
+        // ---- Fork (step 4: create vs join, pending-invite auto-detect) ----
+
+        private suspend fun onSignedIn() {
+            val invites = detectInvites()
+            _uiState.value = _uiState.value.copy(isBusy = false, step = OnboardingStep.FORK, invites = invites)
+        }
+
+        /**
+         * Invite acceptance is server-side (§3: a trigger auto-activates the membership on
+         * sign-in); this is the client refresh path making the result visible immediately.
+         */
+        private suspend fun detectInvites(): List<InviteSummary> {
+            val session = sessionHolder.session.first() ?: return emptyList()
+            val memberships =
+                when (val result = membershipRefresher.refresh()) {
+                    is MembershipRefreshResult.Refreshed -> result.memberships
+                    else -> emptyList()
+                }
+            return memberships
+                .filter { member ->
+                    !member.isOwner &&
+                        member.deletedAt == null &&
+                        member.status != MemberStatus.REVOKED &&
+                        member.invitedEmail.equals(session.email, ignoreCase = true)
+                }.map { member ->
+                    InviteSummary(
+                        memberId = member.id,
+                        businessId = member.businessId,
+                        businessName = businessRepository.business(member.businessId)?.name,
+                        displayName = member.displayName,
+                    )
+                }
+        }
+
+        fun chooseCreate() {
+            _uiState.value = _uiState.value.copy(step = OnboardingStep.CREATE_BUSINESS)
+        }
+
+        fun chooseJoin() {
+            _uiState.value = _uiState.value.copy(step = OnboardingStep.JOIN)
+        }
+
+        /** "Check again" on the join screen — re-pulls memberships from the server. */
+        fun refreshInvites() {
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(isBusy = true)
+                val invites = detectInvites()
+                _uiState.value = _uiState.value.copy(isBusy = false, invites = invites)
+            }
+        }
+
+        fun acceptInvite(invite: InviteSummary) {
+            _uiState.value = _uiState.value.copy(activeBusinessId = invite.businessId, step = OnboardingStep.LINK_GOOGLE)
+        }
+
+        // ---- Create business (step 5) ----
+
+        fun updateForm(form: CreateBusinessForm) {
+            _uiState.value = _uiState.value.copy(form = form, nameMissing = false, ownerNameMissing = false, createFailed = false)
+        }
+
+        fun onLogoCaptured(bitmap: Bitmap?) {
+            if (bitmap == null) return
+            viewModelScope.launch {
+                val path = logoProcessor.process(bitmap)
+                _uiState.value = _uiState.value.copy(form = _uiState.value.form.copy(logoPath = path))
+            }
+        }
+
+        fun onLogoPicked(uri: Uri?) {
+            if (uri == null) return
+            viewModelScope.launch {
+                val path = logoProcessor.process(uri) ?: return@launch
+                _uiState.value = _uiState.value.copy(form = _uiState.value.form.copy(logoPath = path))
+            }
+        }
+
+        fun submitCreateBusiness() {
+            val form = _uiState.value.form
+            val nameMissing = form.name.isBlank()
+            val ownerNameMissing = form.ownerName.isBlank()
+            if (nameMissing || ownerNameMissing) {
+                _uiState.value = _uiState.value.copy(nameMissing = nameMissing, ownerNameMissing = ownerNameMissing)
+                return
+            }
+            viewModelScope.launch {
+                val session = sessionHolder.session.first() ?: return@launch
+                _uiState.value = _uiState.value.copy(isBusy = true, createFailed = false)
+                try {
+                    val now = clock.instant()
+                    val businessId = UUID.randomUUID().toString()
+                    val trimmedType = form.businessType.trim()
+                    // A blank type keeps the model's canonical default (mirrors the Postgres column default).
+                    val business =
+                        Business(
+                            id = businessId,
+                            name = form.name.trim(),
+                            address = form.address.trim().ifBlank { null },
+                            ownerName = form.ownerName.trim(),
+                            logoPath = form.logoPath,
+                            ownerUserId = session.userId,
+                            createdAt = now,
+                            updatedAt = now,
+                        ).let { if (trimmedType.isBlank()) it else it.copy(businessType = trimmedType) }
+                    val ownerMember =
+                        BusinessMember(
+                            id = UUID.randomUUID().toString(),
+                            businessId = businessId,
+                            invitedEmail = session.email,
+                            userId = session.userId,
+                            displayName = form.ownerName.trim(),
+                            isOwner = true,
+                            status = MemberStatus.ACTIVE,
+                            createdAt = now,
+                            updatedAt = now,
+                        )
+                    businessRepository.saveBusiness(business)
+                    memberRepository.saveMember(ownerMember)
+                    _uiState.value =
+                        _uiState.value.copy(isBusy = false, activeBusinessId = businessId, step = OnboardingStep.LINK_GOOGLE)
+                } catch (e: Exception) {
+                    _uiState.value = _uiState.value.copy(isBusy = false, createFailed = true)
+                }
+            }
+        }
+
+        // ---- Link Google (step 6: prominent "Do it later") + finish (step 7) ----
+
+        /** Both "Connect" (after the W1-F link flow) and "Do it later" end here — land on Booking. */
+        fun finishOnboarding() {
+            _uiState.value = _uiState.value.copy(step = OnboardingStep.DONE)
+        }
+
+        // ---- Back navigation within the flow ----
+
+        fun goBack(): Boolean {
+            val previous =
+                when (_uiState.value.step) {
+                    OnboardingStep.WELCOME -> OnboardingStep.LANGUAGE
+                    OnboardingStep.SIGN_IN -> OnboardingStep.WELCOME
+                    OnboardingStep.JOIN, OnboardingStep.CREATE_BUSINESS -> OnboardingStep.FORK
+                    else -> return false
+                }
+            _uiState.value = _uiState.value.copy(step = previous)
+            return true
+        }
+    }
