@@ -86,3 +86,30 @@ implements (spec §4.1, §11 critical-path note — same pattern as `OutboxWrite
 - Invoice numbers `{prefix}-{YYYY}-{counter:04d}` are assigned once per booking and are
   immutable afterwards (`bookings.invoice_number`); allocation is idempotent.
 - All amounts are Long paise (ADR-002), rendered via `AmountFormatter` only.
+
+## ADR-007 — Additive expenses ledger-support contracts (2026-08-25, W1-B)
+
+**Status:** accepted.
+
+`feature:expenses` needs queries and seams that the frozen Wave-0 contracts do not carry.
+All changes are strictly ADDITIVE — no existing signature, entity, or schema changed (Room
+stays at version 1; only new `@Query` methods, no entity/column changes):
+
+- `core:database` `ExpenseDao` (new methods): `byId(id)`; `totalPaiseFlow(businessId,
+  direction)` (live "You gave"/"You got" header totals); `lastEntryPerParty(businessId)`
+  returning the new `PartyLastEntryRow` projection ("last entry" relative time on the
+  party list).
+- `core:database` `ExpenseAttachmentDao` (new method): `attachmentsForParty(partyId)` —
+  one query for all ledger-row thumbnails of a party.
+- `core:data` new `ExpensesLedgerRepository` (+ `RoomExpensesLedgerRepository`,
+  `ExpenseTotals`, `AttachmentWithLocalState`): totals, last-entry map, single-row
+  lookups, and attachment-metadata persistence (metadata row + outbox upsert/tombstone;
+  the file bytes never sync — Google Drive is authoritative per §2/§4.2). The Room-only
+  `local_cache_path` is exposed via `AttachmentWithLocalState`, NOT by widening the frozen
+  `ExpenseAttachment` model.
+- `core:data` new `AttachmentUploadQueue` contract (`enqueue(localPath, expenseId)`), same
+  Wave-0 seam pattern as `OutboxWriter`/`InvoiceGenerator`: features enqueue Drive uploads
+  without depending on `core:google`. Pending state = the metadata row with
+  `drive_file_id IS NULL` (drives the visible pending badge). A `LocalOnlyAttachmentUploadQueue`
+  placeholder is bound in the new `ExpensesLedgerModule` (own file; `DataModule` untouched);
+  `core:google` (W1-F) supersedes that binding with the real Drive uploader at integration.

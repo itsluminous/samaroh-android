@@ -73,10 +73,41 @@ interface PartyDao {
     )
 }
 
+/** One party's most recent live entry time — drives the "last entry" relative time on the home list. */
+data class PartyLastEntryRow(
+    val partyId: String,
+    val lastEntryAt: Instant?,
+)
+
 @Dao
 interface ExpenseDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(expense: ExpenseEntity)
+
+    @Query("SELECT * FROM expenses WHERE id = :id")
+    suspend fun byId(id: String): ExpenseEntity?
+
+    /** Live variant of [totalPaise] — drives the "You gave"/"You got" header totals card (W1-B additive; ADR-007). */
+    @Query(
+        """
+        SELECT COALESCE(SUM(amountPaise), 0) FROM expenses
+        WHERE business_id = :businessId AND direction = :direction AND deleted_at IS NULL
+        """,
+    )
+    fun totalPaiseFlow(
+        businessId: String,
+        direction: String,
+    ): Flow<Long>
+
+    /** Most recent live entry per party (W1-B additive; ADR-007). */
+    @Query(
+        """
+        SELECT party_id AS partyId, MAX(created_at) AS lastEntryAt FROM expenses
+        WHERE business_id = :businessId AND deleted_at IS NULL
+        GROUP BY party_id
+        """,
+    )
+    fun lastEntryPerParty(businessId: String): Flow<List<PartyLastEntryRow>>
 
     @Query(
         """
@@ -112,6 +143,17 @@ interface ExpenseAttachmentDao {
 
     @Query("SELECT * FROM expense_attachments WHERE expense_id = :expenseId AND deleted_at IS NULL ORDER BY created_at ASC")
     fun attachmentsForExpense(expenseId: String): Flow<List<ExpenseAttachmentEntity>>
+
+    /** All live attachments across a party's entries — ledger-row thumbnails in one query (W1-B additive; ADR-007). */
+    @Query(
+        """
+        SELECT a.* FROM expense_attachments a
+        JOIN expenses e ON e.id = a.expense_id
+        WHERE e.party_id = :partyId AND a.deleted_at IS NULL
+        ORDER BY a.created_at ASC
+        """,
+    )
+    fun attachmentsForParty(partyId: String): Flow<List<ExpenseAttachmentEntity>>
 
     @Query("UPDATE expense_attachments SET deleted_at = :at WHERE id = :id")
     suspend fun tombstone(
