@@ -1,6 +1,8 @@
 package com.itsluminous.samaroh.feature.booking.ui.calendar
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
@@ -38,12 +41,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
+import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
+import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
+import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
@@ -153,7 +161,8 @@ fun BookingCalendarScreen(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .clickable { monthPicker = true },
+                            .clickable { monthPicker = true }
+                            .semantics { heading() },
                 )
                 ExplainableIcon(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -182,7 +191,11 @@ fun BookingCalendarScreen(
 
             // ★ Month summary card: "Received ₹X · Pending ₹Y" (§4.1).
             SamarohCard {
-                Text(text = stringResource(R.string.booking_summary_this_month), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = stringResource(R.string.booking_summary_this_month),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.semantics { heading() },
+                )
                 Text(
                     text =
                         stringResource(
@@ -200,6 +213,7 @@ fun BookingCalendarScreen(
                     Text(
                         text = stringResource(R.string.booking_reminder_pending_card_title),
                         style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.semantics { heading() },
                     )
                     state.pendingConfirmations.forEach { confirmation ->
                         val due = confirmation.reminder.amountDueSnapshotPaise
@@ -231,24 +245,19 @@ fun BookingCalendarScreen(
                 }
             }
 
-            // Month grid with swipe navigation.
+            // Month grid with swipe navigation; month changes slide in the swipe
+            // direction using the shared motion spec (no motion when reduced).
+            val reducedMotion = rememberReducedMotion()
             state.grid?.let { grid ->
-                CalendarGrid(
-                    grid = grid,
-                    locale = currentLocale(),
-                    onDayTapped = { date ->
-                        when (val result = viewModel.onDayTapped(date)) {
-                            is DayTapResult.ShowBookings ->
-                                if (result.bookingIds.size == 1) {
-                                    viewModel.openBooking(result.bookingIds.first())
-                                } else {
-                                    chooser = result.bookingIds
-                                }
-
-                            is DayTapResult.ShowBlock -> blockDetails = result.block
-                            is DayTapResult.AddBooking -> if (canCreate) onAddBooking(result.date)
-                        }
+                AnimatedContent(
+                    targetState = grid,
+                    contentKey = { it.month },
+                    transitionSpec = {
+                        val forward = targetState.month > initialState.month
+                        SamarohMotion.slideEnter(reducedMotion, towardStart = forward) togetherWith
+                            SamarohMotion.slideExit(reducedMotion, towardStart = forward)
                     },
+                    label = "month_grid",
                     modifier =
                         Modifier.pointerInput(state.month) {
                             var dragTotal = 0f
@@ -263,16 +272,38 @@ fun BookingCalendarScreen(
                                 },
                             ) { _, dragAmount -> dragTotal += dragAmount }
                         },
-                )
+                ) { animatedGrid ->
+                    CalendarGrid(
+                        grid = animatedGrid,
+                        locale = currentLocale(),
+                        onDayTapped = { date ->
+                            when (val result = viewModel.onDayTapped(date)) {
+                                is DayTapResult.ShowBookings ->
+                                    if (result.bookingIds.size == 1) {
+                                        viewModel.openBooking(result.bookingIds.first())
+                                    } else {
+                                        chooser = result.bookingIds
+                                    }
+
+                                is DayTapResult.ShowBlock -> blockDetails = result.block
+                                is DayTapResult.AddBooking -> if (canCreate) onAddBooking(result.date)
+                            }
+                        },
+                    )
+                }
             }
 
             // Agenda list of the selected month (§4.1) — cancelled struck through.
-            Text(text = stringResource(R.string.booking_calendar_agenda_title), style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = stringResource(R.string.booking_calendar_agenda_title),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.semantics { heading() },
+            )
             if (state.agenda.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.booking_calendar_agenda_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                EmptyStateCompact(
+                    icon = Icons.Filled.EventAvailable,
+                    title = stringResource(R.string.booking_calendar_agenda_empty),
+                    message = stringResource(R.string.booking_calendar_agenda_empty_hint),
                 )
             } else {
                 state.agenda.forEach { item ->

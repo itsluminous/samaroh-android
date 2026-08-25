@@ -18,6 +18,10 @@ fun currentLocale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.ge
 @Composable
 fun formatDate(date: LocalDate): String = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(currentLocale()))
 
+/** Full localized date incl. weekday — used for TalkBack announcements on calendar cells. */
+@Composable
+fun formatFullDate(date: LocalDate): String = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(currentLocale()))
+
 @Composable
 fun formatDateRange(
     start: LocalDate,
