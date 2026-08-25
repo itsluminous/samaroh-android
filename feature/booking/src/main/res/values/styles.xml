@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme for the alarm-style full-screen reminder activity. Content is Compose
+         (SamarohTheme); this only needs to remove the action bar. -->
+    <style name="Theme.SamarohBooking.FullScreenReminder" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>

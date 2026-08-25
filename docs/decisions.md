@@ -165,3 +165,23 @@ Also note: `core:auth` gains its own `BuildConfig` fields (`SUPABASE_URL`,
 defaults, mirroring `:app` — feature/core modules must not depend on `:app`, and empty
 values degrade gracefully (auth reports "not configured"; the Google button shows a
 localized disabled state).
+## ADR-010 — Additive booking-domain contract extensions for the reminder engine (2026-08-25)
+
+**Status:** accepted. **Author:** W1-A (`feature:booking`).
+
+The Wave 0 frozen contract had no persistence path for `payment_reminders` and no
+one-shot queries suitable for the daily reminder worker (§4.1). Purely **additive**
+extensions (no existing signature changed, no schema/version change):
+
+- `core:database` `BookingDao`: `bookingsEndedBefore(businessId, date)` (payment-reminder
+  candidate set) and `bookingsStartingOn(businessId, date)` (upcoming-event reminders).
+- `core:database` `BookingPaymentDao`: `paymentsForBookings(bookingIds)` — reactive input
+  for the month summary card ("Received ₹X · Pending ₹Y").
+- `core:database` `PaymentReminderDao`: `remindersForBooking(bookingId)`,
+  `duePendingRemindersOnce(businessId, onOrBefore)`, `byId(id)`.
+- `core:data` `BookingRepository` (+ `RoomBookingRepository`, `Mappers`): mirrors of the
+  above plus `saveReminder`/`reminder` — reminder writes go through Room + outbox exactly
+  like every other synced table (`payment_reminders` payloads carry Long paise, ADR-002).
+
+Rationale: reminders are synced rows (§2), so the feature layer must not talk to DAOs
+directly; the repository stays the single Room+outbox write path.

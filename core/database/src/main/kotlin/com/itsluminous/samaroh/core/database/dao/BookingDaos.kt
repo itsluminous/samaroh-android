@@ -63,6 +63,44 @@ interface BookingDao {
         id: String,
         at: Instant,
     )
+
+    /**
+     * Live non-cancelled bookings that ended strictly before [date] — the payment-reminder
+     * engine's candidate set ("day after end_date", §4.1). Additive W1-A extension (ADR-007).
+     */
+    @Query(
+        """
+        SELECT * FROM bookings
+        WHERE business_id = :businessId
+          AND end_date < :date
+          AND status != 'cancelled'
+          AND deleted_at IS NULL
+        ORDER BY end_date ASC
+        """,
+    )
+    suspend fun bookingsEndedBefore(
+        businessId: String,
+        date: LocalDate,
+    ): List<BookingEntity>
+
+    /**
+     * Live non-cancelled bookings starting exactly on [date] — upcoming-event reminder
+     * lookup ("{n} days before start_date", §4.1). Additive W1-A extension (ADR-007).
+     */
+    @Query(
+        """
+        SELECT * FROM bookings
+        WHERE business_id = :businessId
+          AND start_date = :date
+          AND status != 'cancelled'
+          AND deleted_at IS NULL
+        ORDER BY created_at ASC
+        """,
+    )
+    suspend fun bookingsStartingOn(
+        businessId: String,
+        date: LocalDate,
+    ): List<BookingEntity>
 }
 
 @Dao
@@ -110,6 +148,13 @@ interface BookingPaymentDao {
     @Query("SELECT COALESCE(SUM(amountPaise), 0) FROM booking_payments WHERE booking_id = :bookingId AND deleted_at IS NULL")
     suspend fun totalPaidPaise(bookingId: String): Long
 
+    /**
+     * Live payments of several bookings at once — drives the month summary card
+     * ("Received ₹X · Pending ₹Y", §4.1). Additive W1-A extension (ADR-007).
+     */
+    @Query("SELECT * FROM booking_payments WHERE booking_id IN (:bookingIds) AND deleted_at IS NULL")
+    fun paymentsForBookings(bookingIds: List<String>): Flow<List<BookingPaymentEntity>>
+
     @Query("UPDATE booking_payments SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,
@@ -140,4 +185,30 @@ interface PaymentReminderDao {
         status: String,
         at: Instant,
     )
+
+    /** All live reminders of one booking, newest remind_on first. Additive W1-A extension (ADR-007). */
+    @Query(
+        """
+        SELECT * FROM payment_reminders
+        WHERE booking_id = :bookingId AND deleted_at IS NULL
+        ORDER BY remind_on DESC
+        """,
+    )
+    suspend fun remindersForBooking(bookingId: String): List<PaymentReminderEntity>
+
+    /** One-shot variant of [duePendingReminders] for the daily worker. Additive W1-A extension (ADR-007). */
+    @Query(
+        """
+        SELECT * FROM payment_reminders
+        WHERE business_id = :businessId AND status = 'pending' AND remind_on <= :onOrBefore AND deleted_at IS NULL
+        ORDER BY remind_on ASC
+        """,
+    )
+    suspend fun duePendingRemindersOnce(
+        businessId: String,
+        onOrBefore: LocalDate,
+    ): List<PaymentReminderEntity>
+
+    @Query("SELECT * FROM payment_reminders WHERE id = :id")
+    suspend fun byId(id: String): PaymentReminderEntity?
 }

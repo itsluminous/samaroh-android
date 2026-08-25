@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Invoice PDFs are written by core:invoice under the app's private storage;
+         cover the usual roots so the share sheet can grant read access. -->
+    <files-path name="booking_files" path="." />
+    <cache-path name="booking_cache" path="." />
+    <external-files-path name="booking_external_files" path="." />
+</paths>
