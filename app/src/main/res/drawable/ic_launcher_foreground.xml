@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three-arch hall mark, adapted from shared/brand/logo.svg for the adaptive icon grid. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center arch -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M47,68 L47,52 A7,7 0 0 1 61,52 L61,68 Z" />
+    <!-- Left arch -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M33,68 L33,57 A5,5 0 0 1 43,57 L43,68 Z" />
+    <!-- Right arch -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M65,68 L65,57 A5,5 0 0 1 75,57 L75,68 Z" />
+    <!-- Base line -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M30,71 L78,71 L78,74 L30,74 Z" />
+</vector>

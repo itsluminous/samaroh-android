@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppCompat-compatible Material3 theme: required for AppCompatActivity, which the
+         per-app locale backport (§5) depends on. Compose draws everything else. -->
+    <style name="Theme.Samaroh" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/samaroh_primary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+</resources>
