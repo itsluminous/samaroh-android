@@ -86,3 +86,34 @@ implements (spec §4.1, §11 critical-path note — same pattern as `OutboxWrite
 - Invoice numbers `{prefix}-{YYYY}-{counter:04d}` are assigned once per booking and are
   immutable afterwards (`bookings.invoice_number`); allocation is idempotent.
 - All amounts are Long paise (ADR-002), rendered via `AmountFormatter` only.
+
+## ADR-007 — FIFO inventory calculator and overview queries (W1-C) (2026-08-25)
+
+**Status:** accepted.
+
+Additive, inventory-domain-only extensions to the Wave 0 contracts (spec §4.3):
+
+- `core:database` `InventoryTransactionDao` gains two read-only queries (no entity or
+  schema change, Room version stays 1):
+  - `currentInventory(businessId)` — per-item aggregate rows (`CurrentInventoryRow`):
+    stock = Σ(add) − Σ(remove); value = Σ(remaining_quantity × unit_price) over open
+    `add` lots, rounded to whole paise. Mirrors the canonical Postgres helper the web
+    app uses, so both clients compute identical numbers.
+  - `transactionCountForItem(masterItemId)` — counts ALL transaction rows including
+    tombstoned ones. Tombstoned rows still exist server-side, so they keep blocking
+    master-item deletion (the can-delete rule).
+- `core:data` gains a new file with `CurrentInventoryLine`, the read-side interface
+  `InventoryOverviewRepository` (current-inventory flow + `canDeleteMasterItem`), and
+  `FifoInventoryRepository` — a decorator over `RoomInventoryRepository` that implements
+  the FIFO lot logic anticipated by the Wave 0 `InventoryRepository.recordTransaction`
+  contract note:
+  - `add` → `remaining_quantity` is forced to the added quantity (a new open lot);
+  - `remove` → rejected when quantity exceeds open stock; otherwise consumes open `add`
+    lots oldest-first, decrementing each lot's `remaining_quantity` (each touched lot is
+    re-enqueued to the outbox so lot state syncs), and the remove row is stored with the
+    FIFO **weighted-average unit cost** in paise and `remaining_quantity = 0`.
+  - Quantities are rounded to 3 decimals (numeric(10,3) parity); per-lot costs round to
+    whole paise (ADR-002).
+- `DataModule` now binds `InventoryRepository` to `FifoInventoryRepository` (and adds a
+  binding for `InventoryOverviewRepository`). The frozen `InventoryRepository` interface
+  itself is unchanged; `RoomRepositories.kt` is untouched.
