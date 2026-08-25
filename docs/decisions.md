@@ -370,3 +370,29 @@ expense attachment to Drive and stamp `drive_file_id`". They are unified in `cor
   idempotent, offline-safe.
 - `LocalOnlyAttachmentUploadQueue` is deprecated and unbound; both bindings live in
   `GoogleModule`.
+
+## ADR-019 — Additive read-side reports contract (2026-08-25, W2-A)
+
+**Status:** accepted.
+
+The §4.4 report set needs two cross-entity range queries the Wave-0 contracts do not
+carry. All changes are strictly ADDITIVE — no existing signature, entity or schema
+changed (Room stays at version 1; only new `@Query` methods):
+
+- `core:database` `BookingPaymentDao.paymentsBetween(businessId, from, to)` — live
+  payments by `paid_on` in a window, independent of the paid booking's own dates.
+  Cash-basis income input for the profit report (a late payment for last season's event
+  counts in the month it was received).
+- `core:database` `ExpenseDao.expensesBetween(businessId, from, to)` — live entries of
+  every party in a window (the per-party `entriesForParty` would need one live query per
+  party for the expense-summary/profit reports).
+- `core:data` new `ReportsRepository` interface + `RoomReportsRepository`
+  (`repository/ReportsSupport.kt`) exposing the two queries as domain-model flows, bound
+  in the new `ReportsSupportModule` — same pattern as ADR-011's
+  `ExpensesLedgerRepository`: a NEW interface in its own file, so no frozen contract and
+  no other module's test fakes change; `DataModule` stays untouched.
+
+Everything else `feature:reports` consumes comes from existing contracts:
+`BookingRepository.bookingsBetween`/`paymentsForBookings` (revenue, dues aging,
+occupancy, breakdowns, collection efficiency), `ExpensesRepository.partiesWithBalance`
+(party names), and `InventoryOverviewRepository.currentInventory` (FIFO valuation).

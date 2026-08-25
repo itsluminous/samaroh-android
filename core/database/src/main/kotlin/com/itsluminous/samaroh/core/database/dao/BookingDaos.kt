@@ -155,6 +155,25 @@ interface BookingPaymentDao {
     @Query("SELECT * FROM booking_payments WHERE booking_id IN (:bookingIds) AND deleted_at IS NULL")
     fun paymentsForBookings(bookingIds: List<String>): Flow<List<BookingPaymentEntity>>
 
+    /**
+     * Live payments received in [from]..[to] (by `paid_on`), independent of when the paid
+     * booking took place — cash-basis income for the reports (W2-A additive; ADR-019).
+     */
+    @Query(
+        """
+        SELECT * FROM booking_payments
+        WHERE business_id = :businessId
+          AND paid_on >= :from AND paid_on <= :to
+          AND deleted_at IS NULL
+        ORDER BY paid_on ASC
+        """,
+    )
+    fun paymentsBetween(
+        businessId: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): Flow<List<BookingPaymentEntity>>
+
     @Query("UPDATE booking_payments SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,
