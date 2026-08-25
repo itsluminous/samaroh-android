@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
+import java.time.LocalDate
 
 /** A party row plus its computed running balance. */
 data class PartyWithBalance(
@@ -117,6 +118,25 @@ interface ExpenseDao {
         """,
     )
     fun entriesForParty(partyId: String): Flow<List<ExpenseEntity>>
+
+    /**
+     * Live entries of every party dated in [from]..[to] — the cross-party input of the
+     * expense-summary and profit reports (W2-A additive; ADR-019).
+     */
+    @Query(
+        """
+        SELECT * FROM expenses
+        WHERE business_id = :businessId
+          AND expense_date >= :from AND expense_date <= :to
+          AND deleted_at IS NULL
+        ORDER BY expense_date ASC
+        """,
+    )
+    fun expensesBetween(
+        businessId: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): Flow<List<ExpenseEntity>>
 
     @Query(
         """

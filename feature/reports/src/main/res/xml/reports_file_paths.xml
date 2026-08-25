@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exported report files are written under the app's private storage
+         (files/reports); cover the usual roots so the share sheet can grant read access. -->
+    <files-path name="reports_files" path="." />
+    <cache-path name="reports_cache" path="." />
+</paths>
