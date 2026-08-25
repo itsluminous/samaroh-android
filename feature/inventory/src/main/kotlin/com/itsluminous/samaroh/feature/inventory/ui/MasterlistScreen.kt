@@ -48,11 +48,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.feature.inventory.MasterItemEditorState
@@ -81,7 +84,7 @@ fun MasterlistScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.inventory_masterlist_title)) },
+                title = { Text(stringResource(R.string.inventory_masterlist_title), modifier = Modifier.semantics { heading() }) },
                 actions = {
                     ExplainableIcon(
                         icon = Icons.Filled.Inventory2,
@@ -120,6 +123,7 @@ fun MasterlistScreen(
                         item = item,
                         onEdit = { viewModel.openEditor(item) },
                         onDelete = { viewModel.requestDelete(item) },
+                        modifier = animatedListItem(),
                     )
                 }
             }

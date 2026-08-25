@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -46,6 +48,7 @@ import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
@@ -72,7 +75,7 @@ fun CurrentInventoryScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.inventory_list_title)) },
+                title = { Text(stringResource(R.string.inventory_list_title), modifier = Modifier.semantics { heading() }) },
                 actions = {
                     ExplainableIcon(
                         icon = Icons.AutoMirrored.Filled.ListAlt,
@@ -123,6 +126,7 @@ fun CurrentInventoryScreen(
                             CurrentInventoryRowCard(
                                 line = line,
                                 onImageTap = { path -> expandedImagePath = path },
+                                modifier = animatedListItem(),
                             )
                         }
                     }
