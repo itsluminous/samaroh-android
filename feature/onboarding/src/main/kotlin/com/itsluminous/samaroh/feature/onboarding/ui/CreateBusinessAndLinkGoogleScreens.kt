@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -63,101 +64,109 @@ internal fun CreateBusinessScreen(
     val galleryLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { onLogoPicked(it) }
 
-    Column(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.onboarding_create_title),
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 24.dp),
-        )
+    // IME handling (§6 UX round): fields scroll; the submit button stays pinned.
+    Column(modifier = modifier.fillMaxSize().imePadding()) {
+        Column(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.onboarding_create_title),
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 24.dp),
+            )
 
-        OutlinedTextField(
-            value = form.name,
-            onValueChange = { onFormChange(form.copy(name = it)) },
-            label = { Text(stringResource(R.string.onboarding_create_name_label)) },
-            isError = state.nameMissing,
-            supportingText =
-                if (state.nameMissing) {
-                    { Text(stringResource(R.string.onboarding_create_name_required)) }
-                } else {
-                    null
-                },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+            OutlinedTextField(
+                value = form.name,
+                onValueChange = { onFormChange(form.copy(name = it)) },
+                label = { Text(stringResource(R.string.onboarding_create_name_label)) },
+                isError = state.nameMissing,
+                supportingText =
+                    if (state.nameMissing) {
+                        { Text(stringResource(R.string.onboarding_create_name_required)) }
+                    } else {
+                        null
+                    },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-        BusinessTypeField(
-            value = form.businessType,
-            onValueChange = { onFormChange(form.copy(businessType = it)) },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        )
+            BusinessTypeField(
+                value = form.businessType,
+                onValueChange = { onFormChange(form.copy(businessType = it)) },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
 
-        OutlinedTextField(
-            value = form.address,
-            onValueChange = { onFormChange(form.copy(address = it)) },
-            label = { Text(stringResource(R.string.onboarding_create_address_label)) },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        )
+            OutlinedTextField(
+                value = form.address,
+                onValueChange = { onFormChange(form.copy(address = it)) },
+                label = { Text(stringResource(R.string.onboarding_create_address_label)) },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
 
-        OutlinedTextField(
-            value = form.ownerName,
-            onValueChange = { onFormChange(form.copy(ownerName = it)) },
-            label = { Text(stringResource(R.string.onboarding_create_owner_label)) },
-            isError = state.ownerNameMissing,
-            supportingText =
-                if (state.ownerNameMissing) {
-                    { Text(stringResource(R.string.onboarding_create_owner_required)) }
-                } else {
-                    null
-                },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        )
+            OutlinedTextField(
+                value = form.ownerName,
+                onValueChange = { onFormChange(form.copy(ownerName = it)) },
+                label = { Text(stringResource(R.string.onboarding_create_owner_label)) },
+                isError = state.ownerNameMissing,
+                supportingText =
+                    if (state.ownerNameMissing) {
+                        { Text(stringResource(R.string.onboarding_create_owner_required)) }
+                    } else {
+                        null
+                    },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
 
-        Text(
-            text = stringResource(R.string.onboarding_create_logo_label),
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            form.logoPath?.let { path ->
-                val logo = remember(path) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
-                logo?.let {
-                    Image(
-                        bitmap = it,
-                        contentDescription = stringResource(R.string.onboarding_create_logo_preview),
-                        modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)),
-                    )
+            Text(
+                text = stringResource(R.string.onboarding_create_logo_label),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                form.logoPath?.let { path ->
+                    val logo = remember(path) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
+                    logo?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = stringResource(R.string.onboarding_create_logo_preview),
+                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)),
+                        )
+                    }
+                }
+                OutlinedButton(onClick = { cameraLauncher.launch(null) }) {
+                    Text(stringResource(R.string.onboarding_create_logo_camera))
+                }
+                OutlinedButton(
+                    onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                ) {
+                    Text(stringResource(R.string.onboarding_create_logo_gallery))
                 }
             }
-            OutlinedButton(onClick = { cameraLauncher.launch(null) }) {
-                Text(stringResource(R.string.onboarding_create_logo_camera))
-            }
-            OutlinedButton(
-                onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            ) {
-                Text(stringResource(R.string.onboarding_create_logo_gallery))
+
+            if (state.createFailed) {
+                Text(
+                    text = stringResource(R.string.onboarding_create_error),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
         }
 
-        if (state.createFailed) {
-            Text(
-                text = stringResource(R.string.onboarding_create_error),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-        }
-
+        // Pinned action row — always visible, also above the keyboard.
         Button(
             onClick = onSubmit,
             enabled = !state.isBusy,
-            modifier = Modifier.fillMaxWidth().padding(top = 24.dp).defaultMinSize(minHeight = 48.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .defaultMinSize(minHeight = 48.dp),
         ) {
             Text(stringResource(R.string.onboarding_create_submit))
         }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -97,61 +98,70 @@ fun AddPersonScreen(
             )
         },
     ) { padding ->
+        // IME handling (§6 UX round): fields scroll; the save button stays pinned.
         Column(
             modifier =
                 Modifier
                     .padding(padding)
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
+                    .imePadding(),
         ) {
-            TypeAheadField(
-                value = state.name,
-                onValueChange = viewModel::onNameChange,
-                suggestions = state.suggestions.map { it.name },
-                onSuggestionSelected = viewModel::onSuggestionSelected,
-                onQueryDebounced = viewModel::onQueryDebounced,
-                label = { Text(stringResource(R.string.expenses_add_person_name_label)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (state.nameError) {
-                Text(
-                    text = stringResource(R.string.expenses_add_person_name_required),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
             ) {
-                OutlinedTextField(
-                    value = state.phone,
-                    onValueChange = viewModel::onPhoneChange,
-                    label = { Text(stringResource(R.string.expenses_add_person_phone_label)) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
+                TypeAheadField(
+                    value = state.name,
+                    onValueChange = viewModel::onNameChange,
+                    suggestions = state.suggestions.map { it.name },
+                    onSuggestionSelected = viewModel::onSuggestionSelected,
+                    onQueryDebounced = viewModel::onQueryDebounced,
+                    label = { Text(stringResource(R.string.expenses_add_person_name_label)) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                ExplainableIcon(
-                    icon = Icons.Filled.Contacts,
-                    explanationRes = R.string.expenses_add_person_pick_contact,
-                    onClick = {
-                        // Graceful denial (§4.2): the system phone picker needs no runtime
-                        // permission; if no picker exists or nothing comes back, we just
-                        // show a message — typing the number stays fully available.
-                        try {
-                            contactLauncher.launch(Unit)
-                        } catch (_: ActivityNotFoundException) {
-                            viewModel.onContactPicked(null, null)
-                        }
-                    },
-                )
+                if (state.nameError) {
+                    Text(
+                        text = stringResource(R.string.expenses_add_person_name_required),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = state.phone,
+                        onValueChange = viewModel::onPhoneChange,
+                        label = { Text(stringResource(R.string.expenses_add_person_phone_label)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ExplainableIcon(
+                        icon = Icons.Filled.Contacts,
+                        explanationRes = R.string.expenses_add_person_pick_contact,
+                        onClick = {
+                            // Graceful denial (§4.2): the system phone picker needs no runtime
+                            // permission; if no picker exists or nothing comes back, we just
+                            // show a message — typing the number stays fully available.
+                            try {
+                                contactLauncher.launch(Unit)
+                            } catch (_: ActivityNotFoundException) {
+                                viewModel.onContactPicked(null, null)
+                            }
+                        },
+                    )
+                }
             }
+            // Pinned action row — always visible, also above the keyboard.
             Button(
                 onClick = viewModel::save,
                 enabled = !state.saving,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text(stringResource(R.string.common_action_save))
             }

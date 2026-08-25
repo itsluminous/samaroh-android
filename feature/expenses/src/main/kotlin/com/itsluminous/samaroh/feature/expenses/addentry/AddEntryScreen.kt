@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -141,75 +142,84 @@ fun AddEntryScreen(
             )
         },
     ) { padding ->
+        // IME handling (§6 UX round): fields scroll; the save button stays pinned.
         Column(
             modifier =
                 Modifier
                     .padding(padding)
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .imePadding(),
         ) {
-            OutlinedTextField(
-                value = state.amountText,
-                onValueChange = viewModel::onAmountChange,
-                label = { Text(stringResource(R.string.expenses_entry_amount_label)) },
-                isError = state.amountError,
-                supportingText =
-                    if (state.amountError) {
-                        { Text(stringResource(R.string.expenses_entry_amount_error)) }
-                    } else {
-                        null
-                    },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                textStyle = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            EntryDateField(date = state.date, onDateChange = viewModel::onDateChange)
-            OutlinedTextField(
-                value = state.notes,
-                onValueChange = viewModel::onNotesChange,
-                label = { Text(stringResource(R.string.expenses_entry_notes_label)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(stringResource(R.string.expenses_entry_attach_title), style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = {
-                    val file =
-                        File(context.filesDir, "expense_attachments")
-                            .apply { mkdirs() }
-                            .let { dir -> File(dir, "capture-${System.currentTimeMillis()}.jpg") }
-                    captureFile = file
-                    cameraLauncher.launch(
-                        FileProvider.getUriForFile(context, "${context.packageName}.expenses.fileprovider", file),
-                    )
-                }) {
-                    Icon(Icons.Filled.PhotoCamera, contentDescription = null)
-                    Text(stringResource(R.string.expenses_entry_attach_camera), modifier = Modifier.padding(start = 4.dp))
-                }
-                FilledTonalButton(onClick = {
-                    galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) {
-                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
-                    Text(stringResource(R.string.expenses_entry_attach_gallery), modifier = Modifier.padding(start = 4.dp))
-                }
-                FilledTonalButton(onClick = { pdfLauncher.launch(arrayOf(AttachmentCompressor.MIME_PDF)) }) {
-                    Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
-                    Text(stringResource(R.string.expenses_entry_attach_pdf), modifier = Modifier.padding(start = 4.dp))
-                }
-            }
-            if (state.attachments.isNotEmpty()) {
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = state.amountText,
+                    onValueChange = viewModel::onAmountChange,
+                    label = { Text(stringResource(R.string.expenses_entry_amount_label)) },
+                    isError = state.amountError,
+                    supportingText =
+                        if (state.amountError) {
+                            { Text(stringResource(R.string.expenses_entry_amount_error)) }
+                        } else {
+                            null
+                        },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    textStyle = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                EntryDateField(date = state.date, onDateChange = viewModel::onDateChange)
+                OutlinedTextField(
+                    value = state.notes,
+                    onValueChange = viewModel::onNotesChange,
+                    label = { Text(stringResource(R.string.expenses_entry_notes_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(stringResource(R.string.expenses_entry_attach_title), style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    state.attachments.forEach { staged ->
-                        StagedAttachmentThumb(staged = staged, onRemove = { viewModel.removeAttachment(staged) })
+                    FilledTonalButton(onClick = {
+                        val file =
+                            File(context.filesDir, "expense_attachments")
+                                .apply { mkdirs() }
+                                .let { dir -> File(dir, "capture-${System.currentTimeMillis()}.jpg") }
+                        captureFile = file
+                        cameraLauncher.launch(
+                            FileProvider.getUriForFile(context, "${context.packageName}.expenses.fileprovider", file),
+                        )
+                    }) {
+                        Icon(Icons.Filled.PhotoCamera, contentDescription = null)
+                        Text(stringResource(R.string.expenses_entry_attach_camera), modifier = Modifier.padding(start = 4.dp))
+                    }
+                    FilledTonalButton(onClick = {
+                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }) {
+                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
+                        Text(stringResource(R.string.expenses_entry_attach_gallery), modifier = Modifier.padding(start = 4.dp))
+                    }
+                    FilledTonalButton(onClick = { pdfLauncher.launch(arrayOf(AttachmentCompressor.MIME_PDF)) }) {
+                        Icon(Icons.Filled.PictureAsPdf, contentDescription = null)
+                        Text(stringResource(R.string.expenses_entry_attach_pdf), modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+                if (state.attachments.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        state.attachments.forEach { staged ->
+                            StagedAttachmentThumb(staged = staged, onRemove = { viewModel.removeAttachment(staged) })
+                        }
                     }
                 }
             }
+            // Pinned action row — always visible, also above the keyboard.
             Button(
                 onClick = viewModel::save,
                 enabled = !state.saving,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text(stringResource(R.string.common_action_save))
             }
