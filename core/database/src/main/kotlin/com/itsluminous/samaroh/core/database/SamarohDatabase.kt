@@ -17,6 +17,8 @@ import com.itsluminous.samaroh.core.database.dao.MasterItemDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
+import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
+import com.itsluminous.samaroh.core.database.dao.SyncCursorDao
 import com.itsluminous.samaroh.core.database.entity.BookingEntity
 import com.itsluminous.samaroh.core.database.entity.BookingPaymentEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessEntity
@@ -31,6 +33,8 @@ import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
 import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
+import com.itsluminous.samaroh.core.database.entity.SyncConflictEntity
+import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
 
 /**
  * Offline-first source of truth (§1.1): the UI only ever reads from this database;
@@ -53,6 +57,8 @@ import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
         MasterItemEntity::class,
         InventoryTransactionEntity::class,
         OutboxEntity::class,
+        SyncCursorEntity::class,
+        SyncConflictEntity::class,
     ],
     version = 1,
     exportSchema = true,
@@ -86,6 +92,10 @@ abstract class SamarohDatabase : RoomDatabase() {
     abstract fun inventoryTransactionDao(): InventoryTransactionDao
 
     abstract fun outboxDao(): OutboxDao
+
+    abstract fun syncCursorDao(): SyncCursorDao
+
+    abstract fun syncConflictDao(): SyncConflictDao
 
     companion object {
         const val DATABASE_NAME = "samaroh.db"

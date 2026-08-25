@@ -17,6 +17,8 @@ import com.itsluminous.samaroh.core.database.dao.MasterItemDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
+import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
+import com.itsluminous.samaroh.core.database.dao.SyncCursorDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -63,4 +65,8 @@ object DatabaseModule {
     @Provides fun provideInventoryTransactionDao(db: SamarohDatabase): InventoryTransactionDao = db.inventoryTransactionDao()
 
     @Provides fun provideOutboxDao(db: SamarohDatabase): OutboxDao = db.outboxDao()
+
+    @Provides fun provideSyncCursorDao(db: SamarohDatabase): SyncCursorDao = db.syncCursorDao()
+
+    @Provides fun provideSyncConflictDao(db: SamarohDatabase): SyncConflictDao = db.syncConflictDao()
 }

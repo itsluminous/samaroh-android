@@ -110,6 +110,10 @@ interface ExpenseAttachmentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(attachment: ExpenseAttachmentEntity)
 
+    /** ADDITIVE W1-E (ADR-007): lets the sync engine preserve `local_cache_path` when applying pulled rows. */
+    @Query("SELECT * FROM expense_attachments WHERE id = :id")
+    suspend fun byId(id: String): ExpenseAttachmentEntity?
+
     @Query("SELECT * FROM expense_attachments WHERE expense_id = :expenseId AND deleted_at IS NULL ORDER BY created_at ASC")
     fun attachmentsForExpense(expenseId: String): Flow<List<ExpenseAttachmentEntity>>
 
@@ -231,4 +235,27 @@ interface OutboxDao {
     /** Called after a successful push — outbox rows are removed, not tombstoned (local-only table). */
     @Query("DELETE FROM outbox WHERE id = :id")
     suspend fun remove(id: Long)
+
+    /*
+     * ADDITIVE W1-E methods (docs/decisions.md ADR-007): LWW conflict detection and the
+     * Settings → Sync status screen.
+     */
+
+    /** Pending ops for one entity, FIFO — LWW conflict-resolution input (§8). */
+    @Query("SELECT * FROM outbox WHERE entity_type = :entityType AND entity_id = :entityId ORDER BY id ASC")
+    suspend fun pendingForEntity(
+        entityType: String,
+        entityId: String,
+    ): List<OutboxEntity>
+
+    /** Rewrites a rebased op's payload and clears its error so it is pushed again. */
+    @Query("UPDATE outbox SET payload_json = :payloadJson, last_error = NULL WHERE id = :id")
+    suspend fun rewritePayload(
+        id: Long,
+        payloadJson: String,
+    )
+
+    /** Per-item sync errors (RLS rejections etc.) for the sync-status screen; retriable. */
+    @Query("SELECT * FROM outbox WHERE last_error IS NOT NULL ORDER BY id ASC")
+    fun erroredEntries(): Flow<List<OutboxEntity>>
 }
