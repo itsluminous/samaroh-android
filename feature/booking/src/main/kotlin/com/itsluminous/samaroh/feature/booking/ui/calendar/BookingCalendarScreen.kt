@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -50,6 +49,7 @@ import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
+import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
@@ -124,7 +124,7 @@ fun BookingCalendarScreen(
     Scaffold(
         floatingActionButton = {
             if (canCreate && state.business != null) {
-                FloatingActionButton(onClick = { onAddBooking(null) }) {
+                SamarohFab(onClick = { onAddBooking(null) }) {
                     Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.booking_calendar_add))
                 }
             }

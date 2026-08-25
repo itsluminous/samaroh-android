@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -30,6 +29,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.auth.permissions.PermissionMatrixEditor
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
+import com.itsluminous.samaroh.core.designsystem.component.SamarohExtendedFab
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.MemberPermissions
@@ -65,7 +65,7 @@ fun MembersScreen(
 
     Scaffold(
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            SamarohExtendedFab(
                 onClick = { showAddDialog = true },
                 icon = { Icon(Icons.Filled.Group, contentDescription = null) },
                 text = { Text(stringResource(R.string.menu_members_add)) },

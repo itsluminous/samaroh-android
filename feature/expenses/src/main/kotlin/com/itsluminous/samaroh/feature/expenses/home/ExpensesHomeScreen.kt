@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -38,6 +37,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
+import com.itsluminous.samaroh.core.designsystem.component.SamarohExtendedFab
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 
@@ -54,7 +54,7 @@ fun ExpensesHomeScreen(
     Scaffold(
         modifier = modifier,
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            SamarohExtendedFab(
                 onClick = onAddPerson,
                 icon = { Icon(Icons.Filled.PersonAdd, contentDescription = null) },
                 text = { Text(stringResource(R.string.expenses_home_add_person)) },
