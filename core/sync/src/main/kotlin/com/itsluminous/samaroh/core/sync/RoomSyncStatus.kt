@@ -37,7 +37,7 @@ class RoomSyncStatus
                         entityType = entry.entityType,
                         entityId = entry.entityId,
                         operation = OutboxOperation.fromWire(entry.operation),
-                        message = entry.lastError.orEmpty(),
+                        message = SyncErrorSanitizer.sanitize(entry.lastError.orEmpty()),
                         attemptCount = entry.attemptCount,
                     )
                 }
