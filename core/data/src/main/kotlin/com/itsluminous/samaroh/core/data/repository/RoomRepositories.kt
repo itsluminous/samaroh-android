@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
+import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
@@ -22,6 +23,7 @@ import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.model.Party
+import com.itsluminous.samaroh.core.model.PaymentReminder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -61,6 +63,7 @@ class RoomBookingRepository
         private val bookingDao: BookingDao,
         private val paymentDao: BookingPaymentDao,
         private val dateBlockDao: DateBlockDao,
+        private val reminderDao: PaymentReminderDao,
         private val outboxWriter: OutboxWriter,
         private val clock: Clock,
     ) : BookingRepository {
@@ -91,6 +94,9 @@ class RoomBookingRepository
         override fun paymentsForBooking(bookingId: String): Flow<List<BookingPayment>> =
             paymentDao.paymentsForBooking(bookingId).map { list -> list.map { it.toModel() } }
 
+        override fun paymentsForBookings(bookingIds: List<String>): Flow<List<BookingPayment>> =
+            paymentDao.paymentsForBookings(bookingIds).map { list -> list.map { it.toModel() } }
+
         override suspend fun recordPayment(payment: BookingPayment) {
             require(payment.amountPaise > 0) { "payment amount must be positive" }
             paymentDao.upsert(payment.toEntity())
@@ -120,6 +126,41 @@ class RoomBookingRepository
             dateBlockDao.tombstone(id, now)
             outboxWriter.enqueue("date_blocks", id, OutboxOperation.DELETE, tombstonePayload(id, now))
         }
+
+        override fun duePendingReminders(
+            businessId: String,
+            onOrBefore: LocalDate,
+        ): Flow<List<PaymentReminder>> = reminderDao.duePendingReminders(businessId, onOrBefore).map { list -> list.map { it.toModel() } }
+
+        override suspend fun duePendingRemindersOnce(
+            businessId: String,
+            onOrBefore: LocalDate,
+        ): List<PaymentReminder> = reminderDao.duePendingRemindersOnce(businessId, onOrBefore).map { it.toModel() }
+
+        override suspend fun remindersForBooking(bookingId: String): List<PaymentReminder> =
+            reminderDao.remindersForBooking(bookingId).map { it.toModel() }
+
+        override suspend fun reminder(id: String): PaymentReminder? = reminderDao.byId(id)?.toModel()
+
+        override suspend fun saveReminder(reminder: PaymentReminder) {
+            reminderDao.upsert(reminder.toEntity())
+            outboxWriter.enqueue(
+                "payment_reminders",
+                reminder.id,
+                OutboxOperation.UPSERT,
+                json.encodeToString(PaymentReminder.serializer(), reminder),
+            )
+        }
+
+        override suspend fun bookingsEndedBefore(
+            businessId: String,
+            date: LocalDate,
+        ): List<Booking> = bookingDao.bookingsEndedBefore(businessId, date).map { it.toModel() }
+
+        override suspend fun bookingsStartingOn(
+            businessId: String,
+            date: LocalDate,
+        ): List<Booking> = bookingDao.bookingsStartingOn(businessId, date).map { it.toModel() }
     }
 
 @Singleton

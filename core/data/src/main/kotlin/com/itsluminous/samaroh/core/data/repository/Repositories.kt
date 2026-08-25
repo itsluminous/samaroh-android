@@ -10,6 +10,7 @@ import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.model.Party
+import com.itsluminous.samaroh.core.model.PaymentReminder
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
@@ -43,6 +44,9 @@ interface BookingRepository {
 
     fun paymentsForBooking(bookingId: String): Flow<List<BookingPayment>>
 
+    /** Live payments of several bookings — month summary card input. Additive W1-A extension (ADR-007). */
+    fun paymentsForBookings(bookingIds: List<String>): Flow<List<BookingPayment>>
+
     suspend fun recordPayment(payment: BookingPayment)
 
     /** due = booking.totalAmountPaise − this value; always computed, never stored (§2). */
@@ -57,6 +61,43 @@ interface BookingRepository {
     suspend fun saveDateBlock(block: DateBlock)
 
     suspend fun deleteDateBlock(id: String)
+
+    /*
+     * Payment-reminder persistence + reminder-engine queries (§4.1) — additive W1-A
+     * extension of the frozen contract, recorded in docs/decisions.md ADR-007.
+     */
+
+    /** Live pending reminders due on or before [onOrBefore] — the in-app confirmations card. */
+    fun duePendingReminders(
+        businessId: String,
+        onOrBefore: LocalDate,
+    ): Flow<List<PaymentReminder>>
+
+    /** One-shot variant of [duePendingReminders] for the daily reminder worker. */
+    suspend fun duePendingRemindersOnce(
+        businessId: String,
+        onOrBefore: LocalDate,
+    ): List<PaymentReminder>
+
+    /** All live reminders of one booking, newest remind-on first. */
+    suspend fun remindersForBooking(bookingId: String): List<PaymentReminder>
+
+    suspend fun reminder(id: String): PaymentReminder?
+
+    /** Upserts locally and enqueues an outbox push. */
+    suspend fun saveReminder(reminder: PaymentReminder)
+
+    /** Non-cancelled live bookings that ended strictly before [date] — reminder candidates. */
+    suspend fun bookingsEndedBefore(
+        businessId: String,
+        date: LocalDate,
+    ): List<Booking>
+
+    /** Non-cancelled live bookings starting exactly on [date] — upcoming-event reminders. */
+    suspend fun bookingsStartingOn(
+        businessId: String,
+        date: LocalDate,
+    ): List<Booking>
 }
 
 /** A party with its computed running balance for the Expenses home list. */

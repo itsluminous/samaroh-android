@@ -10,6 +10,7 @@ import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
 import com.itsluminous.samaroh.core.database.entity.InventoryTransactionEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
+import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
@@ -20,6 +21,7 @@ import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.model.Party
+import com.itsluminous.samaroh.core.model.PaymentReminder
 
 // Mechanical entity <-> model mapping. Field sets are identical by contract.
 
@@ -84,6 +86,12 @@ internal fun BookingPaymentEntity.toModel() =
 
 internal fun BookingPayment.toEntity() =
     BookingPaymentEntity(id, bookingId, businessId, amountPaise, paidOn, method, notes, createdBy, createdAt, updatedAt, deletedAt)
+
+internal fun PaymentReminderEntity.toModel() =
+    PaymentReminder(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, createdAt, updatedAt, deletedAt)
+
+internal fun PaymentReminder.toEntity() =
+    PaymentReminderEntity(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, createdAt, updatedAt, deletedAt)
 
 internal fun PartyEntity.toModel() = Party(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt)
 
