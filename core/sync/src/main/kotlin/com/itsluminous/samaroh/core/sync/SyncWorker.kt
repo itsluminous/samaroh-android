@@ -1,36 +1,85 @@
 package com.itsluminous.samaroh.core.sync
 
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
+import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.core.sync.engine.SyncEngine
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Sync engine skeleton (§8). Wave 0 ships the outbox writer and this worker shell; the
- * full push/pull pipeline (attachment uploads, Postgrest upserts, incremental pull with
- * `updated_at` cursors, LWW conflict handling) is the W1-E deliverable.
+ * Sync engine worker (§8). Triggers:
+ * - connectivity: every request carries a CONNECTED constraint, so queued work fires the
+ *   moment the network returns;
+ * - periodic ~15 min ([WorkManagerSyncScheduler.ensurePeriodicSync]);
+ * - app launch / foreground resume: [SyncStartupInitializer] requests an EXPEDITED
+ *   one-shot so web-side edits appear right away (§8 "cold start triggers an immediate
+ *   push AND pull").
+ *
+ * Transport failures return [Result.retry] — exponential backoff per the request's
+ * backoff criteria. Per-item failures (RLS) never fail the run; they surface via
+ * `SyncStatus.itemErrors`.
  */
 class SyncWorker(
     appContext: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface SyncWorkerEntryPoint {
+        fun syncEngine(): SyncEngine
+    }
+
     override suspend fun doWork(): Result {
-        // TODO(W1-E): 1. Drain outbox FIFO (upload attachments, then upsert rows via Postgrest).
-        // TODO(W1-E): 2. Pull per-table incremental changes (updated_at > last_pull_cursor per business).
-        // TODO(W1-E): 3. Apply LWW conflict resolution; surface rebased/dropped local edits visibly.
-        // TODO(W1-E): 4. Mark RLS-rejected ops as errors for the Settings sync-status screen.
-        return Result.success()
+        val engine =
+            EntryPointAccessors
+                .fromApplication(applicationContext, SyncWorkerEntryPoint::class.java)
+                .syncEngine()
+        val outcome = engine.runSync()
+        return if (outcome.networkFailed) Result.retry() else Result.success()
+    }
+
+    /** Expedited work runs as a foreground task before Android S — a quiet localized notice. */
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        SyncNotifications.ensureChannel(applicationContext)
+        val notification =
+            NotificationCompat
+                .Builder(applicationContext, SyncNotifications.CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentTitle(applicationContext.getString(R.string.sync_notification_syncing))
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                SyncNotifications.FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            ForegroundInfo(SyncNotifications.FOREGROUND_NOTIFICATION_ID, notification)
+        }
     }
 
     companion object {
@@ -39,7 +88,7 @@ class SyncWorker(
     }
 }
 
-/** WorkManager-backed [SyncScheduler] (§8: expedited on demand + periodic 15 min). */
+/** WorkManager-backed [SyncScheduler] (§8: expedited on demand + periodic 15 min, both connectivity-gated). */
 @Singleton
 class WorkManagerSyncScheduler
     @Inject
@@ -52,7 +101,11 @@ class WorkManagerSyncScheduler
             WorkManager.getInstance(context).enqueueUniqueWork(
                 SyncWorker.UNIQUE_IMMEDIATE_NAME,
                 ExistingWorkPolicy.KEEP,
-                OneTimeWorkRequestBuilder<SyncWorker>().setConstraints(constraints).build(),
+                OneTimeWorkRequestBuilder<SyncWorker>()
+                    .setConstraints(constraints)
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+                    .build(),
             )
         }
 
@@ -60,7 +113,15 @@ class WorkManagerSyncScheduler
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 SyncWorker.UNIQUE_PERIODIC_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).setConstraints(constraints).build(),
+                PeriodicWorkRequestBuilder<SyncWorker>(PERIODIC_MINUTES, TimeUnit.MINUTES)
+                    .setConstraints(constraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+                    .build(),
             )
+        }
+
+        private companion object {
+            const val PERIODIC_MINUTES = 15L
+            const val BACKOFF_SECONDS = 30L
         }
     }
