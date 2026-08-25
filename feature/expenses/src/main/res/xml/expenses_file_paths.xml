@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Camera captures land in files/expense_attachments before compression. -->
+<paths>
+    <files-path
+        name="expense_attachments"
+        path="expense_attachments/" />
+</paths>
