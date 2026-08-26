@@ -44,8 +44,14 @@ fun TypeAheadField(
     var userIsTyping by remember { mutableStateOf(false) }
     val currentOnQueryDebounced by rememberUpdatedState(onQueryDebounced)
 
+    // BUG-FIX (W2-B e2e): `value` is a plain parameter, not snapshot state — reading it
+    // directly inside snapshotFlow observes nothing (the flow emitted once and went
+    // silent, so the debounced query NEVER fired and no suggestions ever appeared).
+    // rememberUpdatedState wraps it in a MutableState the snapshot system can track.
+    val currentValue by rememberUpdatedState(value)
+
     LaunchedEffect(debounceMs) {
-        snapshotFlow { value }
+        snapshotFlow { currentValue }
             .debounce(debounceMs)
             .distinctUntilChanged()
             .collect { query -> if (query.isNotBlank()) currentOnQueryDebounced(query) }
