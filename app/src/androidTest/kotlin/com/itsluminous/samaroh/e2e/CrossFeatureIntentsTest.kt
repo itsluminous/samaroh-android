@@ -5,24 +5,17 @@ import android.app.Instrumentation
 import android.content.Intent
 import androidx.compose.ui.test.performClick
 import androidx.test.espresso.intent.Intents
-import androidx.test.espresso.intent.Intents.intended
 import androidx.test.espresso.intent.Intents.intending
 import androidx.test.espresso.intent.matcher.IntentMatchers.anyIntent
-import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
-import androidx.test.espresso.intent.matcher.IntentMatchers.hasExtra
-import androidx.test.espresso.intent.matcher.IntentMatchers.hasPackage
-import androidx.test.espresso.intent.matcher.IntentMatchers.hasType
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.testing.Fixtures
 import dagger.hilt.android.testing.HiltAndroidTest
-import org.hamcrest.Matchers.allOf
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
-import java.time.YearMonth
 
 /**
  * §11 W2-B cross-feature wiring: booking-card invoice share (chooser stubbed via
@@ -38,7 +31,7 @@ abstract class CrossFeatureIntentsTest(
         seedOnboardedBusiness()
         booking =
             Fixtures
-                .booking(startDate = YearMonth.now().atDay(12), totalAmountPaise = 2_00_000_00L)
+                .booking(startDate = futureDateInCurrentMonth(), totalAmountPaise = 2_00_000_00L)
                 .copy(customerName = "Meera")
         bookingRepository.saveBooking(booking)
         bookingRepository.recordPayment(Fixtures.payment(booking.id, amountPaise = 50_000_00L, paidOn = LocalDate.now()))
@@ -70,19 +63,20 @@ abstract class CrossFeatureIntentsTest(
         waitForContentDescription(string(R.string.booking_card_action_invoice)).performClick()
         waitForText(string(R.string.booking_card_invoice_pdf)).performClick()
 
-        // PDF rendering is async — wait for the chooser to be recorded.
+        // PDF rendering is async — wait for the chooser to be recorded. Assertions run
+        // on Intents.getIntents() directly: Intents.intended() synchronizes through
+        // Espresso's root-view picker, which times out while a Compose ModalBottomSheet
+        // window holds focus.
         compose.waitUntil(UI_TIMEOUT_MS) {
             Intents.getIntents().any { it.action == Intent.ACTION_CHOOSER }
         }
-        intended(
-            allOf(
-                hasAction(Intent.ACTION_CHOOSER),
-                hasExtra(
-                    org.hamcrest.Matchers.equalTo(Intent.EXTRA_INTENT),
-                    allOf(hasAction(Intent.ACTION_SEND), hasType("application/pdf")),
-                ),
-            ),
-        )
+        val chooser = Intents.getIntents().first { it.action == Intent.ACTION_CHOOSER }
+        val inner =
+            @Suppress("DEPRECATION")
+            chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+        assertThat(inner).isNotNull()
+        assertThat(inner!!.action).isEqualTo(Intent.ACTION_SEND)
+        assertThat(inner.type).isEqualTo("application/pdf")
     }
 
     @Test
@@ -93,12 +87,10 @@ abstract class CrossFeatureIntentsTest(
         compose.waitUntil(UI_TIMEOUT_MS) {
             Intents.getIntents().any { it.`package` == "com.whatsapp" }
         }
-        intended(allOf(hasAction(Intent.ACTION_SEND), hasPackage("com.whatsapp"), hasType("text/plain")))
-        val message =
-            Intents
-                .getIntents()
-                .first { it.`package` == "com.whatsapp" }
-                .getStringExtra(Intent.EXTRA_TEXT)
+        val sent = Intents.getIntents().first { it.`package` == "com.whatsapp" }
+        assertThat(sent.action).isEqualTo(Intent.ACTION_SEND)
+        assertThat(sent.type).isEqualTo("text/plain")
+        val message = sent.getStringExtra(Intent.EXTRA_TEXT)
         assertThat(message).contains("Meera")
         assertThat(message).contains(AmountFormatter.format(1_50_000_00L)) // the due
     }

@@ -87,7 +87,7 @@ abstract class BookingFlowTest(
     fun recordPayment_updatesDueToZero() {
         val booking =
             Fixtures
-                .booking(startDate = emptyMidMonthDate(), totalAmountPaise = 2_00_000_00L)
+                .booking(startDate = futureDateInCurrentMonth(), totalAmountPaise = 2_00_000_00L)
                 .copy(customerName = "Meera")
         runBlocking {
             bookingRepository.saveBooking(booking)

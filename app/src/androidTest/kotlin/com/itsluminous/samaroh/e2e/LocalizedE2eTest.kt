@@ -142,6 +142,17 @@ abstract class LocalizedE2eTest(
         return business
     }
 
+    /**
+     * A current-month date that is TODAY OR LATER: bookings seeded on it never trigger
+     * the async "confirm payment?" reminder card (bookings ENDED before today do),
+     * whose late appearance shifts the calendar grid mid-test and breaks click
+     * coordinates.
+     */
+    protected fun futureDateInCurrentMonth(): LocalDate {
+        val today = LocalDate.now()
+        return if (today.dayOfMonth < today.lengthOfMonth()) today.plusDays(1) else today
+    }
+
     // ---- localized string helpers ----
 
     protected fun string(
