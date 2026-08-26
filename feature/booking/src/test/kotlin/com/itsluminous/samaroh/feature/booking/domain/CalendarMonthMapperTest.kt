@@ -132,7 +132,7 @@ class CalendarMonthMapperTest {
     }
 
     @Test
-    fun `booked dates carry event icons instead of only the date number`() {
+    fun `booked dates carry event icons as a watermark behind the date number`() {
         val single = Fixtures.booking(id = "b1", startDate = LocalDate.of(2026, 9, 10))
         val spanning =
             Fixtures.booking(

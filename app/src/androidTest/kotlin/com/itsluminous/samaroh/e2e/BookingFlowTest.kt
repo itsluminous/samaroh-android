@@ -52,8 +52,8 @@ abstract class BookingFlowTest(
 
         compose.onNode(hasText(string(R.string.common_action_save))).performClick()
 
-        // Back on the calendar: the booked cell shows the event icon INSTEAD of the
-        // date number, and the agenda lists the booking.
+        // Back on the calendar: the booked cell shows the event icon as a translucent
+        // watermark behind the date number, and the agenda lists the booking.
         waitForText("Radha", substring = true)
         waitForText("\uD83D\uDC92") // exact-match = the day cell (agenda text is longer)
     }

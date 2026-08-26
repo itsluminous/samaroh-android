@@ -22,8 +22,9 @@ object CalendarMonthMapper {
         val isBlocked: Boolean,
         /**
          * Display icons of the live bookings covering this date (booking order:
-         * start date, then creation). Non-empty ⇒ the cell renders these icons INSTEAD
-         * of the date number; tentative bookings contribute 👤 ([Booking.displayIcon]).
+         * start date, then creation). Non-empty ⇒ the cell renders these icons as a
+         * translucent watermark BEHIND the date number; tentative bookings
+         * contribute 👤 ([Booking.displayIcon]).
          */
         val eventIcons: List<String> = emptyList(),
         /**

@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -35,7 +36,8 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 /**
- * The month grid (§4.1): event icons + status treatment inside the day cells,
+ * The month grid (§4.1): the date number renders on EVERY cell; booked cells add the
+ * event icon(s) as a translucent watermark behind it plus status treatment,
  * grey-striped blocked dates, today outline. Booked cells carry the whole story —
  * firm (confirmed/completed) dates get a filled tertiary-container background,
  * tentative dates an amber outline; no labels or bars render below the date row
@@ -159,14 +161,18 @@ private fun DayCell(
         contentAlignment = Alignment.Center,
     ) {
         if (day.eventIcons.isNotEmpty() && day.inMonth) {
-            // Booked date: the event icon(s) REPLACE the date number (the a11y
-            // description above still carries the full date). Up to
+            // Booked date: the event icon(s) render as a TRANSLUCENT WATERMARK behind
+            // the date number, so the date stays scannable on every cell. Up to
             // [MAX_DAY_CELL_ICONS] icons fit a cell; more collapse into ONE icon
-            // plus a "+N" overflow so the badge never clips.
+            // plus a "+N" overflow so the badge never clips. Modifier.alpha (not text
+            // color alpha) because color emoji ignore the text color's alpha channel.
             val shown =
                 if (day.eventIcons.size > MAX_DAY_CELL_ICONS) day.eventIcons.take(1) else day.eventIcons
             val overflow = day.eventIcons.size - shown.size
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.alpha(DAY_CELL_ICON_WATERMARK_ALPHA),
+            ) {
                 Text(
                     text = shown.joinToString(""),
                     style = MaterialTheme.typography.bodyMedium,
@@ -182,23 +188,30 @@ private fun DayCell(
                     )
                 }
             }
-        } else {
-            Text(
-                text = day.date.dayOfMonth.toString(),
-                style = MaterialTheme.typography.bodyMedium,
-                color =
-                    if (day.inMonth) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    },
-            )
         }
+        // The date number ALWAYS renders, at full opacity, on top of the watermark:
+        // people scan the calendar looking for a date (Box children draw in order).
+        Text(
+            text = day.date.dayOfMonth.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            color =
+                when {
+                    !day.inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    day.hasFirmBooking -> MaterialTheme.colorScheme.onTertiaryContainer
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+        )
     }
 }
 
 /** How many booking icons fit a 1/7-width day cell before collapsing into "+N". */
 private const val MAX_DAY_CELL_ICONS = 2
+
+/**
+ * Watermark opacity for day-cell event icons: low enough that the full-opacity date
+ * number on top stays clearly legible, high enough that the icon reads at a glance.
+ */
+private const val DAY_CELL_ICON_WATERMARK_ALPHA = 0.45f
 
 /** Grey diagonal stripes for blocked (maintenance/closure) dates. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStripes(color: Color) {
