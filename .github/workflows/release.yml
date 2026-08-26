@@ -71,6 +71,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Bake the Supabase config into BuildConfig so released APKs can sign in.
+      # Secrets are empty on forks — the app still builds and runs fully offline.
+      - name: Write Supabase config from secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          {
+            echo "SUPABASE_URL=$SUPABASE_URL"
+            echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
+            echo "GOOGLE_WEB_CLIENT_ID=$GOOGLE_WEB_CLIENT_ID"
+          } > local.properties
+
       - name: Decode release keystore
         if: env.HAS_SIGNING_SECRETS == 'true'
         run: printf '%s' "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/keystore.jks"

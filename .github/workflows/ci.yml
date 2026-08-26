@@ -38,6 +38,23 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # Bake the Supabase config into BuildConfig so the uploaded debug APK can
+      # actually sign in. Values come from repo secrets (never committed, §6);
+      # on forks the secrets are empty and the app still builds and runs fully
+      # offline (empty values are safe defaults). local.properties is
+      # git-ignored, so the codegen no-diff check below is unaffected.
+      - name: Write Supabase config from secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          {
+            echo "SUPABASE_URL=$SUPABASE_URL"
+            echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
+            echo "GOOGLE_WEB_CLIENT_ID=$GOOGLE_WEB_CLIENT_ID"
+          } > local.properties
+
       # Legal-hygiene denylist scan (§6): fails on any reference-product name.
       - name: Legal-hygiene check
         run: bash scripts/legal-check.sh
