@@ -76,7 +76,10 @@ jobs:
             **/build/reports/
           retention-days: 7
 
-  # Nightly / on-demand instrumented tests on an emulator (§9.5 step 6).
+  # Nightly / on-demand instrumented tests on an emulator (§9.5 step 6): the W2-B e2e
+  # suite in :app (Compose UI tests, en + hi, Hilt test runner). Library modules build
+  # no test APKs (root build.gradle.kts disables androidTest without sources), so the
+  # root task runs exactly the app suite.
   connected:
     name: Instrumented tests (emulator)
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -105,4 +108,15 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          script: ./gradlew connectedDebugAndroidTest
+          profile: pixel_5
+          disable-animations: true
+          script: ./gradlew --max-workers=4 connectedDebugAndroidTest
+      - name: Upload connected test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connected-reports
+          path: |
+            **/build/reports/androidTests/
+            **/build/outputs/androidTest-results/
+          retention-days: 7

@@ -129,3 +129,22 @@ adb shell am start -n com.itsluminous.samaroh/.MainActivity
 
 Test in BOTH languages: switch via system per-app language settings (Android 13+) or the
 in-app switcher once W1-F lands.
+
+## End-to-end suite & catalog audit (W2-B)
+
+- `app/src/androidTest` hosts the e2e suite: Compose UI tests with `HiltAndroidRule`
+  and the custom `SamarohTestRunner`. Every acceptance flow runs TWICE via `En`/`Hi`
+  subclass pairs of `LocalizedE2eTest` — assertions resolve expected strings from the
+  app's own resources under the run's locale, so tests catch localization regressions
+  without hardcoding either language.
+- Tests are hermetic: `TestSyncModule` pins the sync remote to "unconfigured" (nothing
+  is pushed to a live backend even when `local.properties` has real credentials), and
+  the DataStore test modules keep one process-wide instance per preferences file
+  (Hilt builds a fresh component per test class, and DataStore crashes if two
+  instances open the same file).
+- `core:i18n` unit tests audit the catalog: `CatalogKeyParityTest` walks the base
+  catalog PLUS every `fragments/*.json`, and `CatalogUsageAuditTest` FAILS the build
+  when Kotlin code references a string resource with no catalog key; unused keys are
+  only warned (they may be web-only). Keys resolved dynamically (no compile-time
+  `R.string` token) must be added to that test's allowlist to keep the unused-key
+  report meaningful.
