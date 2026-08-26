@@ -7,13 +7,41 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+/** Qualifier for the `gcal_sync_state` preferences DataStore (single instance per file). */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class GcalSyncStateDataStore
+
+/**
+ * Provides the `gcal_sync_state` DataStore as the ONE Hilt singleton for its file —
+ * DataStore crashes when two instances open the same file (ADR-016 rule), so the
+ * instance is a module-provided binding (also replaceable in instrumented tests).
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+object GcalSyncStateModule {
+    const val FILE_NAME = "gcal_sync_state"
+
+    @Provides
+    @Singleton
+    @GcalSyncStateDataStore
+    fun provideGcalSyncStateDataStore(
+        @ApplicationContext context: Context,
+    ): DataStore<Preferences> = PreferenceDataStoreFactory.create { context.preferencesDataStoreFile(FILE_NAME) }
+}
 
 /**
  * Device-local record of what was last pushed to the calendar, keyed per business
@@ -25,13 +53,10 @@ import javax.inject.Singleton
 class GcalSyncStateStore
     @Inject
     constructor(
-        @ApplicationContext context: Context,
+        @GcalSyncStateDataStore private val dataStore: DataStore<Preferences>,
     ) {
         private val json = Json { ignoreUnknownKeys = true }
         private val serializer = MapSerializer(String.serializer(), SyncedEventState.serializer())
-
-        private val dataStore: DataStore<Preferences> =
-            PreferenceDataStoreFactory.create { context.preferencesDataStoreFile(FILE_NAME) }
 
         suspend fun read(businessId: String): Map<String, SyncedEventState> {
             val raw = dataStore.data.first()[keyFor(businessId)] ?: return emptyMap()
@@ -54,8 +79,4 @@ class GcalSyncStateStore
         suspend fun clear(businessId: String) = write(businessId, emptyMap())
 
         private fun keyFor(businessId: String) = stringPreferencesKey("state_$businessId")
-
-        private companion object {
-            const val FILE_NAME = "gcal_sync_state"
-        }
     }
