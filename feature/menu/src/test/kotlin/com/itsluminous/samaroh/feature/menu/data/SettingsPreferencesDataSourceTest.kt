@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.menu.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.google.common.truth.Truth.assertThat
@@ -134,5 +135,33 @@ class SettingsPreferencesDataSourceTest {
             assertThat(raw[booleanPreferencesKey("booking_form_show_security_deposit")]).isTrue()
             assertThat(raw[booleanPreferencesKey("booking_form_show_source")]).isFalse()
             assertThat(raw[booleanPreferencesKey("booking_form_show_times")]).isFalse()
+        }
+
+    @Test
+    fun `calendar icon alpha defaults to the original watermark opacity`() =
+        testScope.runTest {
+            assertThat(dataSource.settings.first().bookingCalendarIconAlpha).isEqualTo(0.45f)
+        }
+
+    @Test
+    fun `calendar icon alpha round-trips through the exact contract key`() =
+        testScope.runTest {
+            dataSource.setBookingCalendarIconAlpha(0.7f)
+
+            assertThat(dataSource.settings.first().bookingCalendarIconAlpha).isEqualTo(0.7f)
+
+            // The raw key IS the contract read by feature:booking's day cells.
+            val raw = dataStore.data.first()
+            assertThat(raw[floatPreferencesKey("booking_calendar_icon_alpha")]).isEqualTo(0.7f)
+        }
+
+    @Test
+    fun `calendar icon alpha writes are clamped to the slider bounds`() =
+        testScope.runTest {
+            dataSource.setBookingCalendarIconAlpha(2f)
+            assertThat(dataSource.settings.first().bookingCalendarIconAlpha).isEqualTo(0.9f)
+
+            dataSource.setBookingCalendarIconAlpha(-1f)
+            assertThat(dataSource.settings.first().bookingCalendarIconAlpha).isEqualTo(0.15f)
         }
 }

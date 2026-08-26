@@ -49,11 +49,12 @@ internal fun CalendarGrid(
     locale: Locale,
     onDayTapped: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
+    iconWatermarkAlpha: Float = DataStoreBookingCalendarPrefs.DEFAULT_ICON_WATERMARK_ALPHA,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         WeekdayHeader(locale)
         grid.weeks.forEach { week ->
-            WeekRow(week, onDayTapped)
+            WeekRow(week, onDayTapped, iconWatermarkAlpha)
         }
     }
 }
@@ -79,12 +80,14 @@ private fun WeekdayHeader(locale: Locale) {
 private fun WeekRow(
     week: CalendarMonthMapper.Week,
     onDayTapped: (LocalDate) -> Unit,
+    iconWatermarkAlpha: Float,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
         week.days.forEach { day ->
             DayCell(
                 day = day,
                 onTapped = onDayTapped,
+                iconWatermarkAlpha = iconWatermarkAlpha,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -95,6 +98,7 @@ private fun WeekRow(
 private fun DayCell(
     day: CalendarMonthMapper.Day,
     onTapped: (LocalDate) -> Unit,
+    iconWatermarkAlpha: Float,
     modifier: Modifier = Modifier,
 ) {
     val outline = MaterialTheme.colorScheme.primary
@@ -171,7 +175,7 @@ private fun DayCell(
             val overflow = day.eventIcons.size - shown.size
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.alpha(DAY_CELL_ICON_WATERMARK_ALPHA),
+                modifier = Modifier.alpha(iconWatermarkAlpha),
             ) {
                 Text(
                     text = shown.joinToString(""),
@@ -206,12 +210,6 @@ private fun DayCell(
 
 /** How many booking icons fit a 1/7-width day cell before collapsing into "+N". */
 private const val MAX_DAY_CELL_ICONS = 2
-
-/**
- * Watermark opacity for day-cell event icons: low enough that the full-opacity date
- * number on top stays clearly legible, high enough that the icon reads at a glance.
- */
-private const val DAY_CELL_ICON_WATERMARK_ALPHA = 0.45f
 
 /** Grey diagonal stripes for blocked (maintenance/closure) dates. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStripes(color: Color) {

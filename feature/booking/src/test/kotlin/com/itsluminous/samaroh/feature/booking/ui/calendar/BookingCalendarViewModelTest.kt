@@ -10,6 +10,7 @@ import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.booking.FakeActorProvider
+import com.itsluminous.samaroh.feature.booking.FakeBookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
@@ -38,6 +39,7 @@ class BookingCalendarViewModelTest {
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
     private val invoiceGenerator = FakeInvoiceGenerator()
     private val syncScheduler = RecordingSyncScheduler()
+    private val calendarPrefs = FakeBookingCalendarPrefs()
 
     private fun viewModel() =
         BookingCalendarViewModel(
@@ -47,6 +49,7 @@ class BookingCalendarViewModelTest {
             invoiceGenerator = invoiceGenerator,
             syncScheduler = syncScheduler,
             eventTypesProvider = FakeEventTypeCatalog(),
+            calendarPrefs = calendarPrefs,
             clock = clock,
         )
 
@@ -285,6 +288,21 @@ class BookingCalendarViewModelTest {
             }
             assertThat(invoiceGenerator.pdfRequests).containsExactly(booking.id, booking.id)
             assertThat(invoiceGenerator.textRequests).containsExactly(booking.id)
+        }
+
+    @Test
+    fun `icon watermark alpha follows the settings preference reactively`() =
+        runTest {
+            viewModel().iconWatermarkAlpha.test {
+                assertThat(awaitItem()).isEqualTo(0.45f)
+
+                calendarPrefs.alpha.value = 0.8f
+                assertThat(awaitItem()).isEqualTo(0.8f)
+
+                calendarPrefs.alpha.value = 0.2f
+                assertThat(awaitItem()).isEqualTo(0.2f)
+                cancelAndIgnoreRemainingEvents()
+            }
         }
 }
 

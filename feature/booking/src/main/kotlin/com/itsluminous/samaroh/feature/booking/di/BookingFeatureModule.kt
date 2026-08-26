@@ -4,6 +4,8 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypesProvider
 import com.itsluminous.samaroh.feature.booking.domain.SessionBookingActorProvider
+import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
+import com.itsluminous.samaroh.feature.booking.ui.calendar.DataStoreBookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldPrefs
 import com.itsluminous.samaroh.feature.booking.ui.form.DataStoreBookingFormFieldPrefs
 import dagger.Binds
@@ -28,4 +30,8 @@ abstract class BookingFeatureModule {
     /** Booking-form optional-field visibility from the shared settings DataStore (ADR-020). */
     @Binds
     abstract fun bindBookingFormFieldPrefs(impl: DataStoreBookingFormFieldPrefs): BookingFormFieldPrefs
+
+    /** Calendar icon-watermark opacity from the shared settings DataStore. */
+    @Binds
+    abstract fun bindBookingCalendarPrefs(impl: DataStoreBookingCalendarPrefs): BookingCalendarPrefs
 }

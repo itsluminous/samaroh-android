@@ -164,6 +164,26 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `calendar icon alpha is exposed with its default and persists writes`() =
+        runTest(dispatcherRule.dispatcher) {
+            val collector = launch { viewModel.uiState.collect {} }
+            runCurrent()
+
+            assertThat(
+                viewModel.uiState.value.device
+                    ?.bookingCalendarIconAlpha,
+            ).isEqualTo(0.45f)
+
+            viewModel.setBookingCalendarIconAlpha(0.8f)
+            runCurrent()
+            assertThat(
+                viewModel.uiState.value.device
+                    ?.bookingCalendarIconAlpha,
+            ).isEqualTo(0.8f)
+            collector.cancel()
+        }
+
+    @Test
     fun `link failure surfaces a localized message`() =
         runTest(dispatcherRule.dispatcher) {
             linker.linkResult =

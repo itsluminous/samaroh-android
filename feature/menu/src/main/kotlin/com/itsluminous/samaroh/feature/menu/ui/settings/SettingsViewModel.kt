@@ -133,6 +133,11 @@ class SettingsViewModel
             viewModelScope.launch { preferences.setBookingFormShowTimes(show) }
         }
 
+        /** Booking-calendar icon-watermark opacity (Settings → Booking calendar slider). */
+        fun setBookingCalendarIconAlpha(alpha: Float) {
+            viewModelScope.launch { preferences.setBookingCalendarIconAlpha(alpha) }
+        }
+
         fun linkGoogle(activityContext: Context) {
             viewModelScope.launch {
                 googleAccountLinker.link(activityContext).onFailure(::handleLinkFailure)

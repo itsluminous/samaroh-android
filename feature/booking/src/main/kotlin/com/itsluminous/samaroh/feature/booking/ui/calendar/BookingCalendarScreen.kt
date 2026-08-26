@@ -83,6 +83,7 @@ fun BookingCalendarScreen(
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
     val detail by viewModel.detail.collectAsState()
+    val iconWatermarkAlpha by viewModel.iconWatermarkAlpha.collectAsState()
 
     var monthPicker by remember { mutableStateOf(false) }
     var overflowMenu by remember { mutableStateOf(false) }
@@ -324,6 +325,7 @@ fun BookingCalendarScreen(
                     CalendarGrid(
                         grid = animatedGrid,
                         locale = currentLocale(),
+                        iconWatermarkAlpha = iconWatermarkAlpha,
                         onDayTapped = { date ->
                             when (val result = viewModel.onDayTapped(date)) {
                                 is DayTapResult.ShowBookings ->

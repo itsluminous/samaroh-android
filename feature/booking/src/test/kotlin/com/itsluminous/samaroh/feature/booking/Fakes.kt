@@ -19,6 +19,8 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
+import com.itsluminous.samaroh.feature.booking.ui.calendar.DataStoreBookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldPrefs
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldVisibility
 import kotlinx.coroutines.flow.Flow
@@ -169,6 +171,14 @@ class FakeFormFieldPrefs(
 ) : BookingFormFieldPrefs {
     val state = MutableStateFlow(initial)
     override val visibility: Flow<BookingFormFieldVisibility> = state
+}
+
+/** In-memory booking-calendar appearance prefs. */
+class FakeBookingCalendarPrefs(
+    initial: Float = DataStoreBookingCalendarPrefs.DEFAULT_ICON_WATERMARK_ALPHA,
+) : BookingCalendarPrefs {
+    val alpha = MutableStateFlow(initial)
+    override val iconWatermarkAlpha: Flow<Float> = alpha
 }
 
 class FakeBusinessRepository(

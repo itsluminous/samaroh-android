@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
@@ -52,6 +53,8 @@ data class DeviceSettings(
     val bookingFormShowDeposit: Boolean,
     val bookingFormShowSource: Boolean,
     val bookingFormShowTimes: Boolean,
+    /** Watermark opacity of day-cell event icons on the booking calendar (0.15–0.9). */
+    val bookingCalendarIconAlpha: Float,
 )
 
 /**
@@ -85,6 +88,9 @@ class SettingsPreferencesDataSource
                     bookingFormShowDeposit = prefs[KEY_BOOKING_FORM_SHOW_DEPOSIT] ?: false,
                     bookingFormShowSource = prefs[KEY_BOOKING_FORM_SHOW_SOURCE] ?: true,
                     bookingFormShowTimes = prefs[KEY_BOOKING_FORM_SHOW_TIMES] ?: true,
+                    bookingCalendarIconAlpha =
+                        (prefs[KEY_BOOKING_CALENDAR_ICON_ALPHA] ?: DEFAULT_CALENDAR_ICON_ALPHA)
+                            .coerceIn(CALENDAR_ICON_ALPHA_MIN, CALENDAR_ICON_ALPHA_MAX),
                 )
             }
 
@@ -122,6 +128,12 @@ class SettingsPreferencesDataSource
             dataStore.edit { it[KEY_BOOKING_FORM_SHOW_TIMES] = show }
         }
 
+        suspend fun setBookingCalendarIconAlpha(alpha: Float) {
+            dataStore.edit {
+                it[KEY_BOOKING_CALENDAR_ICON_ALPHA] = alpha.coerceIn(CALENDAR_ICON_ALPHA_MIN, CALENDAR_ICON_ALPHA_MAX)
+            }
+        }
+
         companion object {
             /** DataStore preferences file name — the cross-feature contract. */
             const val FILE_NAME = "settings"
@@ -137,6 +149,16 @@ class SettingsPreferencesDataSource
             val KEY_BOOKING_FORM_SHOW_SOURCE = booleanPreferencesKey("booking_form_show_source")
             val KEY_BOOKING_FORM_SHOW_TIMES = booleanPreferencesKey("booking_form_show_times")
 
+            // Calendar-icon watermark opacity — read by feature:booking's day cells.
+            val KEY_BOOKING_CALENDAR_ICON_ALPHA = floatPreferencesKey("booking_calendar_icon_alpha")
+
             val DEFAULT_LEAD_DAYS: Set<Int> = sortedSetOf(1, 3)
+
+            /** Default matches the original hardcoded watermark opacity. */
+            const val DEFAULT_CALENDAR_ICON_ALPHA = 0.45f
+
+            /** Slider bounds: never invisible, never so strong the date drowns. */
+            const val CALENDAR_ICON_ALPHA_MIN = 0.15f
+            const val CALENDAR_ICON_ALPHA_MAX = 0.9f
         }
     }

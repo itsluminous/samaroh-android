@@ -125,10 +125,19 @@ class BookingCalendarViewModel
         private val invoiceGenerator: InvoiceGenerator,
         private val syncScheduler: SyncScheduler,
         val eventTypesProvider: EventTypeCatalog,
+        calendarPrefs: BookingCalendarPrefs,
         private val clock: Clock,
     ) : ViewModel() {
         private val month = MutableStateFlow(YearMonth.now(clock))
         private val selectedBookingId = MutableStateFlow<String?>(null)
+
+        /** Day-cell icon-watermark opacity — user-configurable in Settings. */
+        val iconWatermarkAlpha: StateFlow<Float> =
+            calendarPrefs.iconWatermarkAlpha.stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                DataStoreBookingCalendarPrefs.DEFAULT_ICON_WATERMARK_ALPHA,
+            )
 
         private val events = Channel<BookingEvent>(Channel.BUFFERED)
         val eventFlow: Flow<BookingEvent> = events.receiveAsFlow()
