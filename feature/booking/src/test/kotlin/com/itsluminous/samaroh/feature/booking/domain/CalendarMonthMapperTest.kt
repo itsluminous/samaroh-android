@@ -59,7 +59,7 @@ class CalendarMonthMapperTest {
         assertThat(segment.endCol).isEqualTo(4)
         assertThat(segment.continuesBefore).isFalse()
         assertThat(segment.continuesAfter).isFalse()
-        assertThat(segment.label).isEqualTo("${booking.eventIcon} Asha")
+        assertThat(segment.label).isEqualTo("Asha")
     }
 
     @Test
@@ -144,7 +144,7 @@ class CalendarMonthMapperTest {
     }
 
     @Test
-    fun `tentative bookings render the tentative icon in day cells and segment labels`() {
+    fun `tentative bookings render the tentative icon in day cells but not segment labels`() {
         val tentative =
             Fixtures
                 .booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.TENTATIVE)
@@ -152,12 +152,13 @@ class CalendarMonthMapperTest {
         val grid = CalendarMonthMapper.map(month, today, listOf(tentative), emptyList())
         val day = grid.weeks.flatMap { it.days }.first { it.date == LocalDate.of(2026, 9, 10) }
         assertThat(day.eventIcons).containsExactly(TENTATIVE_ICON)
+        // The segment label carries the name only — the icon lives in the day cell.
         assertThat(
             grid.weeks
                 .flatMap { it.segments }
                 .single()
                 .label,
-        ).isEqualTo("$TENTATIVE_ICON Asha")
+        ).isEqualTo("Asha")
     }
 
     @Test

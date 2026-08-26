@@ -208,8 +208,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStripes(color: 
 }
 
 /**
- * One booking's bar across a week row. Single-day bookings render as a one-column pill:
- * `{icon} {first name}`; multi-day bookings span columns and chain across weeks.
+ * One booking's bar across a week row. Single-day bookings render as a one-column pill,
+ * multi-day bookings span columns and chain across weeks. The bar carries the customer's
+ * first name only — the event icon already replaces the date number in the day cell above,
+ * so repeating it here would be redundant.
  */
 @Composable
 private fun SegmentBar(

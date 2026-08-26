@@ -32,7 +32,9 @@ object CalendarMonthMapper {
      * A booking's segment within ONE week row. [startCol]/[endCol] are 0-based day
      * columns (inclusive); a single-day booking is a one-column segment. A booking
      * spanning multiple weeks produces one segment per week, chained via
-     * [continuesBefore]/[continuesAfter].
+     * [continuesBefore]/[continuesAfter]. [label] is the customer's first name only —
+     * event icons already live in the day cells ([Day.eventIcons]), so repeating them
+     * on the bar would be redundant.
      */
     data class Segment(
         val bookingId: String,
@@ -102,7 +104,7 @@ object CalendarMonthMapper {
                         val segEnd = minOf(booking.endDate, weekEnd)
                         Segment(
                             bookingId = booking.id,
-                            label = "${booking.displayIcon} ${BookingTitleFormatter.firstName(booking.customerName)}",
+                            label = BookingTitleFormatter.firstName(booking.customerName),
                             status = booking.status,
                             startCol = weekStart.until(segStart).days,
                             endCol = weekStart.until(segEnd).days,
