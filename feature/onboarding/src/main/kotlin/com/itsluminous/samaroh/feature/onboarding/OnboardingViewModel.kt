@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.core.auth.GoogleIdTokenFetcher
 import com.itsluminous.samaroh.core.auth.GoogleSignInOutcome
 import com.itsluminous.samaroh.core.auth.MembershipRefreshResult
 import com.itsluminous.samaroh.core.auth.MembershipRefresher
+import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
@@ -185,8 +186,55 @@ class OnboardingViewModel
         // ---- Fork (step 4: create vs join, pending-invite auto-detect) ----
 
         private suspend fun onSignedIn() {
-            val invites = detectInvites()
+            val session = sessionHolder.session.first()
+            val memberships = refreshMemberships()
+            // Returning-user fast path: the account already belongs to a business — an
+            // ACTIVE membership, or a business it owns that the refresh just pulled into
+            // Room. Showing create/join again would fork the user's data into a second
+            // business, so skip straight to done (the shell lands on the calendar and the
+            // sync engine backfills the rest).
+            val existingBusinessId = session?.let { existingBusinessId(it, memberships) }
+            if (existingBusinessId != null) {
+                _uiState.value =
+                    _uiState.value.copy(isBusy = false, activeBusinessId = existingBusinessId, step = OnboardingStep.DONE)
+                return
+            }
+            val invites = invitesFrom(session, memberships)
             _uiState.value = _uiState.value.copy(isBusy = false, step = OnboardingStep.FORK, invites = invites)
+        }
+
+        /** Pulls memberships + their businesses from the server into Room (no-op offline). */
+        private suspend fun refreshMemberships(): List<BusinessMember> =
+            when (val result = membershipRefresher.refresh()) {
+                is MembershipRefreshResult.Refreshed -> result.memberships
+                else -> emptyList()
+            }
+
+        /**
+         * The business this account is already associated with, or null for a genuinely
+         * new user: an ACTIVE, live membership (owner rows included — matched by user id
+         * or invited email), else a live business owned by this user that the refresh
+         * upserted into Room.
+         */
+        private suspend fun existingBusinessId(
+            session: Session,
+            memberships: List<BusinessMember>,
+        ): String? {
+            val activeMembership =
+                memberships.firstOrNull { member ->
+                    member.deletedAt == null &&
+                        member.status == MemberStatus.ACTIVE &&
+                        (
+                            member.userId == session.userId ||
+                                member.invitedEmail.equals(session.email, ignoreCase = true)
+                        )
+                }
+            if (activeMembership != null) return activeMembership.businessId
+            return businessRepository
+                .businesses()
+                .first()
+                .firstOrNull { it.deletedAt == null && it.ownerUserId == session.userId }
+                ?.id
         }
 
         /**
@@ -195,11 +243,14 @@ class OnboardingViewModel
          */
         private suspend fun detectInvites(): List<InviteSummary> {
             val session = sessionHolder.session.first() ?: return emptyList()
-            val memberships =
-                when (val result = membershipRefresher.refresh()) {
-                    is MembershipRefreshResult.Refreshed -> result.memberships
-                    else -> emptyList()
-                }
+            return invitesFrom(session, refreshMemberships())
+        }
+
+        private suspend fun invitesFrom(
+            session: Session?,
+            memberships: List<BusinessMember>,
+        ): List<InviteSummary> {
+            session ?: return emptyList()
             return memberships
                 .filter { member ->
                     !member.isOwner &&

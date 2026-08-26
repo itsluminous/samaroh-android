@@ -143,7 +143,10 @@ class OnboardingViewModelTest {
         runTest {
             fakeSessionHolder.flow.value = session
             fakeBusinessRepo.saveBusiness(business("biz-9", "Sharma Palace", ownerUserId = "someone-else"))
-            fakeRefresher.result = MembershipRefreshResult.Refreshed(listOf(invitedMember("biz-9")))
+            fakeRefresher.result =
+                MembershipRefreshResult.Refreshed(
+                    listOf(invitedMember("biz-9").copy(status = MemberStatus.INVITED, userId = null)),
+                )
             val vm = viewModel()
             vm.submitEmailAuth("user@example.com", "secret123")
 
@@ -158,16 +161,25 @@ class OnboardingViewModelTest {
     fun `own or revoked memberships are not invites`() =
         runTest {
             fakeSessionHolder.flow.value = session
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+            vm.chooseJoin()
+
+            // "Check again" on the join screen re-pulls; none of these may surface.
             fakeRefresher.result =
                 MembershipRefreshResult.Refreshed(
                     listOf(
                         invitedMember("biz-own").copy(id = "m-own", isOwner = true),
                         invitedMember("biz-revoked").copy(id = "m-rev", status = MemberStatus.REVOKED),
-                        invitedMember("biz-other").copy(id = "m-other", invitedEmail = "other@example.com"),
+                        invitedMember("biz-other").copy(
+                            id = "m-other",
+                            status = MemberStatus.INVITED,
+                            userId = null,
+                            invitedEmail = "other@example.com",
+                        ),
                     ),
                 )
-            val vm = viewModel()
-            vm.submitEmailAuth("user@example.com", "secret123")
+            vm.refreshInvites()
 
             assertThat(vm.uiState.value.invites).isEmpty()
         }
@@ -176,7 +188,10 @@ class OnboardingViewModelTest {
     fun `accepting an invite selects the business and moves to link-google`() =
         runTest {
             fakeSessionHolder.flow.value = session
-            fakeRefresher.result = MembershipRefreshResult.Refreshed(listOf(invitedMember("biz-9")))
+            fakeRefresher.result =
+                MembershipRefreshResult.Refreshed(
+                    listOf(invitedMember("biz-9").copy(status = MemberStatus.INVITED, userId = null)),
+                )
             val vm = viewModel()
             vm.submitEmailAuth("user@example.com", "secret123")
             vm.chooseJoin()
@@ -188,6 +203,71 @@ class OnboardingViewModelTest {
             )
             assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.LINK_GOOGLE)
             assertThat(vm.uiState.value.activeBusinessId).isEqualTo("biz-9")
+        }
+
+    // ---- Returning-user fast path: an account that already has a business skips create/join ----
+
+    @Test
+    fun `sign-in with an active membership skips create-join and completes onboarding`() =
+        runTest {
+            fakeSessionHolder.flow.value = session
+            fakeRefresher.result = MembershipRefreshResult.Refreshed(listOf(invitedMember("biz-9")))
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+
+            val state = vm.uiState.value
+            assertThat(state.step).isEqualTo(OnboardingStep.DONE)
+            assertThat(state.activeBusinessId).isEqualTo("biz-9")
+        }
+
+    @Test
+    fun `sign-in as owner of an existing business skips create-join and completes onboarding`() =
+        runTest {
+            fakeSessionHolder.flow.value = session
+            fakeRefresher.result =
+                MembershipRefreshResult.Refreshed(
+                    listOf(invitedMember("biz-own").copy(id = "m-own", isOwner = true)),
+                )
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+
+            val state = vm.uiState.value
+            assertThat(state.step).isEqualTo(OnboardingStep.DONE)
+            assertThat(state.activeBusinessId).isEqualTo("biz-own")
+        }
+
+    @Test
+    fun `sign-in with an owned business but no membership rows skips create-join`() =
+        runTest {
+            // The refresher upserts pulled businesses into Room even when the membership
+            // select comes back empty — the owned business alone completes onboarding.
+            fakeSessionHolder.flow.value = session
+            fakeBusinessRepo.saveBusiness(business("biz-mine", "Singh Garden", ownerUserId = session.userId))
+            fakeRefresher.result = MembershipRefreshResult.Refreshed(emptyList())
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+
+            val state = vm.uiState.value
+            assertThat(state.step).isEqualTo(OnboardingStep.DONE)
+            assertThat(state.activeBusinessId).isEqualTo("biz-mine")
+        }
+
+    @Test
+    fun `revoked membership and deleted or foreign businesses do not skip the fork`() =
+        runTest {
+            fakeSessionHolder.flow.value = session
+            fakeBusinessRepo.saveBusiness(business("biz-other", "Not Mine", ownerUserId = "someone-else"))
+            fakeBusinessRepo.saveBusiness(
+                business("biz-dead", "Gone", ownerUserId = session.userId).copy(deletedAt = now),
+            )
+            fakeRefresher.result =
+                MembershipRefreshResult.Refreshed(
+                    listOf(invitedMember("biz-rev").copy(status = MemberStatus.REVOKED)),
+                )
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+
+            assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.FORK)
         }
 
     @Test
