@@ -53,6 +53,8 @@ android {
         unitTests.all { test ->
             // The catalog key-parity test walks the canonical catalogs in the submodule.
             test.systemProperty("samaroh.sharedStringsDir", rootProject.file("shared/strings").absolutePath)
+            // The usage-audit test scans the repo's Kotlin sources for R.string references.
+            test.systemProperty("samaroh.repoRootDir", rootProject.projectDir.absolutePath)
         }
     }
 }
