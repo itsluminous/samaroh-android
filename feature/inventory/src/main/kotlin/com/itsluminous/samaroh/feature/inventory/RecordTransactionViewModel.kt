@@ -169,5 +169,16 @@ class RecordTransactionViewModel
             }
         }
 
+        /**
+         * Consumes a successful save (BUG-FIX, W2-B e2e): the view model is scoped to
+         * the SCREEN, not the dialog, so a stale `saved = true` made every subsequent
+         * dialog opening self-dismiss instantly — recording a second transaction was
+         * impossible without leaving the tab. Resetting to a fresh state also clears
+         * the previous entry's fields for the next opening.
+         */
+        fun consumeSaved() {
+            state.value = RecordTransactionUiState()
+        }
+
         private suspend fun activeBusinessId(): String? = activeBusinessProvider.activeBusiness.first()?.id
     }

@@ -45,7 +45,12 @@ fun RecordTransactionDialog(
     val state by viewModel.uiState.collectAsState()
 
     LaunchedEffect(state.saved) {
-        if (state.saved) onDismiss()
+        if (state.saved) {
+            // Reset BEFORE dismissing: the view model outlives the dialog (screen scope),
+            // and a stale `saved` would instantly close the next opening (W2-B bug-fix).
+            viewModel.consumeSaved()
+            onDismiss()
+        }
     }
 
     AlertDialog(
