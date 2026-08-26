@@ -3,6 +3,8 @@ package com.itsluminous.samaroh.feature.menu.fakes
 import android.content.Context
 import android.content.Intent
 import com.itsluminous.samaroh.core.auth.PermissionGuard
+import com.itsluminous.samaroh.core.auth.Session
+import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
@@ -60,6 +62,16 @@ class FakePermissionGuard(
     override fun permissions(businessId: String): Flow<MemberPermissions> = permissionsFlow
 
     override fun isOwner(businessId: String): Flow<Boolean> = ownerFlow
+}
+
+class FakeSessionHolder(
+    val sessionFlow: MutableStateFlow<Session?> = MutableStateFlow(null),
+) : SessionHolder {
+    override val session: Flow<Session?> = sessionFlow
+
+    override suspend fun signOut() {
+        sessionFlow.value = null
+    }
 }
 
 class FakeGoogleAccountLinker(
