@@ -9,7 +9,7 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.YearMonth
 
-/** Calendar month mapping (§4.1): grid shape, pills, spanning bars, blocks, today. */
+/** Calendar month mapping (§4.1): grid shape, day-cell icons + status flags, blocks, today. */
 class CalendarMonthMapperTest {
     private val month = YearMonth.of(2026, 9) // Sep 2026: 1st is a Tuesday
     private val today = LocalDate.of(2026, 9, 10)
@@ -27,6 +27,8 @@ class CalendarMonthMapperTest {
         createdAt = Fixtures.NOW,
         updatedAt = Fixtures.NOW,
     )
+
+    private fun days(grid: CalendarMonthMapper.MonthGrid) = grid.weeks.flatMap { it.days }.associateBy { it.date }
 
     @Test
     fun `grid starts on Sunday and covers the whole month`() {
@@ -51,68 +53,82 @@ class CalendarMonthMapperTest {
     }
 
     @Test
-    fun `single day booking maps to a one column segment with first name label`() {
+    fun `single day booking marks only its date with icon name and firm status`() {
         val booking = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10)) // Thursday
         val grid = CalendarMonthMapper.map(month, today, listOf(booking.copy(customerName = "Asha Devi")), emptyList())
-        val segment = grid.weeks.flatMap { it.segments }.single()
-        assertThat(segment.startCol).isEqualTo(4) // Sun=0 … Thu=4
-        assertThat(segment.endCol).isEqualTo(4)
-        assertThat(segment.continuesBefore).isFalse()
-        assertThat(segment.continuesAfter).isFalse()
-        assertThat(segment.label).isEqualTo("Asha")
+        val day = days(grid).getValue(LocalDate.of(2026, 9, 10))
+        assertThat(day.eventIcons).containsExactly(booking.eventIcon)
+        assertThat(day.bookingNames).containsExactly("Asha")
+        assertThat(day.hasFirmBooking).isTrue()
+        assertThat(day.hasTentativeBooking).isFalse()
+        // No other date carries the booking.
+        val marked = grid.weeks.flatMap { it.days }.filter { it.eventIcons.isNotEmpty() }
+        assertThat(marked.map { it.date }).containsExactly(LocalDate.of(2026, 9, 10))
     }
 
     @Test
-    fun `multi day booking spans within a week`() {
+    fun `multi day booking marks every covered date`() {
         val booking =
             Fixtures.booking(
                 startDate = LocalDate.of(2026, 9, 8), // Tuesday
                 endDate = LocalDate.of(2026, 9, 10), // Thursday
             )
         val grid = CalendarMonthMapper.map(month, today, listOf(booking), emptyList())
-        val segment = grid.weeks.flatMap { it.segments }.single()
-        assertThat(segment.startCol).isEqualTo(2)
-        assertThat(segment.endCol).isEqualTo(4)
+        val marked = grid.weeks.flatMap { it.days }.filter { it.eventIcons.isNotEmpty() }
+        assertThat(marked.map { it.date })
+            .containsExactly(LocalDate.of(2026, 9, 8), LocalDate.of(2026, 9, 9), LocalDate.of(2026, 9, 10))
+            .inOrder()
+        marked.forEach { assertThat(it.hasFirmBooking).isTrue() }
     }
 
     @Test
-    fun `booking spanning a week boundary produces chained segments`() {
+    fun `booking spanning a week boundary marks dates in both weeks`() {
         val booking =
             Fixtures.booking(
                 startDate = LocalDate.of(2026, 9, 11), // Friday of week 2
                 endDate = LocalDate.of(2026, 9, 14), // Monday of week 3
             )
         val grid = CalendarMonthMapper.map(month, today, listOf(booking), emptyList())
-        val segments = grid.weeks.flatMap { it.segments }
-        assertThat(segments).hasSize(2)
-        val (first, second) = segments
-        assertThat(first.startCol).isEqualTo(5) // Friday
-        assertThat(first.endCol).isEqualTo(6) // Saturday
-        assertThat(first.continuesBefore).isFalse()
-        assertThat(first.continuesAfter).isTrue()
-        assertThat(second.startCol).isEqualTo(0) // Sunday
-        assertThat(second.endCol).isEqualTo(1) // Monday
-        assertThat(second.continuesBefore).isTrue()
-        assertThat(second.continuesAfter).isFalse()
+        val markedByWeek =
+            grid.weeks
+                .map { week -> week.days.filter { it.eventIcons.isNotEmpty() }.map { it.date } }
+                .filter { it.isNotEmpty() }
+        assertThat(markedByWeek).hasSize(2)
+        assertThat(markedByWeek[0]).containsExactly(LocalDate.of(2026, 9, 11), LocalDate.of(2026, 9, 12))
+        assertThat(markedByWeek[1]).containsExactly(LocalDate.of(2026, 9, 13), LocalDate.of(2026, 9, 14))
     }
 
     @Test
     fun `cancelled bookings are hidden from the grid`() {
         val cancelled = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.CANCELLED)
         val grid = CalendarMonthMapper.map(month, today, listOf(cancelled), emptyList())
-        assertThat(grid.weeks.flatMap { it.segments }).isEmpty()
+        grid.weeks.flatMap { it.days }.forEach { day ->
+            assertThat(day.eventIcons).isEmpty()
+            assertThat(day.bookingNames).isEmpty()
+            assertThat(day.hasFirmBooking).isFalse()
+            assertThat(day.hasTentativeBooking).isFalse()
+        }
     }
 
     @Test
-    fun `tentative bookings keep their status on the segment`() {
+    fun `tentative bookings flag the day tentative not firm`() {
         val tentative = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.TENTATIVE)
         val grid = CalendarMonthMapper.map(month, today, listOf(tentative), emptyList())
-        assertThat(
-            grid.weeks
-                .flatMap { it.segments }
-                .single()
-                .status,
-        ).isEqualTo(BookingStatus.TENTATIVE)
+        val day = days(grid).getValue(LocalDate.of(2026, 9, 10))
+        assertThat(day.hasTentativeBooking).isTrue()
+        assertThat(day.hasFirmBooking).isFalse()
+    }
+
+    @Test
+    fun `mixed status date carries both firm and tentative flags`() {
+        val confirmed = Fixtures.booking(id = "b1", startDate = LocalDate.of(2026, 9, 10))
+        val tentative =
+            Fixtures.booking(id = "b2", startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.TENTATIVE)
+        val grid = CalendarMonthMapper.map(month, today, listOf(confirmed, tentative), emptyList())
+        val day = days(grid).getValue(LocalDate.of(2026, 9, 10))
+        assertThat(day.hasFirmBooking).isTrue()
+        assertThat(day.hasTentativeBooking).isTrue()
+        assertThat(day.eventIcons).hasSize(2)
     }
 
     @Test
@@ -125,7 +141,7 @@ class CalendarMonthMapperTest {
                 endDate = LocalDate.of(2026, 9, 11),
             )
         val grid = CalendarMonthMapper.map(month, today, listOf(single, spanning), emptyList())
-        val days = grid.weeks.flatMap { it.days }.associateBy { it.date }
+        val days = days(grid)
         // The 10th is covered by BOTH bookings → two icons (spanning starts earlier, so first).
         assertThat(days.getValue(LocalDate.of(2026, 9, 10)).eventIcons)
             .containsExactly(spanning.eventIcon, single.eventIcon)
@@ -144,21 +160,16 @@ class CalendarMonthMapperTest {
     }
 
     @Test
-    fun `tentative bookings render the tentative icon in day cells but not segment labels`() {
+    fun `tentative bookings render the tentative icon and carry the first name for a11y`() {
         val tentative =
             Fixtures
                 .booking(startDate = LocalDate.of(2026, 9, 10), status = BookingStatus.TENTATIVE)
                 .copy(customerName = "Asha Devi")
         val grid = CalendarMonthMapper.map(month, today, listOf(tentative), emptyList())
-        val day = grid.weeks.flatMap { it.days }.first { it.date == LocalDate.of(2026, 9, 10) }
+        val day = days(grid).getValue(LocalDate.of(2026, 9, 10))
         assertThat(day.eventIcons).containsExactly(TENTATIVE_ICON)
-        // The segment label carries the name only — the icon lives in the day cell.
-        assertThat(
-            grid.weeks
-                .flatMap { it.segments }
-                .single()
-                .label,
-        ).isEqualTo("Asha")
+        // The name is announcement-only data — nothing in the grid renders it.
+        assertThat(day.bookingNames).containsExactly("Asha")
     }
 
     @Test

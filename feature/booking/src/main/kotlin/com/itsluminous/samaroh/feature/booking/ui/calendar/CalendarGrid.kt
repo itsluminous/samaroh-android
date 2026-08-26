@@ -6,9 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -22,7 +20,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,9 +35,11 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 /**
- * The month grid (§4.1): status-colored pills/spanning bars, grey-striped blocked dates,
- * today outline. Confirmed = filled purple (tertiary-container family), tentative =
- * outlined amber, cancelled = hidden (mapper already filters).
+ * The month grid (§4.1): event icons + status treatment inside the day cells,
+ * grey-striped blocked dates, today outline. Booked cells carry the whole story —
+ * firm (confirmed/completed) dates get a filled tertiary-container background,
+ * tentative dates an amber outline; no labels or bars render below the date row
+ * (customer names live in the agenda list and the TalkBack announcement only).
  */
 @Composable
 internal fun CalendarGrid(
@@ -79,50 +78,44 @@ private fun WeekRow(
     week: CalendarMonthMapper.Week,
     onDayTapped: (LocalDate) -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            week.days.forEachIndexed { index, day ->
-                val summaries = week.segments.filter { index in it.startCol..it.endCol }.map { it.label }
-                DayCell(
-                    day = day,
-                    bookingSummaries = summaries,
-                    onTapped = onDayTapped,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+    Row(modifier = Modifier.fillMaxWidth()) {
+        week.days.forEach { day ->
+            DayCell(
+                day = day,
+                onTapped = onDayTapped,
+                modifier = Modifier.weight(1f),
+            )
         }
-        week.segments.forEach { segment ->
-            SegmentBar(segment = segment, days = week.days, onDayTapped = onDayTapped)
-        }
-        Spacer(modifier = Modifier.height(6.dp))
     }
 }
 
 @Composable
 private fun DayCell(
     day: CalendarMonthMapper.Day,
-    bookingSummaries: List<String>,
     onTapped: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val outline = MaterialTheme.colorScheme.primary
     val stripe = MaterialTheme.colorScheme.outline
-    // TalkBack announcement (§6): full date + today/blocked state + booking summary,
-    // so the calendar is navigable cell by cell without sight.
+    val firmContainer = MaterialTheme.colorScheme.tertiaryContainer
+    val tentative = SamarohTheme.semanticColors.tentative
+    val shape = MaterialTheme.shapes.small
+    // TalkBack announcement (§6): full date + today/blocked state + booking summary
+    // (customer names), so the calendar is navigable cell by cell without sight.
     val description =
         buildList {
             add(formatFullDate(day.date))
             if (day.isToday) add(stringResource(R.string.booking_calendar_a11y_today))
             if (day.isBlocked) add(stringResource(R.string.booking_calendar_a11y_blocked_day))
-            if (bookingSummaries.isEmpty()) {
+            if (day.bookingNames.isEmpty()) {
                 add(stringResource(R.string.booking_calendar_a11y_no_bookings))
             } else {
                 add(
                     pluralStringResource(
                         R.plurals.booking_calendar_a11y_bookings_on_day,
-                        bookingSummaries.size,
-                        bookingSummaries.size,
-                        bookingSummaries.joinToString(),
+                        day.bookingNames.size,
+                        day.bookingNames.size,
+                        day.bookingNames.joinToString(),
                     ),
                 )
             }
@@ -133,16 +126,31 @@ private fun DayCell(
                 .padding(2.dp)
                 // ≥48dp touch target (§6); width comes from the 1/7 column weight.
                 .heightIn(min = 48.dp)
-                .clip(MaterialTheme.shapes.small)
+                .clip(shape)
                 .then(
+                    // Status treatment ON the cell (the old bars' visual vocabulary):
+                    // any firm booking → filled container; any tentative booking →
+                    // amber outline. A mixed date carries both.
+                    if (day.hasFirmBooking && day.inMonth) {
+                        Modifier.background(firmContainer)
+                    } else {
+                        Modifier
+                    },
+                ).then(
                     if (day.isBlocked && day.inMonth) {
                         Modifier.drawBehind { drawStripes(stripe) }
                     } else {
                         Modifier
                     },
                 ).then(
+                    if (day.hasTentativeBooking && day.inMonth) {
+                        Modifier.border(1.dp, tentative, shape)
+                    } else {
+                        Modifier
+                    },
+                ).then(
                     if (day.isToday) {
-                        Modifier.border(2.dp, outline, MaterialTheme.shapes.small)
+                        Modifier.border(2.dp, outline, shape)
                     } else {
                         Modifier
                     },
@@ -204,54 +212,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStripes(color: 
             strokeWidth = 2.dp.toPx(),
         )
         x += step
-    }
-}
-
-/**
- * One booking's bar across a week row. Single-day bookings render as a one-column pill,
- * multi-day bookings span columns and chain across weeks. The bar carries the customer's
- * first name only — the event icon already replaces the date number in the day cell above,
- * so repeating it here would be redundant.
- */
-@Composable
-private fun SegmentBar(
-    segment: CalendarMonthMapper.Segment,
-    days: List<CalendarMonthMapper.Day>,
-    onDayTapped: (LocalDate) -> Unit,
-) {
-    val confirmedContainer = MaterialTheme.colorScheme.tertiaryContainer
-    val confirmedContent = MaterialTheme.colorScheme.onTertiaryContainer
-    val tentative = SamarohTheme.semanticColors.tentative
-    val shape = MaterialTheme.shapes.small
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-        if (segment.startCol > 0) Spacer(modifier = Modifier.weight(segment.startCol.toFloat()))
-        val width = (segment.endCol - segment.startCol + 1).toFloat()
-        Box(
-            modifier =
-                Modifier
-                    .weight(width)
-                    .padding(horizontal = 2.dp)
-                    .clip(shape)
-                    .then(
-                        when (segment.status) {
-                            BookingStatus.TENTATIVE -> Modifier.border(1.dp, tentative, shape)
-                            else -> Modifier.background(confirmedContainer)
-                        },
-                    ).clickable { onDayTapped(days[segment.startCol].date) }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                    // Hidden from TalkBack: the day cells already announce every booking
-                    // with a ≥48dp target; these thin bars would be duplicate tiny stops.
-                    .clearAndSetSemantics {},
-        ) {
-            Text(
-                text = segment.label,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (segment.status == BookingStatus.TENTATIVE) tentative else confirmedContent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (segment.endCol < 6) Spacer(modifier = Modifier.weight((6 - segment.endCol).toFloat()))
     }
 }
 

@@ -93,7 +93,12 @@ class BookingCalendarViewModelTest {
                 assertThat(state.receivedPaise).isEqualTo(0L)
                 assertThat(state.pendingPaise).isEqualTo(0L)
                 assertThat(state.agenda.map { it.booking.id }).containsExactly(cancelled.id)
-                assertThat(state.grid!!.weeks.flatMap { it.segments }).isEmpty()
+                assertThat(
+                    state.grid!!
+                        .weeks
+                        .flatMap { it.days }
+                        .flatMap { it.eventIcons },
+                ).isEmpty()
                 cancelAndIgnoreRemainingEvents()
             }
         }

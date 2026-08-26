@@ -10,8 +10,8 @@ import java.time.YearMonth
 
 /**
  * Maps a month's bookings and date blocks onto a week-row grid the calendar screen can
- * render directly (§4.1): status pills, multi-day spanning bars, grey-striped blocks,
- * the today outline. Pure and fully unit-tested — no Android types.
+ * render directly (§4.1): event icons + status treatment in the day cells,
+ * grey-striped blocks, the today outline. Pure and fully unit-tested — no Android types.
  */
 object CalendarMonthMapper {
     /** One rendered cell of the month grid. */
@@ -26,30 +26,27 @@ object CalendarMonthMapper {
          * of the date number; tentative bookings contribute 👤 ([Booking.displayIcon]).
          */
         val eventIcons: List<String> = emptyList(),
+        /**
+         * Customer first names of the same bookings, in the same order — used ONLY for
+         * the TalkBack day-cell announcement. Names are never rendered in the grid;
+         * the agenda list below the calendar carries them visually.
+         */
+        val bookingNames: List<String> = emptyList(),
+        /**
+         * True when any firm (confirmed/completed) booking covers this date — the cell
+         * gets a filled container background behind the icons.
+         */
+        val hasFirmBooking: Boolean = false,
+        /**
+         * True when any tentative booking covers this date — the cell gets an amber
+         * outline. Both flags can be true on a mixed date.
+         */
+        val hasTentativeBooking: Boolean = false,
     )
 
-    /**
-     * A booking's segment within ONE week row. [startCol]/[endCol] are 0-based day
-     * columns (inclusive); a single-day booking is a one-column segment. A booking
-     * spanning multiple weeks produces one segment per week, chained via
-     * [continuesBefore]/[continuesAfter]. [label] is the customer's first name only —
-     * event icons already live in the day cells ([Day.eventIcons]), so repeating them
-     * on the bar would be redundant.
-     */
-    data class Segment(
-        val bookingId: String,
-        val label: String,
-        val status: BookingStatus,
-        val startCol: Int,
-        val endCol: Int,
-        val continuesBefore: Boolean,
-        val continuesAfter: Boolean,
-    )
-
-    /** One week row: exactly 7 days plus the booking segments to draw across them. */
+    /** One week row: exactly 7 days. */
     data class Week(
         val days: List<Day>,
-        val segments: List<Segment>,
     )
 
     data class MonthGrid(
@@ -79,40 +76,25 @@ object CalendarMonthMapper {
         val weeks = mutableListOf<Week>()
         var weekStart = gridStart
         while (weekStart <= lastOfMonth) {
-            val weekEnd = weekStart.plusDays(6)
             val days =
                 (0..6).map { offset ->
                     val date = weekStart.plusDays(offset.toLong())
+                    val covering =
+                        visible
+                            .filter { date in it.startDate..it.endDate }
+                            .sortedWith(compareBy({ it.startDate }, { it.createdAt }))
                     Day(
                         date = date,
                         inMonth = YearMonth.from(date) == month,
                         isToday = date == today,
                         isBlocked = liveBlocks.any { date in it.startDate..it.endDate },
-                        eventIcons =
-                            visible
-                                .filter { date in it.startDate..it.endDate }
-                                .sortedWith(compareBy({ it.startDate }, { it.createdAt }))
-                                .map { it.displayIcon },
+                        eventIcons = covering.map { it.displayIcon },
+                        bookingNames = covering.map { BookingTitleFormatter.firstName(it.customerName) },
+                        hasFirmBooking = covering.any { it.status != BookingStatus.TENTATIVE },
+                        hasTentativeBooking = covering.any { it.status == BookingStatus.TENTATIVE },
                     )
                 }
-            val segments =
-                visible
-                    .filter { it.startDate <= weekEnd && it.endDate >= weekStart }
-                    .sortedWith(compareBy({ it.startDate }, { it.createdAt }))
-                    .map { booking ->
-                        val segStart = maxOf(booking.startDate, weekStart)
-                        val segEnd = minOf(booking.endDate, weekEnd)
-                        Segment(
-                            bookingId = booking.id,
-                            label = BookingTitleFormatter.firstName(booking.customerName),
-                            status = booking.status,
-                            startCol = weekStart.until(segStart).days,
-                            endCol = weekStart.until(segEnd).days,
-                            continuesBefore = booking.startDate < weekStart,
-                            continuesAfter = booking.endDate > weekEnd,
-                        )
-                    }
-            weeks += Week(days, segments)
+            weeks += Week(days)
             weekStart = weekStart.plusDays(7)
         }
         return MonthGrid(month, weeks)
