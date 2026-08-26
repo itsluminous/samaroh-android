@@ -24,3 +24,18 @@ allprojects {
         }
     }
 }
+
+// Library modules without androidTest sources must not produce a test APK: the empty
+// APK self-instruments with the LEGACY android.test.InstrumentationTestRunner (no
+// runner is configured) which ANRs on modern API levels and fails the root
+// `connectedDebugAndroidTest` (W2-B e2e gate). The app module hosts the e2e suite.
+subprojects {
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.api.variant.LibraryAndroidComponentsExtension> {
+            beforeVariants { variant ->
+                variant.androidTest.enable =
+                    variant.androidTest.enable && projectDir.resolve("src/androidTest").exists()
+            }
+        }
+    }
+}
