@@ -327,6 +327,35 @@ class SyncEnginePullTest {
             assertThat(meta.lastSyncTime.first()).isEqualTo(FIXED_NOW)
         }
 
+    @Test
+    fun `expense_attachments pull uses created_at - the table has no updated_at column`() =
+        runTest {
+            seedBusiness()
+            remote.servePage(
+                "expense_attachments",
+                listOf(
+                    buildJsonObject {
+                        put("id", "att-1")
+                        put("expense_id", "exp-1")
+                        put("business_id", Fixtures.BUSINESS_ID)
+                        put("drive_file_id", "drive-1")
+                        put("mime_type", "application/pdf")
+                        put("file_name", "invoice.pdf")
+                        put("created_at", "2026-08-25T10:00:00+00:00")
+                        put("deleted_at", JsonNull)
+                    },
+                ),
+            )
+
+            syncEngine(db, remote, notifier).runSync()
+
+            assertThat(remote.pullCursorColumns["expense_attachments"]).isEqualTo("created_at")
+            assertThat(remote.pullCursorColumns["bookings"]).isEqualTo("updated_at")
+            assertThat(db.expenseAttachmentDao().byId("att-1")).isNotNull()
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "expense_attachments"))
+                .isEqualTo(Instant.parse("2026-08-25T10:00:00Z"))
+        }
+
     private fun remoteBookingRow(
         id: String,
         updatedAt: String,

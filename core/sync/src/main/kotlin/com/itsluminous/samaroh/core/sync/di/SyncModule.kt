@@ -4,7 +4,6 @@ import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
-import com.itsluminous.samaroh.core.sync.BuildConfig
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
 import com.itsluminous.samaroh.core.sync.DataStoreSyncMetaStore
 import com.itsluminous.samaroh.core.sync.NotificationConflictNotifier
@@ -21,6 +20,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Singleton
 
 @Module
@@ -40,12 +41,18 @@ abstract class SyncModule {
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
 
     companion object {
-        /** Credentials come from local.properties via BuildConfig; blank values = offline-only no-op sync. */
+        /**
+         * The remote store rides on the SHARED [SupabaseClient] from `core:auth` (Auth +
+         * Postgrest installed): supabase-kt then attaches the signed-in user's access
+         * token to every Postgrest call, so RLS evaluates as the user. A separate
+         * Postgrest-only client would push/pull as `anon` — RLS rejects every write and
+         * filters every read to nothing. Null client (Supabase unconfigured) =
+         * offline-only no-op sync.
+         */
         @Provides
         @Singleton
-        fun provideRemoteStoreProvider(): RemoteStoreProvider {
-            val store: RemoteStore? =
-                PostgrestRemoteStore.createOrNull(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_ANON_KEY)
+        fun provideRemoteStoreProvider(client: SupabaseClient?): RemoteStoreProvider {
+            val store: RemoteStore? = client?.let { PostgrestRemoteStore(it.postgrest) }
             return RemoteStoreProvider { store }
         }
     }

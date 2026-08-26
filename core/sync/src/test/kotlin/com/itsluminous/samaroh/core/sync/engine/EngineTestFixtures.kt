@@ -37,6 +37,9 @@ class FakeRemoteStore : RemoteStore {
     val tombstones = mutableListOf<Triple<String, String, String>>()
     val pullCalls = mutableListOf<Triple<String, String?, Instant>>()
 
+    /** Last cursor column requested per table (asserts the expense_attachments created_at cursor). */
+    val pullCursorColumns = mutableMapOf<String, String>()
+
     /** Pages served per table; each pull for a table pops one page (then empty). */
     val pullPages = mutableMapOf<String, ArrayDeque<List<JsonObject>>>()
 
@@ -66,6 +69,7 @@ class FakeRemoteStore : RemoteStore {
         idColumn: String,
         id: String,
         deletedAt: String,
+        touchUpdatedAt: Boolean,
     ) {
         onTombstone?.invoke(table, id)?.let { throw it }
         tombstones += Triple(table, id, deletedAt)
@@ -77,8 +81,10 @@ class FakeRemoteStore : RemoteStore {
         after: Instant,
         limit: Int,
         columns: String?,
+        cursorColumn: String,
     ): List<JsonObject> {
         pullCalls += Triple(table, businessId, after)
+        pullCursorColumns[table] = cursorColumn
         return pullPages[table]?.removeFirstOrNull() ?: emptyList()
     }
 }

@@ -15,18 +15,20 @@ interface RemoteStore {
     )
 
     /**
-     * Tombstone propagation (§8): sets `deleted_at`/`updated_at` on the remote row.
-     * A no-op when the row never reached the server (0 rows match).
+     * Tombstone propagation (§8): sets `deleted_at` (and `updated_at` when
+     * [touchUpdatedAt] — immutable tables like `expense_attachments` have no such column)
+     * on the remote row. A no-op when the row never reached the server (0 rows match).
      */
     suspend fun updateTombstone(
         table: String,
         idColumn: String,
         id: String,
         deletedAt: String,
+        touchUpdatedAt: Boolean = true,
     )
 
     /**
-     * Incremental pull page: rows with `updated_at > after`, oldest first, at most [limit],
+     * Incremental pull page: rows with `cursorColumn > after`, oldest first, at most [limit],
      * optionally scoped to one business and to an explicit column projection (ADR-003).
      */
     suspend fun pull(
@@ -35,6 +37,7 @@ interface RemoteStore {
         after: Instant,
         limit: Int,
         columns: String? = null,
+        cursorColumn: String = "updated_at",
     ): List<JsonObject>
 }
 

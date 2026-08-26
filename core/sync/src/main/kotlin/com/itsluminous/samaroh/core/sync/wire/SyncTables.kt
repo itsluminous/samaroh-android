@@ -15,6 +15,10 @@ package com.itsluminous.samaroh.core.sync.wire
  * @param idColumn primary-key column used for LWW matching and tombstone updates.
  * @param selectColumns explicit pull projection; used to exclude server-only secrets
  *   (ADR-003 `google_accounts.refresh_token_cipher`).
+ * @param cursorColumn timestamp column driving the incremental pull (`> cursor`, ascending).
+ *   `updated_at` everywhere except immutable tables: `expense_attachments` has no
+ *   `updated_at` by design (created once, tombstoned via `deleted_at` — see 001_schema.sql),
+ *   so it pulls by `created_at`.
  */
 data class SyncTableSpec(
     val name: String,
@@ -23,7 +27,11 @@ data class SyncTableSpec(
     val enumFields: Set<String> = emptySet(),
     val idColumn: String = "id",
     val selectColumns: String? = null,
-)
+    val cursorColumn: String = "updated_at",
+) {
+    /** Whether the server table carries `updated_at` (LWW bump + tombstone touch are valid). */
+    val hasUpdatedAt: Boolean get() = cursorColumn == "updated_at"
+}
 
 /** Registry of every synced table, in pull order (parents before children is NOT required — ADR-004). */
 object SyncTables {
@@ -64,7 +72,7 @@ object SyncTables {
                 moneyFields = mapOf("amountPaise" to "amount"),
                 enumFields = setOf("direction"),
             ),
-            SyncTableSpec("expense_attachments", businessScoped = true),
+            SyncTableSpec("expense_attachments", businessScoped = true, cursorColumn = "created_at"),
             SyncTableSpec("master_items", businessScoped = true),
             SyncTableSpec(
                 "inventory_transactions",

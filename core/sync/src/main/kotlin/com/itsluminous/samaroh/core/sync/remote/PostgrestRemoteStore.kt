@@ -33,12 +33,13 @@ class PostgrestRemoteStore(
         idColumn: String,
         id: String,
         deletedAt: String,
+        touchUpdatedAt: Boolean,
     ) {
         guard {
             postgrest.from(table).update(
                 {
                     set("deleted_at", deletedAt)
-                    set("updated_at", deletedAt)
+                    if (touchUpdatedAt) set("updated_at", deletedAt)
                 },
             ) {
                 filter { eq(idColumn, id) }
@@ -52,16 +53,17 @@ class PostgrestRemoteStore(
         after: Instant,
         limit: Int,
         columns: String?,
+        cursorColumn: String,
     ): List<JsonObject> =
         guard {
             postgrest
                 .from(table)
                 .select(columns = columns?.let { Columns.raw(it) } ?: Columns.ALL) {
                     filter {
-                        gt("updated_at", after.toString())
+                        gt(cursorColumn, after.toString())
                         if (businessId != null) eq("business_id", businessId)
                     }
-                    order("updated_at", Order.ASCENDING)
+                    order(cursorColumn, Order.ASCENDING)
                     limit(limit.toLong())
                 }.decodeList<JsonObject>()
         }

@@ -155,7 +155,13 @@ class SyncEngine
                     val deletedAt =
                         payload["deleted_at"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
                             ?: clock.instant().toString()
-                    remote.updateTombstone(entry.entityType, spec?.idColumn ?: "id", entry.entityId, deletedAt)
+                    remote.updateTombstone(
+                        entry.entityType,
+                        spec?.idColumn ?: "id",
+                        entry.entityId,
+                        deletedAt,
+                        touchUpdatedAt = spec?.hasUpdatedAt ?: true,
+                    )
                 }
             }
         }
@@ -228,12 +234,13 @@ class SyncEngine
                         after = cursor,
                         limit = PULL_PAGE_SIZE,
                         columns = spec.selectColumns,
+                        cursorColumn = spec.cursorColumn,
                     )
                 if (rows.isEmpty()) break
                 var newest = cursor
                 for (raw in rows) {
                     val row = WireConverter.toLocal(spec.name, raw)
-                    val remoteUpdated = WireConverter.parseTimestamp(row.getValue("updated_at").jsonPrimitive.content)
+                    val remoteUpdated = WireConverter.parseTimestamp(row.getValue(spec.cursorColumn).jsonPrimitive.content)
                     if (remoteUpdated > newest) newest = remoteUpdated
                     val outcome = applyWithLww(spec, row, remoteUpdated)
                     if (outcome.first) applied++
@@ -295,7 +302,11 @@ class SyncEngine
             val merged =
                 JsonObject(
                     row + contested.associateWith { localPayload.getValue(it) } +
-                        ("updated_at" to JsonPrimitive(clock.instant().toString())),
+                        if (spec.hasUpdatedAt) {
+                            mapOf("updated_at" to JsonPrimitive(clock.instant().toString()))
+                        } else {
+                            emptyMap()
+                        },
                 )
             pending.dropLast(1).forEach { outboxDao.remove(it.id) }
             outboxDao.rewritePayload(latest.id, merged.toString())
@@ -318,6 +329,8 @@ class SyncEngine
             val raw =
                 payload["updated_at"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
                     ?: payload["deleted_at"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
+                    // Immutable tables (expense_attachments) carry created_at only.
+                    ?: payload["created_at"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
                     ?: return Instant.EPOCH
             return runCatching { WireConverter.parseTimestamp(raw) }.getOrDefault(Instant.EPOCH)
         }
