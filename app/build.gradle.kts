@@ -41,7 +41,8 @@ android {
         versionCode = (project.findProperty("appVersionCode") as? String)?.toInt() ?: 1
         versionName = (project.findProperty("appVersionName") as? String) ?: "0.1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Hilt-aware runner (swaps in HiltTestApplication for the e2e androidTest suite).
+        testInstrumentationRunner = "com.itsluminous.samaroh.SamarohTestRunner"
 
         buildConfigField("String", "SUPABASE_URL", quotedProp("SUPABASE_URL"))
         buildConfigField("String", "SUPABASE_ANON_KEY", quotedProp("SUPABASE_ANON_KEY"))
@@ -90,6 +91,12 @@ android {
     lint {
         lintConfig = rootProject.file("lint.xml")
         abortOnError = true
+    }
+
+    testOptions {
+        // System animator/window animations off during instrumented runs — Compose's own
+        // test clock handles composition animations; this covers the framework's.
+        animationsDisabled = true
     }
 
     packaging {
@@ -153,4 +160,19 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
+
+    // End-to-end instrumented suite (spec §11 W2-B): Compose UI tests + Hilt + intents.
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.core.ktx)
+    androidTestImplementation(libs.androidx.test.espresso.intents)
+    androidTestImplementation(libs.hilt.android.testing)
+    kspAndroidTest(libs.hilt.compiler)
+    androidTestImplementation(libs.truth)
+    androidTestImplementation(project(":core:testing"))
+    // RoomDatabase supertype of SamarohDatabase must be on the androidTest compile classpath.
+    androidTestImplementation(libs.room.runtime)
 }
