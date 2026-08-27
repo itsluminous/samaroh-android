@@ -60,6 +60,7 @@ import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
@@ -376,10 +377,9 @@ private fun LedgerEntryRow(
                 Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 2.dp))
             }
             if (attachments.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
+                // Scrollable single line: several 56dp thumbs overflow the entry column
+                // on narrow screens (the trailing amount column shrinks the space further).
+                ChipRow(modifier = Modifier.padding(top = 8.dp)) {
                     attachments.forEach { AttachmentThumbnail(it) }
                 }
             }

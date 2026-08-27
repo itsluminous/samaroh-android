@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -60,6 +59,7 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
@@ -182,7 +182,9 @@ fun AddEntryScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(stringResource(R.string.expenses_entry_attach_title), style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Scrollable single line: on narrow screens (or with longer Hindi labels)
+                // a plain Row squashes/wraps the trailing source pill (spec: never wrap pills).
+                ChipRow {
                     FilledTonalButton(onClick = {
                         val file =
                             File(context.filesDir, "expense_attachments")
@@ -208,7 +210,8 @@ fun AddEntryScreen(
                     }
                 }
                 if (state.attachments.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Scrollable single line: four 72dp thumbs overflow a narrow viewport.
+                    ChipRow {
                         state.attachments.forEach { staged ->
                             StagedAttachmentThumb(staged = staged, onRemove = { viewModel.removeAttachment(staged) })
                         }

@@ -52,6 +52,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
@@ -278,12 +279,14 @@ private fun ItemDetailHeader(
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = onAdd, modifier = Modifier.weight(1f)) {
+            // Scrollable single line: weighted halves squash "Add"/"Remove" into
+            // character-per-line slivers on narrow screens (pills never wrap).
+            ChipRow {
+                Button(onClick = onAdd) {
                     Icon(imageVector = Icons.Filled.Add, contentDescription = null)
                     Text(stringResource(R.string.inventory_txn_type_add))
                 }
-                OutlinedButton(onClick = onRemove, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onRemove) {
                     Icon(imageVector = Icons.Filled.Remove, contentDescription = null)
                     Text(stringResource(R.string.inventory_txn_type_remove))
                 }
