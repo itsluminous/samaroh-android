@@ -165,6 +165,29 @@ fun ReportChart(
                 valueFormatter = money,
                 modifier = modifier,
             )
+        is ReportData.PersonalExpenses -> {
+            // Monthly totals across personal parties — bar per month, month order.
+            val byMonth =
+                data.rows
+                    .groupBy { it.month }
+                    .mapValues { (_, rows) -> rows.sumOf { it.netPaise } }
+                    .toSortedMap()
+            SamarohBarChart(
+                entries =
+                    byMonth.map { (month, netPaise) ->
+                        ChartEntry(
+                            label = monthAxisLabel(month, locale),
+                            fullLabel = monthFullLabel(month, locale),
+                            values = listOf(netPaise),
+                        )
+                    },
+                colors = listOf(moneyOut),
+                legends = listOf(stringResource(R.string.reports_legend_spend)),
+                axisFormatter = compactAmount,
+                valueFormatter = money,
+                modifier = modifier,
+            )
+        }
         is ReportData.Collection -> {
             val result = data.result
             Column(modifier = modifier) {

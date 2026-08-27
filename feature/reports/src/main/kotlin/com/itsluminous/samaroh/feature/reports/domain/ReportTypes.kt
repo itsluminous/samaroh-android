@@ -2,7 +2,7 @@ package com.itsluminous.samaroh.feature.reports.domain
 
 import java.time.LocalDate
 
-/** The nine reports of §4.4, in their Menu-list order. [routeArg] keys the nav route. */
+/** The ten reports of §4.4 + ADR-027, in their Menu-list order. [routeArg] keys the nav route. */
 enum class ReportType(
     val routeArg: String,
 ) {
@@ -15,6 +15,7 @@ enum class ReportType(
     PROFIT("profit"),
     INVENTORY_VALUATION("inventory_valuation"),
     COLLECTION("collection"),
+    PERSONAL_EXPENSES("personal_expenses"),
     ;
 
     /**

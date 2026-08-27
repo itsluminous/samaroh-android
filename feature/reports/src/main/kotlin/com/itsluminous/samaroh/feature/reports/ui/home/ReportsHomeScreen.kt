@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.CurrencyRupee
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.HorizontalDivider
@@ -79,6 +80,7 @@ private fun ReportType.icon(): ImageVector =
         ReportType.PROFIT -> Icons.AutoMirrored.Filled.TrendingUp
         ReportType.INVENTORY_VALUATION -> Icons.Filled.Inventory2
         ReportType.COLLECTION -> Icons.Filled.Schedule
+        ReportType.PERSONAL_EXPENSES -> Icons.Filled.Person
     }
 
 @Composable

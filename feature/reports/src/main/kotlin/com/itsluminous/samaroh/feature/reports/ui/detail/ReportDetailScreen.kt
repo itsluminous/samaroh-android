@@ -34,6 +34,7 @@ import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.reports.domain.RangePreset
+import com.itsluminous.samaroh.feature.reports.domain.ReportType
 import com.itsluminous.samaroh.feature.reports.export.ReportExportFormat
 import com.itsluminous.samaroh.feature.reports.export.ReportTable
 import com.itsluminous.samaroh.feature.reports.share.ReportShare
@@ -95,10 +96,17 @@ fun ReportDetailScreen(
                     }
                     val data = state.data
                     if (data == null || data.isEmpty) {
+                        val personal = state.type == ReportType.PERSONAL_EXPENSES
                         EmptyState(
                             icon = Icons.Filled.BarChart,
-                            title = stringResource(R.string.reports_empty_title),
-                            message = stringResource(R.string.reports_empty_message),
+                            title =
+                                stringResource(
+                                    if (personal) R.string.reports_personal_expenses_empty_title else R.string.reports_empty_title,
+                                ),
+                            message =
+                                stringResource(
+                                    if (personal) R.string.reports_personal_expenses_empty_message else R.string.reports_empty_message,
+                                ),
                         )
                     } else {
                         ReportChart(data = data, modifier = Modifier.padding(top = 8.dp))
@@ -260,6 +268,19 @@ private fun ReportTableGrid(table: ReportTable) {
                     Text(
                         text = cell,
                         style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(weights.getOrElse(index) { 1f }).padding(vertical = 4.dp),
+                    )
+                }
+            }
+        }
+        table.totalRow?.let { totalRow ->
+            HorizontalDivider()
+            Row(modifier = Modifier.fillMaxWidth()) {
+                totalRow.forEachIndexed { index, cell ->
+                    Text(
+                        text = cell,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(weights.getOrElse(index) { 1f }).padding(vertical = 4.dp),
                     )
                 }

@@ -26,6 +26,8 @@ import com.itsluminous.samaroh.feature.reports.domain.InventoryValuationCalculat
 import com.itsluminous.samaroh.feature.reports.domain.OccupancyCalculator
 import com.itsluminous.samaroh.feature.reports.domain.OccupancyMonth
 import com.itsluminous.samaroh.feature.reports.domain.PartyExpenseRow
+import com.itsluminous.samaroh.feature.reports.domain.PersonalExpenseRow
+import com.itsluminous.samaroh.feature.reports.domain.PersonalExpensesCalculator
 import com.itsluminous.samaroh.feature.reports.domain.ProfitCalculator
 import com.itsluminous.samaroh.feature.reports.domain.ProfitMonth
 import com.itsluminous.samaroh.feature.reports.domain.RangePreset
@@ -116,6 +118,13 @@ sealed interface ReportData {
         val result: CollectionResult,
     ) : ReportData {
         override val isEmpty: Boolean get() = result.entries.isEmpty()
+    }
+
+    /** ADR-027: monthly net spend per personal (non-business-related) party. */
+    data class PersonalExpenses(
+        val rows: List<PersonalExpenseRow>,
+    ) : ReportData {
+        override val isEmpty: Boolean get() = rows.isEmpty()
     }
 }
 
@@ -269,11 +278,12 @@ class ReportDetailViewModel
                         inventoryPurchases(businessId, range),
                     ) { expenses, parties, purchases ->
                         val names = parties.associate { it.party.id to it.party.name }
+                        val personalIds = parties.filter { !it.party.businessRelated }.map { it.party.id }.toSet()
                         // The unknown-party fallback is substituted with the localized
                         // label at the presentation layer; the sentinel never renders.
                         ReportData.Expenses(
-                            months = ExpenseSummaryCalculator.byMonth(expenses, purchases, range, clock.zone),
-                            rows = ExpenseSummaryCalculator.calculate(expenses, names, UNKNOWN_PARTY_SENTINEL),
+                            months = ExpenseSummaryCalculator.byMonth(expenses, purchases, range, clock.zone, personalIds),
+                            rows = ExpenseSummaryCalculator.calculate(expenses, names, UNKNOWN_PARTY_SENTINEL, personalIds),
                         )
                     }
                 ReportType.PROFIT ->
@@ -281,8 +291,21 @@ class ReportDetailViewModel
                         reportsRepository.paymentsBetween(businessId, range.start, range.end),
                         reportsRepository.expensesBetween(businessId, range.start, range.end),
                         inventoryPurchases(businessId, range),
-                    ) { payments, expenses, purchases ->
-                        ReportData.Profit(ProfitCalculator.calculate(payments, expenses, purchases, range, clock.zone))
+                        expensesRepository.partiesWithBalance(businessId),
+                    ) { payments, expenses, purchases, parties ->
+                        val personalIds = parties.filter { !it.party.businessRelated }.map { it.party.id }.toSet()
+                        ReportData.Profit(ProfitCalculator.calculate(payments, expenses, purchases, range, clock.zone, personalIds))
+                    }
+                ReportType.PERSONAL_EXPENSES ->
+                    combine(
+                        reportsRepository.expensesBetween(businessId, range.start, range.end),
+                        expensesRepository.partiesWithBalance(businessId),
+                    ) { expenses, parties ->
+                        val names = parties.associate { it.party.id to it.party.name }
+                        val personalIds = parties.filter { !it.party.businessRelated }.map { it.party.id }.toSet()
+                        ReportData.PersonalExpenses(
+                            PersonalExpensesCalculator.calculate(expenses, personalIds, names, UNKNOWN_PARTY_SENTINEL, range),
+                        )
                     }
                 ReportType.INVENTORY_VALUATION ->
                     inventoryOverviewRepository

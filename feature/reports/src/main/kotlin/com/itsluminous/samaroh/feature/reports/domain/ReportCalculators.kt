@@ -184,9 +184,10 @@ object ExpenseSummaryCalculator {
         expenses: List<Expense>,
         partyNames: Map<String, String>,
         unknownPartyName: String,
+        personalPartyIds: Set<String> = emptySet(),
     ): List<PartyExpenseRow> =
         expenses
-            .filter { it.deletedAt == null }
+            .filter { it.deletedAt == null && it.partyId !in personalPartyIds }
             .groupBy { it.partyId }
             .map { (partyId, group) ->
                 PartyExpenseRow(
@@ -204,18 +205,23 @@ object ExpenseSummaryCalculator {
     /**
      * Monthly summary: 'paid' ledger entries plus inventory purchases per month —
      * every month of the range is present, zero when quiet (web-parity with
-     * `expenseSummaryByMonth`).
+     * `expenseSummaryByMonth`). Personal parties' entries are excluded (ADR-027).
      */
     fun byMonth(
         expenses: List<Expense>,
         purchases: List<InventoryTransaction>,
         range: ReportDateRange,
         zone: ZoneId,
+        personalPartyIds: Set<String> = emptySet(),
     ): List<ExpenseMonth> {
         val ledgerByMonth =
             expenses
-                .filter { it.deletedAt == null && it.direction == ExpenseDirection.PAID && it.expenseDate in range.start..range.end }
-                .groupBy { YearMonth.from(it.expenseDate) }
+                .filter {
+                    it.deletedAt == null &&
+                        it.direction == ExpenseDirection.PAID &&
+                        it.expenseDate in range.start..range.end &&
+                        it.partyId !in personalPartyIds
+                }.groupBy { YearMonth.from(it.expenseDate) }
                 .mapValues { (_, group) -> group.sumOf { it.amountPaise } }
         val inventoryByMonth = inventoryPurchasesByMonth(purchases, range, zone)
         return range.months().map { month ->
@@ -230,7 +236,7 @@ object ExpenseSummaryCalculator {
 
 /**
  * §4.4 #7 — cash-basis profit: payments received minus net expenses and inventory
- * purchases, per month.
+ * purchases, per month. Personal parties' entries are excluded (ADR-027).
  */
 object ProfitCalculator {
     fun calculate(
@@ -239,6 +245,7 @@ object ProfitCalculator {
         purchases: List<InventoryTransaction>,
         range: ReportDateRange,
         zone: ZoneId,
+        personalPartyIds: Set<String> = emptySet(),
     ): List<ProfitMonth> {
         val incomeByMonth =
             payments
@@ -247,7 +254,7 @@ object ProfitCalculator {
                 .mapValues { (_, group) -> group.sumOf { it.amountPaise } }
         val expenseByMonth =
             expenses
-                .filter { it.deletedAt == null && it.expenseDate in range.start..range.end }
+                .filter { it.deletedAt == null && it.expenseDate in range.start..range.end && it.partyId !in personalPartyIds }
                 .groupBy { YearMonth.from(it.expenseDate) }
                 .mapValues { (_, group) ->
                     group.sumOf { if (it.direction == ExpenseDirection.PAID) it.amountPaise else -it.amountPaise }
@@ -261,6 +268,34 @@ object ProfitCalculator {
             )
         }
     }
+}
+
+/**
+ * ADR-027 — Personal-expenses report: net spend (paid − received) per personal
+ * (non-business-related) party per month, month ascending then biggest spend first.
+ * The exact complement of the ExpenseSummary/Profit exclusion, so no entry is ever
+ * dropped from both sides.
+ */
+object PersonalExpensesCalculator {
+    fun calculate(
+        expenses: List<Expense>,
+        personalPartyIds: Set<String>,
+        partyNames: Map<String, String>,
+        unknownPartyName: String,
+        range: ReportDateRange,
+    ): List<PersonalExpenseRow> =
+        expenses
+            .filter { it.deletedAt == null && it.partyId in personalPartyIds && it.expenseDate in range.start..range.end }
+            .groupBy { YearMonth.from(it.expenseDate) to it.partyId }
+            .map { (key, group) ->
+                val (month, partyId) = key
+                PersonalExpenseRow(
+                    month = month,
+                    partyId = partyId,
+                    partyName = partyNames[partyId] ?: unknownPartyName,
+                    netPaise = group.sumOf { if (it.direction == ExpenseDirection.PAID) it.amountPaise else -it.amountPaise },
+                )
+            }.sortedWith(compareBy<PersonalExpenseRow> { it.month }.thenByDescending { it.netPaise })
 }
 
 /** §4.4 #8 — current FIFO stock value per item, biggest holdings first. */

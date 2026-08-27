@@ -66,6 +66,7 @@ internal class ReportPdfRenderer(
             drawTitle()
             drawHeaderRow()
             table.rows.forEach { drawRow(it) }
+            table.totalRow?.let { drawTotalRow(it) }
             finishPage()
         }
 
@@ -92,6 +93,18 @@ internal class ReportPdfRenderer(
                 drawHeaderRow()
             }
             drawCells(cells, bodyPaint)
+        }
+
+        /** Final TOTAL row (ADR-027): bold, separated from the data rows by a rule. */
+        private fun drawTotalRow(cells: List<String>) {
+            if (y + ROW_HEIGHT + RULE_GAP > PAGE_HEIGHT - MARGIN - FOOTER_SIZE - 12f) {
+                finishPage()
+                newPage()
+                drawHeaderRow()
+            }
+            canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, rulePaint)
+            y += RULE_GAP
+            drawCells(cells, headerPaint)
         }
 
         private fun drawCells(

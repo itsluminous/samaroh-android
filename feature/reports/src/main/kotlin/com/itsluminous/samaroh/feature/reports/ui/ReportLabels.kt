@@ -29,6 +29,7 @@ fun ReportType.titleRes(): Int =
         ReportType.PROFIT -> R.string.reports_report_profit
         ReportType.INVENTORY_VALUATION -> R.string.reports_report_inventory_valuation
         ReportType.COLLECTION -> R.string.reports_report_collection
+        ReportType.PERSONAL_EXPENSES -> R.string.reports_report_personal_expenses
     }
 
 /** Localized one-line description shown under each report row on the Reports home. */
@@ -44,6 +45,7 @@ fun ReportType.subtitleRes(): Int =
         ReportType.PROFIT -> R.string.reports_report_profit_subtitle
         ReportType.INVENTORY_VALUATION -> R.string.reports_report_inventory_valuation_subtitle
         ReportType.COLLECTION -> R.string.reports_report_collection_subtitle
+        ReportType.PERSONAL_EXPENSES -> R.string.reports_report_personal_expenses_subtitle
     }
 
 @StringRes

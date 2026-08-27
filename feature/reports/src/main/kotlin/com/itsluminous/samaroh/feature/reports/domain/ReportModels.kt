@@ -105,6 +105,17 @@ data class ValuationRow(
     val valuePaise: Long,
 )
 
+/**
+ * Personal-expenses report (ADR-027): net spend (paid − received) on one personal
+ * (non-business-related) party in one month.
+ */
+data class PersonalExpenseRow(
+    val month: YearMonth,
+    val partyId: String,
+    val partyName: String,
+    val netPaise: Long,
+)
+
 /** Collection efficiency (§4.4 #9): one fully-paid booking and how long it took. */
 data class CollectionEntry(
     val booking: Booking,
