@@ -14,23 +14,28 @@ Sign-In, Drive backups and Calendar sync.
 
 | Module | Contents | Status |
 |---|---|---|
-| `app` | MainActivity, nav host, bottom bar, DI wiring, locale config, offline-banner slot | Wave 0 shell |
+| `app` | MainActivity, nav host, bottom bar (business-name app bar + tappable sync cloud icon), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
 | `shared/` | git submodule → `samaroh-shared` (string catalogs, codegen, schema, brand) | external |
-| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `PlaceholderScreen` | done (W0) |
-| `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter` | done (W0) |
-| `core:model` | enums, domain models, permission types — **FROZEN CONTRACT** | done (W0) |
-| `core:database` | Room entities/DAOs/converters, `outbox`, exported schemas — **FROZEN CONTRACT** | done (W0) |
-| `core:data` | repository interfaces (**FROZEN**) + Room-backed impls, `OutboxWriter`/`SyncScheduler` contracts | done (W0) |
-| `core:sync` | `RoomOutboxWriter`, `SyncWorker` skeleton, WorkManager scheduler | shell — full engine is W1-E |
-| `core:auth` | `SessionHolder`, `PermissionGuard` interfaces | shell — impl is W1-D |
-| `core:google` | empty shell | W1-F |
-| `core:invoice` | empty shell | W1-E |
-| `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done (W0) |
-| `feature:booking/expenses/inventory/menu/onboarding/reports` | `NavGraphBuilder.<x>Graph()` extensions; localized placeholder screens | skeletons |
+| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec, `PlaceholderScreen` | done |
+| `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter`, catalog parity + usage-audit tests | done |
+| `core:model` | enums, domain models, permission types — **FROZEN CONTRACT** | done |
+| `core:database` | Room entities/DAOs/converters, `outbox`, sync cursors/conflict log, exported schemas — **FROZEN CONTRACT** | done |
+| `core:data` | repository interfaces (**FROZEN**, additive extensions via ADRs) + Room-backed impls, `OutboxWriter`/`SyncScheduler`/`SyncStatusProvider` contracts, settings DataStore, session providers | done |
+| `core:sync` | full sync engine (keyset pull, LWW, post-sync hooks), `SyncWorker`, `SyncRunState` (drives `SyncStatus.isSyncing`, ADR-029), human-readable sync entries (ADR-022), WorkManager scheduler | done |
+| `core:auth` | Supabase auth (`SessionHolder`), `PermissionGuard` | done |
+| `core:google` | Google linking, Drive backups/attachments, Calendar sync | done |
+| `core:invoice` | PDF renderer + invoice numbering (layout per `shared/invoice/layout-spec.md`) | done |
+| `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done |
+| `feature:booking` | month calendar (crossfade cells), **events-view agenda** (windowed loading, ADR-029), booking card sheet, add/edit form, reminders/follow-ups, invoicing | done |
+| `feature:expenses` | party ledger, business/personal party flag (ADR-027), party edit/cascade delete (ADR-028), attachments, `ExpensesSession` perm gate | done |
+| `feature:inventory` | stock + masterlist, FIFO (ADR-012), item detail w/ txn history, `ui/MasterItemDialogs.kt` (shared add/edit/delete dialogs), `InventorySession` perm gate | done |
+| `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate) | done |
+| `feature:onboarding` | sign-in/sign-up, create/join business, Google link, offline continue | done |
+| `feature:reports` | nine reports, Compose charts, totals rows, personal-expenses report, CSV/PDF export | done |
 
 Feature modules depend ONLY on `core:*`, never on each other. `app` wires the graphs.
 
-## File-ownership map for parallel agents (spec §11)
+## File-ownership map for parallel agents (spec §11 — historical; all waves shipped)
 
 One agent per module directory; no two concurrent agents edit the same module.
 
@@ -95,14 +100,48 @@ Conventional Commits, imperative mood, subject ≤ 50 chars
 
 ## Submodule procedure
 
-- `shared/` is a git submodule. It currently points at the LOCAL repo
-  `/Users/kupraki/repo/Samaroh/samaroh-shared` (added with
-  `git -c protocol.file.allow=always submodule add …`).
-  **TODO: re-point the submodule URL to the GitHub remote (`.gitmodules` + `git submodule
-  sync`) as soon as the remote repos exist.**
-- To consume new shared changes: commit in `samaroh-shared` first, then
-  `git -C shared pull origin main` here and commit the submodule pointer bump.
+- `shared/` is a git submodule pointing at the GitHub remote
+  (`https://github.com/itsluminous/samaroh-shared.git`).
+- To consume new shared changes: commit **and push** in `samaroh-shared` first
+  (`git pull --ff-only` there before pushing — the web track bumps it too), then
+  `git -C shared pull origin main` here and commit the submodule pointer bump
+  (`chore(shared): bump …`). Never point the submodule at a local path or an
+  unpushed commit — CI and other clones can't resolve it.
 - CI checks out with `submodules: recursive` and verifies codegen is in sync.
+
+## Release process
+
+- Releases are cut by tagging `main` with `vX.Y.Z` and pushing the tag. The Release
+  workflow (`.github/workflows/release.yml`) re-runs the full CI gate, builds a signed
+  release APK and creates the GitHub Release. **Keystore and Supabase signing/config
+  secrets are already configured** in the repo (forks fall back to a debug-signed APK).
+- **Release notes are REQUIRED on the GitHub Release**: write a curated summary of the
+  changes since the last tag (user-facing wording, grouped by area) — never a raw
+  `git log` dump.
+- The About screen shows the app version from the package's `versionName`
+  (`BuildConfig.VERSION_NAME`), which derives from the tag at release build time
+  (`v0.1.0` → `-PappVersionName=0.1.0`; local/debug builds show the `0.1.0` default).
+  **Verify Menu → About reflects the new version as part of every release.**
+
+## Working conventions (learned)
+
+- **Fragments per namespace**: new string keys go in the shared repo's
+  `strings/fragments/<namespace>.{en,hi}.json` for your feature — never another
+  feature's fragment or the base catalog. Keeps parallel tracks merge-conflict-free.
+- **ADR process**: any contract-adjacent change (additive repository method, new
+  `core:database` query, sync semantics, cross-feature component) gets a numbered entry
+  in `docs/decisions.md` (ADR-001…029 so far) in the same change. Additive-only; state
+  what and why.
+- **Anti-stall rule for emulator evidence**: every adb/emulator command in an agent run
+  must be wrapped in a timeout, and UI verification is done via screenshots
+  (`adb exec-out screencap`) captured non-interactively — never block on an interactive
+  command or an emulator window.
+- **Phone read-only rule**: if a physical phone is attached over adb, it is READ-ONLY —
+  never install, uninstall, clear data, or push files to it. All install/verify work
+  happens on the emulator (see below).
+- **Shared-push coordination**: pushes to `samaroh-shared` come from multiple tracks;
+  always `git pull --ff-only` in the shared repo before pushing, and bump the submodule
+  here only to commits that exist on the shared remote.
 
 ## Supabase env setup
 
