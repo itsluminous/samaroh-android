@@ -129,6 +129,7 @@ class BookingNotifier
                     .setStyle(NotificationCompat.BigTextStyle().bigText(question))
                     .setContentIntent(launchAppIntent(booking.id))
                     .setAutoCancel(true)
+                    .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
                     .addAction(
                         0,
                         context.getString(R.string.booking_reminder_action_yes_full),
@@ -178,6 +179,7 @@ class BookingNotifier
                     .setStyle(NotificationCompat.BigTextStyle().bigText(question))
                     .setContentIntent(launchAppIntent(booking.id))
                     .setAutoCancel(true)
+                    .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
                     .build()
             NotificationManagerCompat.from(context).notify(PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode(), notification)
         }
@@ -198,6 +200,7 @@ class BookingNotifier
                     .setContentText(daysAwayText(daysAway))
                     .setContentIntent(launchAppIntent(booking.id))
                     .setAutoCancel(true)
+                    .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
                     .build()
             NotificationManagerCompat.from(context).notify(UPCOMING_NOTIFICATION_TAG, booking.id.hashCode(), notification)
         }

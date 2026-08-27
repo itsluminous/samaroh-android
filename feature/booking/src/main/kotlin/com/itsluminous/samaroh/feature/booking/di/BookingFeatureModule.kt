@@ -1,9 +1,11 @@
 package com.itsluminous.samaroh.feature.booking.di
 
+import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypesProvider
 import com.itsluminous.samaroh.feature.booking.domain.SessionBookingActorProvider
+import com.itsluminous.samaroh.feature.booking.reminders.ReminderPostSyncHook
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.calendar.DataStoreBookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldPrefs
@@ -12,6 +14,7 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntoSet
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -34,4 +37,9 @@ abstract class BookingFeatureModule {
     /** Calendar icon-watermark opacity from the shared settings DataStore. */
     @Binds
     abstract fun bindBookingCalendarPrefs(impl: DataStoreBookingCalendarPrefs): BookingCalendarPrefs
+
+    /** Post-sync reminder re-planning + daily-worker registration (ADR-024). */
+    @Binds
+    @IntoSet
+    abstract fun bindReminderPostSyncHook(impl: ReminderPostSyncHook): PostSyncHook
 }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- All permissions here are OPTIONAL at runtime (§6): reminders degrade gracefully
          when notifications are denied; the in-app Pending-confirmations card is the
@@ -9,6 +10,17 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application>
+
+        <!-- Registers the daily reminder worker on every app start (ADR-024) without :app wiring. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="com.itsluminous.samaroh.feature.booking.reminders.BookingReminderStartupInitializer"
+                android:value="androidx.startup" />
+        </provider>
 
         <!-- Alarm-style upcoming-event reminder (§4.1 full-screen popup style). -->
         <activity

@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.booking.domain
 
 import com.itsluminous.samaroh.core.model.Booking
+import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import java.time.Instant
@@ -82,22 +83,41 @@ object PaymentReminderPlanner {
                     ).also { toCreate += it }
                 }
 
+            // Exactly ONE pending reminder per booking: duplicates (two devices each
+            // planned one before syncing) are dismissed, keeping the earliest.
+            toDismiss += pending.filter { it.id != active.id }
+
             if (!active.remindOn.isAfter(today)) toNotify += active
         }
 
-        // Pending reminders whose booking is no longer a candidate (cancelled/deleted
-        // after the reminder was created) are dismissed by the caller via [orphanDismissals].
+        // Pending reminders whose booking is gone, cancelled or settled (possibly on
+        // another device) are dismissed by the caller via [staleDismissals].
         return Plan(toCreate, toDismiss, toNotify)
     }
 
     /**
-     * Pending reminders whose booking is cancelled/deleted → DISMISSED (§4.1: reminders
-     * stop when the booking is cancelled).
+     * Cleanup pass over ALL due pending PAYMENT reminders (§4.1 + ADR-024): a reminder is
+     * stale — and gets DISMISSED — when its booking no longer justifies it:
+     * - the booking is missing, soft-deleted or cancelled (reminders stop on cancel), or
+     * - nothing is due: `due <= 0` covers fully-settled bookings AND bookings with no
+     *   known total (total 0 → due 0) — neither may ever surface a reminder.
+     *
+     * This runs against every due pending reminder regardless of the booking's end date,
+     * so reminders synced from another device for a booking that was settled here (or
+     * vice versa) are cleaned up on the next pass instead of lingering on the card.
      */
-    fun orphanDismissals(
-        pendingReminders: List<PaymentReminder>,
-        liveCandidateBookingIds: Set<String>,
-    ): List<PaymentReminder> = pendingReminders.filter { it.bookingId !in liveCandidateBookingIds }
+    fun staleDismissals(
+        duePendingReminders: List<PaymentReminder>,
+        bookingById: Map<String, Booking?>,
+        duePaiseByBooking: Map<String, Long>,
+    ): List<PaymentReminder> =
+        duePendingReminders.filter { reminder ->
+            val booking = bookingById[reminder.bookingId]
+            booking == null ||
+                booking.deletedAt != null ||
+                booking.status == BookingStatus.CANCELLED ||
+                (duePaiseByBooking[booking.id] ?: 0L) <= 0L
+        }
 
     /**
      * The follow-up reminder chained by a user action ("Not yet" snooze, or a partial

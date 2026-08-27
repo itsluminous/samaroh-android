@@ -54,7 +54,8 @@ class ReminderEngine
             today: LocalDate,
         ) {
             val ended = bookingRepository.bookingsEndedBefore(businessId, today)
-            val dueByBooking = ended.associate { it.id to DueCalculator.duePaise(it, bookingRepository.totalPaidPaise(it.id)) }
+            val dueByBooking =
+                ended.associate { it.id to DueCalculator.duePaise(it, bookingRepository.totalPaidPaise(it.id)) }.toMutableMap()
             // Follow-up rows (ADR-020) never participate in payment planning.
             val remindersByBooking =
                 ended.associate { booking ->
@@ -73,9 +74,27 @@ class ReminderEngine
                 )
 
             plan.toCreate.forEach { bookingRepository.saveReminder(it) }
-            (plan.toDismiss + orphans(businessId, ended, today)).forEach { dismiss(it) }
 
-            val bookingById = ended.associateBy { it.id }
+            // Cleanup pass (§4.1 + ADR-024): every due pending reminder — including ones
+            // synced from other devices for bookings NOT in this run's ended set — is
+            // dismissed when its booking is gone, cancelled or has nothing due.
+            val duePending =
+                bookingRepository
+                    .duePendingRemindersOnce(businessId, today)
+                    .filter { it.kind == ReminderKind.PAYMENT }
+            val bookingById = mutableMapOf<String, Booking?>()
+            ended.forEach { bookingById[it.id] = it }
+            for (reminder in duePending) {
+                if (reminder.bookingId in bookingById) continue
+                val booking = bookingRepository.booking(reminder.bookingId)
+                bookingById[reminder.bookingId] = booking
+                if (booking != null) {
+                    dueByBooking[booking.id] = DueCalculator.duePaise(booking, bookingRepository.totalPaidPaise(booking.id))
+                }
+            }
+            val stale = PaymentReminderPlanner.staleDismissals(duePending, bookingById, dueByBooking)
+            (plan.toDismiss + stale).distinctBy { it.id }.forEach { dismiss(it) }
+
             for (reminder in plan.toNotify) {
                 val booking = bookingById[reminder.bookingId] ?: continue
                 notifier.postPaymentReminder(
@@ -86,20 +105,6 @@ class ReminderEngine
                 )
             }
         }
-
-        /** Pending PAYMENT reminders whose booking was cancelled/deleted since creation. */
-        private suspend fun orphans(
-            businessId: String,
-            candidates: List<Booking>,
-            today: LocalDate,
-        ): List<PaymentReminder> =
-            PaymentReminderPlanner.orphanDismissals(
-                pendingReminders =
-                    bookingRepository
-                        .duePendingRemindersOnce(businessId, today)
-                        .filter { it.kind == ReminderKind.PAYMENT },
-                liveCandidateBookingIds = candidates.map { it.id }.toSet(),
-            )
 
         /**
          * Tentative-booking follow-ups (ADR-020): notify the due ones while the booking

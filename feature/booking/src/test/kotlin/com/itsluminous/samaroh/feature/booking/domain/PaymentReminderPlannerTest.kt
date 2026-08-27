@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.booking.domain
 
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -145,14 +146,95 @@ class PaymentReminderPlannerTest {
     }
 
     @Test
-    fun `orphaned reminders of cancelled bookings are dismissed`() {
-        val orphan = reminder("cancelled-booking", today.minusDays(1))
-        val kept = reminder("live-booking", today.minusDays(1))
-        val dismissals =
-            PaymentReminderPlanner.orphanDismissals(
-                pendingReminders = listOf(orphan, kept),
-                liveCandidateBookingIds = setOf("live-booking"),
+    fun `duplicate pending reminders are deduped - earliest kept, rest dismissed`() {
+        // Two devices each planned a reminder before syncing (ADR-024): exactly one survives.
+        val booking = Fixtures.booking(startDate = today.minusDays(10), endDate = today.minusDays(9))
+        val earliest = reminder(booking.id, today.minusDays(3))
+        val duplicate = reminder(booking.id, today.minusDays(2))
+        val plan =
+            PaymentReminderPlanner.plan(
+                today = today,
+                endedBookings = listOf(booking),
+                duePaiseByBooking = mapOf(booking.id to 5_000_00L),
+                remindersByBooking = mapOf(booking.id to listOf(duplicate, earliest)),
+                newId = newId,
+                now = Fixtures.NOW,
             )
-        assertThat(dismissals).containsExactly(orphan)
+        assertThat(plan.toCreate).isEmpty()
+        assertThat(plan.toDismiss).containsExactly(duplicate)
+        assertThat(plan.toNotify).containsExactly(earliest)
+    }
+
+    @Test
+    fun `booking with unknown total and payments produces no reminder - due clamps to zero`() {
+        // Imported history: total_amount 0 (unknown) but advances recorded. due = max(0-paid, 0) = 0.
+        val booking = Fixtures.booking(startDate = today.minusDays(30), endDate = today.minusDays(29))
+        val due = DueCalculator.duePaise(totalAmountPaise = 0L, paidPaise = 5_000_00L)
+        val stale = reminder(booking.id, today.minusDays(1))
+        val plan =
+            PaymentReminderPlanner.plan(
+                today = today,
+                endedBookings = listOf(booking),
+                duePaiseByBooking = mapOf(booking.id to due),
+                remindersByBooking = mapOf(booking.id to listOf(stale)),
+                newId = newId,
+                now = Fixtures.NOW,
+            )
+        assertThat(plan.toCreate).isEmpty()
+        assertThat(plan.toNotify).isEmpty()
+        assertThat(plan.toDismiss).containsExactly(stale)
+    }
+
+    // ---- staleDismissals: the cleanup pass over ALL due pending reminders (ADR-024) ----
+
+    @Test
+    fun `stale reminders of missing cancelled or deleted bookings are dismissed`() {
+        val orphan = reminder("gone-booking", today.minusDays(1))
+        val cancelled = Fixtures.booking(startDate = today.minusDays(6), endDate = today.minusDays(5))
+        val cancelledReminder = reminder(cancelled.id, today.minusDays(1))
+        val live = Fixtures.booking(id = "live-booking", startDate = today.minusDays(4), endDate = today.minusDays(3))
+        val kept = reminder(live.id, today.minusDays(1))
+        val dismissals =
+            PaymentReminderPlanner.staleDismissals(
+                duePendingReminders = listOf(orphan, cancelledReminder, kept),
+                bookingById =
+                    mapOf(
+                        "gone-booking" to null,
+                        cancelled.id to cancelled.copy(status = BookingStatus.CANCELLED),
+                        live.id to live,
+                    ),
+                duePaiseByBooking = mapOf(live.id to 5_000_00L),
+            )
+        assertThat(dismissals).containsExactly(orphan, cancelledReminder)
+    }
+
+    @Test
+    fun `stale reminder of a settled booking is dismissed even when the booking has not ended locally`() {
+        // A reminder synced from another device for a booking settled here (due <= 0)
+        // must not linger on the pending-confirmations card.
+        val settled = Fixtures.booking(startDate = today.plusDays(2), endDate = today.plusDays(3))
+        val syncedReminder = reminder(settled.id, today.minusDays(1))
+        val dismissals =
+            PaymentReminderPlanner.staleDismissals(
+                duePendingReminders = listOf(syncedReminder),
+                bookingById = mapOf(settled.id to settled),
+                duePaiseByBooking = mapOf(settled.id to 0L),
+            )
+        assertThat(dismissals).containsExactly(syncedReminder)
+    }
+
+    @Test
+    fun `stale pass keeps a due reminder of a live not-yet-ended booking`() {
+        // Regression guard: the old orphan pass dismissed by "not in the ended set",
+        // which would nuke a legitimate reminder of a booking ending today.
+        val endsToday = Fixtures.booking(startDate = today.minusDays(1), endDate = today)
+        val legit = reminder(endsToday.id, today)
+        val dismissals =
+            PaymentReminderPlanner.staleDismissals(
+                duePendingReminders = listOf(legit),
+                bookingById = mapOf(endsToday.id to endsToday),
+                duePaiseByBooking = mapOf(endsToday.id to 5_000_00L),
+            )
+        assertThat(dismissals).isEmpty()
     }
 }
