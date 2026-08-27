@@ -24,8 +24,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -102,7 +105,11 @@ internal fun SignInScreen(
                     .KeyboardOptions(keyboardType = KeyboardType.Email),
             singleLine = true,
             enabled = state.supabaseConfigured,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    // Password managers key on these hints to offer autofill (sign-in AND sign-up).
+                    .semantics { contentType = ContentType.EmailAddress + ContentType.Username },
         )
         OutlinedTextField(
             value = password,
@@ -114,7 +121,11 @@ internal fun SignInScreen(
                     .KeyboardOptions(keyboardType = KeyboardType.Password),
             singleLine = true,
             enabled = state.supabaseConfigured,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .semantics { contentType = if (signUp) ContentType.NewPassword else ContentType.Password },
         )
 
         if (!state.supabaseConfigured) {
