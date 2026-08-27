@@ -39,7 +39,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = (project.findProperty("appVersionCode") as? String)?.toInt() ?: 1
-        versionName = (project.findProperty("appVersionName") as? String) ?: "0.3.0"
+        versionName = (project.findProperty("appVersionName") as? String) ?: "0.4.0"
 
         // Hilt-aware runner (swaps in HiltTestApplication for the e2e androidTest suite).
         testInstrumentationRunner = "com.itsluminous.samaroh.SamarohTestRunner"
