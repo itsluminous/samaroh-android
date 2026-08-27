@@ -47,8 +47,10 @@ object CalendarMonthMapper {
          * Palette key (`shared/booking-colors.json`) painting the cell's FILL, or null
          * for the default treatment (ADR-030). Set only when EXACTLY ONE live booking
          * covers this date, that booking is firm (confirmed/completed — never
-         * tentative), and it carries a colour. Multi-booking days keep the default
-         * fill; the tentative amber outline + 👤 are unaffected either way.
+         * tentative), and a colour RESOLVES for it via the fallback chain (ADR-031:
+         * explicit `bookings.color` → event-type default → null). Multi-booking days
+         * keep the default fill; the tentative amber outline + 👤 are unaffected
+         * either way.
          */
         val fillColorKey: String? = null,
     )
@@ -66,7 +68,9 @@ object CalendarMonthMapper {
     /**
      * Builds the grid. Cancelled bookings are HIDDEN from the calendar (§4.1 — they stay
      * visible, struck through, in the agenda list only). [firstDayOfWeek] defaults to
-     * Sunday, the common Indian wall-calendar convention.
+     * Sunday, the common Indian wall-calendar convention. [effectiveColorKey] resolves a
+     * booking's cell-fill palette key — callers pass [BookingColorFallback.effectiveKey]
+     * so type defaults apply (ADR-031); the parameter keeps the mapper pure.
      */
     fun map(
         month: YearMonth,
@@ -74,6 +78,7 @@ object CalendarMonthMapper {
         bookings: List<Booking>,
         blocks: List<DateBlock>,
         firstDayOfWeek: DayOfWeek = DayOfWeek.SUNDAY,
+        effectiveColorKey: (Booking) -> String? = { it.color },
     ): MonthGrid {
         val visible = bookings.filter { it.status != BookingStatus.CANCELLED && it.deletedAt == null }
         val liveBlocks = blocks.filter { it.deletedAt == null }
@@ -105,7 +110,7 @@ object CalendarMonthMapper {
                             covering
                                 .singleOrNull()
                                 ?.takeIf { it.status != BookingStatus.TENTATIVE }
-                                ?.color,
+                                ?.let(effectiveColorKey),
                     )
                 }
             weeks += Week(days)

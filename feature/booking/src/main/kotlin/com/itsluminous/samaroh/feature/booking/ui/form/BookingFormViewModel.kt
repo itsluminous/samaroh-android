@@ -128,7 +128,8 @@ class BookingFormViewModel
         private val bookingRepository: BookingRepository,
         private val businessRepository: BusinessRepository,
         private val actorProvider: BookingActorProvider,
-        private val eventTypesProvider: EventTypeCatalog,
+        /** Event types, exposed for the picker's effective type-default (ADR-031). */
+        val eventTypesProvider: EventTypeCatalog,
         /** Booking colour palette (ADR-030), exposed for the form's picker row. */
         val bookingColorsProvider: BookingColorCatalog,
         private val syncScheduler: SyncScheduler,

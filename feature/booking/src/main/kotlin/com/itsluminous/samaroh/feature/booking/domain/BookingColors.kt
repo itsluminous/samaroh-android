@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.booking.domain
 import android.content.Context
 import androidx.annotation.StringRes
 import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.core.model.Booking
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -27,6 +28,34 @@ interface BookingColorCatalog {
     val colors: List<BookingColor>
 
     fun byKey(key: String?): BookingColor? = key?.let { k -> colors.firstOrNull { it.key == k } }
+}
+
+/**
+ * Booking colour fallback chain (ADR-031), applied everywhere a booking's colour is
+ * rendered: explicit `bookings.color` → the event type's default colour
+ * (`shared/event-types.json`) → null, the standard themed look. A key that does not
+ * resolve in the palette (e.g. written by a future app version) falls THROUGH to the
+ * next step instead of blanking the chain. Custom (free-text) event types have no type
+ * default — they stay themed unless explicitly coloured. Stored data is untouched:
+ * `bookings.color` NULL still means "follow the type".
+ */
+object BookingColorFallback {
+    /** The palette key that should paint the booking, or null for the themed default. */
+    fun effectiveKey(
+        explicitColor: String?,
+        eventTypeKey: String,
+        colors: BookingColorCatalog,
+        eventTypes: EventTypeCatalog,
+    ): String? =
+        explicitColor?.takeIf { colors.byKey(it) != null }
+            ?: eventTypes.defaultColorKeyFor(eventTypeKey)?.takeIf { colors.byKey(it) != null }
+
+    /** Resolved palette entry for [booking], or null for the themed default. */
+    fun effectiveColor(
+        booking: Booking,
+        colors: BookingColorCatalog,
+        eventTypes: EventTypeCatalog,
+    ): BookingColor? = colors.byKey(effectiveKey(booking.color, booking.eventType, colors, eventTypes))
 }
 
 /**

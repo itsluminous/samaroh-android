@@ -18,6 +18,7 @@ import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -323,7 +324,16 @@ class BookingCalendarViewModel
                 business = business,
                 month = shownMonth,
                 today = today,
-                grid = CalendarMonthMapper.map(shownMonth, today, data.bookings, data.blocks),
+                grid =
+                    CalendarMonthMapper.map(shownMonth, today, data.bookings, data.blocks) { booking ->
+                        // Fallback chain (ADR-031): explicit colour → type default → themed.
+                        BookingColorFallback.effectiveKey(
+                            booking.color,
+                            booking.eventType,
+                            bookingColorsProvider,
+                            eventTypesProvider,
+                        )
+                    },
                 bookings = data.bookings,
                 blocks = data.blocks,
                 receivedPaise = received,

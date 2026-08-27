@@ -5,6 +5,8 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.TENTATIVE_ICON
 import com.itsluminous.samaroh.core.testing.Fixtures
+import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
+import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
 import org.junit.Test
 import java.time.LocalDate
 import java.time.YearMonth
@@ -268,5 +270,67 @@ class CalendarMonthMapperTest {
         assertThat(day.fillColorKey).isNull()
         assertThat(day.hasFirmBooking).isTrue()
         assertThat(day.hasTentativeBooking).isTrue()
+    }
+
+    // ---- fallback chain through the mapper (ADR-031) ----
+
+    /** The production resolver: explicit → type default → null, over the test fakes. */
+    private val fallbackResolver: (com.itsluminous.samaroh.core.model.Booking) -> String? = { booking ->
+        BookingColorFallback.effectiveKey(
+            booking.color,
+            booking.eventType,
+            FakeBookingColorCatalog(),
+            FakeEventTypeCatalog(),
+        )
+    }
+
+    @Test
+    fun `uncolored firm booking fills with its type default via the resolver`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val wedding = Fixtures.booking(startDate = date) // wedding, no explicit colour
+        val grid =
+            CalendarMonthMapper.map(month, today, listOf(wedding), emptyList(), effectiveColorKey = fallbackResolver)
+        assertThat(days(grid).getValue(date).fillColorKey).isEqualTo("tomato")
+    }
+
+    @Test
+    fun `explicit color overrides the type default via the resolver`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val wedding = Fixtures.booking(startDate = date).copy(color = "sky")
+        val grid =
+            CalendarMonthMapper.map(month, today, listOf(wedding), emptyList(), effectiveColorKey = fallbackResolver)
+        assertThat(days(grid).getValue(date).fillColorKey).isEqualTo("sky")
+    }
+
+    @Test
+    fun `uncolored custom-type booking keeps the default fill via the resolver`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val custom = Fixtures.booking(startDate = date).copy(eventType = "family-function")
+        val grid =
+            CalendarMonthMapper.map(month, today, listOf(custom), emptyList(), effectiveColorKey = fallbackResolver)
+        val day = days(grid).getValue(date)
+        assertThat(day.hasFirmBooking).isTrue()
+        assertThat(day.fillColorKey).isNull()
+    }
+
+    @Test
+    fun `tentative booking gets no fill even with a type default`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val tentative = Fixtures.booking(startDate = date, status = BookingStatus.TENTATIVE) // wedding
+        val grid =
+            CalendarMonthMapper.map(month, today, listOf(tentative), emptyList(), effectiveColorKey = fallbackResolver)
+        val day = days(grid).getValue(date)
+        assertThat(day.hasTentativeBooking).isTrue()
+        assertThat(day.fillColorKey).isNull()
+    }
+
+    @Test
+    fun `multi-booking day keeps the default fill even with type defaults`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val first = Fixtures.booking(startDate = date)
+        val second = Fixtures.booking(startDate = date)
+        val grid =
+            CalendarMonthMapper.map(month, today, listOf(first, second), emptyList(), effectiveColorKey = fallbackResolver)
+        assertThat(days(grid).getValue(date).fillColorKey).isNull()
     }
 }

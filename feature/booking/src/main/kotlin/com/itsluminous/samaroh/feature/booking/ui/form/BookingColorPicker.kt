@@ -34,6 +34,12 @@ import com.itsluminous.samaroh.feature.booking.ui.onFill
  * look) followed by the 16 shared palette swatches, laid out 4 per row. Every swatch is
  * a ≥48dp radio-style target announcing its localized colour name; the selected one
  * carries a primary ring plus a check mark in the palette's AA-checked on-colour.
+ *
+ * [typeDefaultKey] is the current event type's default colour (ADR-031). While NO
+ * explicit colour is chosen (Default selected), that swatch carries a secondary ring
+ * and announces "Default — follows event type" — the EFFECTIVE colour the booking will
+ * render with. Tapping any swatch stores an explicit colour; tapping Default stores
+ * null (follow the type) — stored semantics are unchanged.
  */
 @Composable
 internal fun BookingColorPicker(
@@ -41,6 +47,7 @@ internal fun BookingColorPicker(
     selectedKey: String?,
     onSelect: (String?) -> Unit,
     modifier: Modifier = Modifier,
+    typeDefaultKey: String? = null,
 ) {
     // null first = the Default option; unknown selected keys simply show no ring.
     val entries: List<BookingColor?> = listOf(null) + colors
@@ -51,6 +58,7 @@ internal fun BookingColorPicker(
                     ColorSwatch(
                         entry = entry,
                         selected = selectedKey == entry?.key,
+                        effectiveDefault = selectedKey == null && entry != null && entry.key == typeDefaultKey,
                         onSelect = { onSelect(entry?.key) },
                     )
                 }
@@ -63,14 +71,23 @@ internal fun BookingColorPicker(
 private fun ColorSwatch(
     entry: BookingColor?,
     selected: Boolean,
+    effectiveDefault: Boolean,
     onSelect: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.small
     val ring = MaterialTheme.colorScheme.primary
+    val effectiveRing = MaterialTheme.colorScheme.secondary
     val outline = MaterialTheme.colorScheme.outline
     val fillColor = entry?.fill ?: MaterialTheme.colorScheme.surfaceVariant
     val checkColor = entry?.onFill ?: MaterialTheme.colorScheme.onSurfaceVariant
-    val name = stringResource(entry?.labelRes ?: R.string.booking_color_default)
+    val colorName = stringResource(entry?.labelRes ?: R.string.booking_color_default)
+    // The effective-default swatch (ADR-031) announces the follow-the-type semantics.
+    val name =
+        if (effectiveDefault) {
+            "$colorName, ${stringResource(R.string.booking_color_follows_type)}"
+        } else {
+            colorName
+        }
     Box(
         contentAlignment = Alignment.Center,
         modifier =
@@ -96,7 +113,14 @@ private fun ColorSwatch(
                         Modifier
                     },
                 ).then(
-                    if (selected) Modifier.border(3.dp, ring, shape) else Modifier,
+                    when {
+                        selected -> Modifier.border(3.dp, ring, shape)
+                        // Effective default (ADR-031): a thinner SECONDARY ring, visually
+                        // distinct from the primary selection ring + check — "this is the
+                        // colour you'll get while Default is chosen".
+                        effectiveDefault -> Modifier.border(2.dp, effectiveRing, shape)
+                        else -> Modifier
+                    },
                 ).selectable(
                     selected = selected,
                     role = Role.RadioButton,

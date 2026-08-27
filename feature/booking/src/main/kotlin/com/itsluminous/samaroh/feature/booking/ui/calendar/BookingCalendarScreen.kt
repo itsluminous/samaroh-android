@@ -64,6 +64,7 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
@@ -404,8 +405,8 @@ fun BookingCalendarScreen(
                                     .clickable { viewModel.openBooking(booking.id) }
                                     .padding(vertical = 8.dp),
                         ) {
-                            // Booking colour dot (ADR-030) — decorative; text carries the info.
-                            bookingColors.byKey(booking.color)?.fill?.let { dotColor ->
+                            // Booking colour dot (ADR-030, fallback chain ADR-031) — decorative; text carries the info.
+                            BookingColorFallback.effectiveColor(booking, bookingColors, eventTypes)?.fill?.let { dotColor ->
                                 BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -650,8 +651,8 @@ private fun EventsAgendaList(
                             .clickable { onOpenBooking(booking.id) }
                             .padding(vertical = 8.dp),
                 ) {
-                    // Booking colour dot (ADR-030) — decorative; text carries the info.
-                    bookingColors.byKey(booking.color)?.fill?.let { dotColor ->
+                    // Booking colour dot (ADR-030, fallback chain ADR-031) — decorative; text carries the info.
+                    BookingColorFallback.effectiveColor(booking, bookingColors, eventTypes)?.fill?.let { dotColor ->
                         BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {

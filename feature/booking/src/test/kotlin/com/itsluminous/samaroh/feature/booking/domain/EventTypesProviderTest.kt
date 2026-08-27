@@ -28,4 +28,40 @@ class EventTypesProviderTest {
         assertThat(provider.labelFor("family-function", resolve = { "resolved" })).isEqualTo("family-function")
         assertThat(provider.labelFor("wedding", resolve = { "resolved" })).isEqualTo("resolved")
     }
+
+    @Test
+    fun `parses each type's default color key from the shared asset`() {
+        val provider = EventTypesProvider(ApplicationProvider.getApplicationContext())
+        assertThat(provider.eventTypes.associate { it.key to it.defaultColorKey })
+            .containsExactlyEntriesIn(
+                mapOf(
+                    "engagement" to "flamingo",
+                    "tilak" to "tangerine",
+                    "wedding" to "tomato",
+                    "room_booking" to "blueberry",
+                    "birthday" to "banana",
+                    "anniversary" to "sage",
+                    "custom" to "grape",
+                ),
+            )
+    }
+
+    @Test
+    fun `defaultColorKeyFor covers built-ins but never custom or free text`() {
+        val provider = EventTypesProvider(ApplicationProvider.getApplicationContext())
+        assertThat(provider.defaultColorKeyFor("wedding")).isEqualTo("tomato")
+        assertThat(provider.defaultColorKeyFor("engagement")).isEqualTo("flamingo")
+        // custom parses its colour but the fallback chain must not use it (ADR-031).
+        assertThat(provider.defaultColorKeyFor("custom")).isNull()
+        assertThat(provider.defaultColorKeyFor("family-function")).isNull()
+    }
+
+    @Test
+    fun `every built-in default color resolves in the shared palette`() {
+        val types = EventTypesProvider(ApplicationProvider.getApplicationContext())
+        val palette = BookingColorsProvider(ApplicationProvider.getApplicationContext())
+        types.eventTypes.forEach { type ->
+            assertThat(palette.byKey(type.defaultColorKey)).isNotNull()
+        }
+    }
 }

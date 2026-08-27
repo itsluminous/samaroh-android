@@ -53,6 +53,7 @@ import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.BookingColorDot
@@ -101,8 +102,9 @@ internal fun BookingCardSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Booking colour (ADR-030): dot announcing its localized colour name.
-                bookingColors.byKey(booking.color)?.let { paletteColor ->
+                // Booking colour (ADR-030): dot announcing its localized colour name;
+                // resolved via the fallback chain (ADR-031: explicit → type default).
+                BookingColorFallback.effectiveColor(booking, bookingColors, eventTypes)?.let { paletteColor ->
                     paletteColor.fill?.let { dotColor ->
                         val colorName = stringResource(paletteColor.labelRes)
                         BookingColorDot(

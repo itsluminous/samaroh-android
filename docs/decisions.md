@@ -836,3 +836,41 @@ consistent cross-platform reading. Old app versions ignore the column entirely (
 copy untouched pre-migration; model decode drops unknown keys server-side is N/A since
 pulls map by model fields). A booking coloured with a FUTURE palette key renders the
 default look here instead of crashing.
+
+## ADR-031 — Per-event-type default booking colours (fallback chain) (2026-08-27)
+
+**Status:** accepted.
+
+**Context.** With ADR-030 only explicitly coloured bookings stand out; most owners never
+pick a colour, so the month grid stays monochrome. `shared/event-types.json` now maps
+each built-in type to a `booking-colors.json` key (wedding → tomato, engagement →
+flamingo, tilak → tangerine, room_booking → blueberry, birthday → banana, anniversary →
+sage, custom → grape), with a documented cross-app resolution contract.
+
+**Decision.**
+1. **Fallback chain**, applied EVERYWHERE a booking's colour renders (month cell fill —
+   single-firm-booking rule unchanged — agenda/events dots, booking-card dot):
+   explicit `bookings.color` → the event type's default colour → the standard themed
+   look. `BookingColorFallback` (feature:booking domain) is the single resolver; a key
+   that doesn't resolve in the palette falls THROUGH to the next step (future palette
+   keys degrade gracefully). `CalendarMonthMapper.map` takes the resolver as a pure
+   `(Booking) -> String?` parameter so the mapper stays Android-free and unit-tested.
+2. **Custom stays themed.** Free-text event types (and the literal `custom` key a
+   blank custom label stores) get NO type default on Android — the shared file's
+   `custom: grape` is parsed but deliberately ignored by
+   `EventTypeCatalog.defaultColorKeyFor` — an uncoloured custom booking keeps the
+   themed (tertiary-container/purple) look unless explicitly coloured.
+3. **Stored data unchanged.** `bookings.color` NULL still means "follow the type";
+   nothing is backfilled, no schema/wire change. Retinting a type in the shared file
+   restyles every uncoloured booking of that type, past and future.
+4. **Form.** While no explicit colour is chosen, the picker highlights the current
+   type's default swatch with a SECONDARY ring (distinct from the primary
+   selection ring + check) announcing "Default — follows event type"
+   (`booking.color.follows_type`). Picking a swatch stores an explicit key; picking
+   Default stores null. Changing the event type moves the highlight live.
+
+**Consequences.** Wedding/engagement/tilak/… bookings are now tell-apart-at-a-glance by
+default; the web app should apply the same chain (contract documented in the shared
+file's `$comment`). Old app versions simply keep the themed look for uncoloured
+bookings (they never read the type colour). Tentative bookings remain never coloured
+on the grid (amber outline + 👤 rule unchanged).

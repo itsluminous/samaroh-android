@@ -281,9 +281,13 @@ class RecordingSyncScheduler : SyncScheduler {
 class FakeEventTypeCatalog : EventTypeCatalog {
     override val eventTypes: List<EventType> =
         listOf(
-            EventType(key = "wedding", emoji = "\uD83D\uDC92", labelRes = 101),
-            EventType(key = "birthday", emoji = "\uD83C\uDF82", labelRes = 102),
-            EventType(key = EventType.CUSTOM_KEY, emoji = "\u2728", labelRes = 103),
+            EventType(key = "wedding", emoji = "\uD83D\uDC92", labelRes = 101, defaultColorKey = "tomato"),
+            // "banana" is deliberately ABSENT from [FakeBookingColorCatalog]: exercises
+            // the unknown-type-default fall-through to the themed look (ADR-031).
+            EventType(key = "birthday", emoji = "\uD83C\uDF82", labelRes = 102, defaultColorKey = "banana"),
+            // The shared file assigns "grape" to custom, but the fallback chain must
+            // still ignore it — custom/free-text bookings stay themed (ADR-031).
+            EventType(key = EventType.CUSTOM_KEY, emoji = "\u2728", labelRes = 103, defaultColorKey = "grape"),
         )
 }
 
