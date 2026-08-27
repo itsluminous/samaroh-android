@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
+import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -11,7 +12,11 @@ import javax.inject.Singleton
 
 /** Read side of the booking-calendar appearance preferences. */
 interface BookingCalendarPrefs {
-    /** Watermark opacity of day-cell event icons, always within 0.15–0.9. */
+    /**
+     * Date ↔ icon crossfade slider value, always within 0.15–0.9. Drives BOTH the
+     * event-icon watermark opacity and the booked-cell date-number fade via
+     * [CalendarDayCrossfade].
+     */
     val iconWatermarkAlpha: Flow<Float>
 }
 
@@ -36,14 +41,14 @@ class DataStoreBookingCalendarPrefs
             val KEY_ICON_WATERMARK_ALPHA = floatPreferencesKey("booking_calendar_icon_alpha")
 
             /**
-             * Default watermark opacity (matches the original hardcoded value): low
-             * enough that the full-opacity date number on top stays clearly legible,
-             * high enough that the icon reads at a glance.
+             * Default slider value (matches the original hardcoded watermark opacity):
+             * below the crossfade's date-fade start, so out of the box the date number
+             * stays fully opaque over a legible watermark.
              */
-            const val DEFAULT_ICON_WATERMARK_ALPHA = 0.45f
+            const val DEFAULT_ICON_WATERMARK_ALPHA = CalendarDayCrossfade.SLIDER_DEFAULT
 
-            /** Bounds mirrored by the Settings slider: never invisible, never drowning the date. */
-            const val ICON_WATERMARK_ALPHA_MIN = 0.15f
-            const val ICON_WATERMARK_ALPHA_MAX = 0.9f
+            /** Bounds mirrored by the Settings slider — see [CalendarDayCrossfade]. */
+            const val ICON_WATERMARK_ALPHA_MIN = CalendarDayCrossfade.SLIDER_MIN
+            const val ICON_WATERMARK_ALPHA_MAX = CalendarDayCrossfade.SLIDER_MAX
         }
     }

@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
@@ -164,7 +165,8 @@ private fun DayCell(
                 .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        if (day.eventIcons.isNotEmpty() && day.inMonth) {
+        val booked = day.eventIcons.isNotEmpty() && day.inMonth
+        if (booked) {
             // Booked date: the event icon(s) render as a TRANSLUCENT WATERMARK behind
             // the date number, so the date stays scannable on every cell. Up to
             // [MAX_DAY_CELL_ICONS] icons fit a cell; more collapse into ONE icon
@@ -175,7 +177,7 @@ private fun DayCell(
             val overflow = day.eventIcons.size - shown.size
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.alpha(iconWatermarkAlpha),
+                modifier = Modifier.alpha(CalendarDayCrossfade.iconAlpha(iconWatermarkAlpha)),
             ) {
                 Text(
                     text = shown.joinToString(""),
@@ -193,11 +195,21 @@ private fun DayCell(
                 }
             }
         }
-        // The date number ALWAYS renders, at full opacity, on top of the watermark:
-        // people scan the calendar looking for a date (Box children draw in order).
+        // The date number renders on top of the watermark (Box children draw in
+        // order). On UNBOOKED cells it is always fully opaque. On BOOKED cells it
+        // CROSSFADES with the icon per [CalendarDayCrossfade]: full opacity up to
+        // the slider midpoint (the default keeps the original watermark look),
+        // then a linear fade so at the far right only the icon shows. TalkBack is
+        // unaffected — the cell's contentDescription always announces the date.
         Text(
             text = day.date.dayOfMonth.toString(),
             style = MaterialTheme.typography.bodyMedium,
+            modifier =
+                if (booked) {
+                    Modifier.alpha(CalendarDayCrossfade.dateAlpha(iconWatermarkAlpha))
+                } else {
+                    Modifier
+                },
             color =
                 when {
                     !day.inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)

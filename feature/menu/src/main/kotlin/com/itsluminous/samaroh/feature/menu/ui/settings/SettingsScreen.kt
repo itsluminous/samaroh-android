@@ -38,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.google.backup.BackupFrequency
 import com.itsluminous.samaroh.core.i18n.R
@@ -327,8 +328,10 @@ private fun IconAlphaSliderRow(
 }
 
 /**
- * A sample booked day cell — event-icon watermark under a full-opacity date number,
- * mirroring the booking calendar's DayCell — previewing the chosen [alpha] live.
+ * A sample booked day cell mirroring the booking calendar's DayCell, previewing the
+ * chosen slider value live as a date ↔ icon CROSSFADE ([CalendarDayCrossfade]): the
+ * icon strengthens with the slider while the date number stays fully opaque up to
+ * the midpoint, then fades out — at the far right only the icon shows.
  */
 @Composable
 private fun SampleDayCell(alpha: Float) {
@@ -343,12 +346,13 @@ private fun SampleDayCell(alpha: Float) {
         Text(
             text = PREVIEW_WATERMARK_ICON,
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.alpha(alpha),
+            modifier = Modifier.alpha(CalendarDayCrossfade.iconAlpha(alpha)),
         )
         Text(
             text = PREVIEW_DAY_NUMBER.toString(),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.alpha(CalendarDayCrossfade.dateAlpha(alpha)),
         )
     }
 }

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
+import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -154,11 +155,11 @@ class SettingsPreferencesDataSource
 
             val DEFAULT_LEAD_DAYS: Set<Int> = sortedSetOf(1, 3)
 
-            /** Default matches the original hardcoded watermark opacity. */
-            const val DEFAULT_CALENDAR_ICON_ALPHA = 0.45f
+            /** Default (original watermark look): below the crossfade's date-fade start. */
+            const val DEFAULT_CALENDAR_ICON_ALPHA = CalendarDayCrossfade.SLIDER_DEFAULT
 
-            /** Slider bounds: never invisible, never so strong the date drowns. */
-            const val CALENDAR_ICON_ALPHA_MIN = 0.15f
-            const val CALENDAR_ICON_ALPHA_MAX = 0.9f
+            /** Slider bounds — the date ↔ icon crossfade mapping lives in [CalendarDayCrossfade]. */
+            const val CALENDAR_ICON_ALPHA_MIN = CalendarDayCrossfade.SLIDER_MIN
+            const val CALENDAR_ICON_ALPHA_MAX = CalendarDayCrossfade.SLIDER_MAX
         }
     }
