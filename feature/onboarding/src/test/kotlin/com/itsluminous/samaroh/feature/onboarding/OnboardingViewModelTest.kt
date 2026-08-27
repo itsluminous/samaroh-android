@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.BusinessSettings
@@ -45,6 +46,7 @@ class OnboardingViewModelTest {
     private val fakeRefresher = FakeMembershipRefresher()
     private val fakeBusinessRepo = FakeBusinessRepository()
     private val fakeMemberRepo = FakeMemberRepository()
+    private val fakeSyncScheduler = FakeSyncScheduler()
     private val fakeLocale = FakeLocaleApplier()
 
     private fun viewModel(
@@ -63,6 +65,7 @@ class OnboardingViewModelTest {
             membershipRefresher = fakeRefresher,
             businessRepository = fakeBusinessRepo,
             memberRepository = fakeMemberRepo,
+            syncScheduler = fakeSyncScheduler,
             localeApplier = fakeLocale,
             logoProcessor = LogoProcessor(ApplicationProvider.getApplicationContext()),
             googleIdTokenFetcher = GoogleIdTokenFetcher(config),
@@ -203,6 +206,40 @@ class OnboardingViewModelTest {
             )
             assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.LINK_GOOGLE)
             assertThat(vm.uiState.value.activeBusinessId).isEqualTo("biz-9")
+        }
+
+    // ---- §8 sync-on-sign-in: the session becoming active must trigger an expedited run ----
+
+    @Test
+    fun `successful sign-in requests an expedited sync and ensures the periodic schedule`() =
+        runTest {
+            fakeSessionHolder.flow.value = session
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+
+            assertThat(fakeSyncScheduler.immediateRequests).isEqualTo(1)
+            assertThat(fakeSyncScheduler.periodicEnsures).isEqualTo(1)
+        }
+
+    @Test
+    fun `google sign-in also triggers the expedited sync`() =
+        runTest {
+            fakeSessionHolder.flow.value = session
+            val vm = viewModel()
+            vm.onGoogleSignInOutcome(GoogleSignInOutcome.IdToken("token-1"))
+
+            assertThat(fakeSyncScheduler.immediateRequests).isEqualTo(1)
+        }
+
+    @Test
+    fun `failed sign-in does not trigger a sync`() =
+        runTest {
+            fakeAuth.nextResult = AuthResult.Failure(AuthFailureKind.REJECTED)
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "pw")
+
+            assertThat(fakeSyncScheduler.immediateRequests).isEqualTo(0)
+            assertThat(fakeSyncScheduler.periodicEnsures).isEqualTo(0)
         }
 
     // ---- Returning-user fast path: an account that already has a business skips create/join ----
@@ -428,6 +465,19 @@ private class FakeMembershipRefresher : MembershipRefresher {
     var result: MembershipRefreshResult = MembershipRefreshResult.Refreshed(emptyList())
 
     override suspend fun refresh(): MembershipRefreshResult = result
+}
+
+private class FakeSyncScheduler : SyncScheduler {
+    var immediateRequests = 0
+    var periodicEnsures = 0
+
+    override fun requestImmediateSync() {
+        immediateRequests++
+    }
+
+    override fun ensurePeriodicSync() {
+        periodicEnsures++
+    }
 }
 
 private class FakeBusinessRepository : BusinessRepository {

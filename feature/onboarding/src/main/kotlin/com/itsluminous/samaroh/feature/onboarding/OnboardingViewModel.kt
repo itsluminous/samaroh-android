@@ -16,6 +16,7 @@ import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.MemberStatus
@@ -90,6 +91,7 @@ class OnboardingViewModel
         private val membershipRefresher: MembershipRefresher,
         private val businessRepository: BusinessRepository,
         private val memberRepository: MemberRepository,
+        private val syncScheduler: SyncScheduler,
         private val localeApplier: LocaleApplier,
         private val logoProcessor: LogoProcessor,
         private val googleIdTokenFetcher: GoogleIdTokenFetcher,
@@ -188,6 +190,13 @@ class OnboardingViewModel
         private suspend fun onSignedIn() {
             val session = sessionHolder.session.first()
             val memberships = refreshMemberships()
+            // The session just became active: request an expedited engine run NOW so this
+            // account's bookings/payments/etc. land before the user reaches the calendar
+            // (§8 — sync on sign-in; the ON_START trigger fired pre-auth and pulled
+            // nothing). The refresher above already wrote the businesses into Room, and
+            // the engine re-enumerates mid-run arrivals, so one pass fetches everything.
+            syncScheduler.ensurePeriodicSync()
+            syncScheduler.requestImmediateSync()
             // Returning-user fast path: the account already belongs to a business — an
             // ACTIVE membership, or a business it owns that the refresh just pulled into
             // Room. Showing create/join again would fork the user's data into a second
