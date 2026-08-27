@@ -21,6 +21,7 @@ class FakeInventoryRepository :
     InventoryOverviewRepository {
     val masterItemsFlow = MutableStateFlow<List<MasterItem>>(emptyList())
     val linesFlow = MutableStateFlow<List<CurrentInventoryLine>>(emptyList())
+    val transactionsFlow = MutableStateFlow<List<InventoryTransaction>>(emptyList())
     val recordedTransactions = mutableListOf<InventoryTransaction>()
     val savedItems = mutableListOf<MasterItem>()
     val deletedItemIds = mutableListOf<String>()
@@ -47,7 +48,7 @@ class FakeInventoryRepository :
     override fun transactionsForItem(
         businessId: String,
         masterItemId: String,
-    ): Flow<List<InventoryTransaction>> = flowOf(emptyList())
+    ): Flow<List<InventoryTransaction>> = transactionsFlow
 
     override suspend fun recordTransaction(txn: InventoryTransaction) {
         recordedTransactions += txn
@@ -66,6 +67,17 @@ class FakeInventoryRepository :
     override fun currentInventory(businessId: String): Flow<List<CurrentInventoryLine>> = linesFlow
 
     override suspend fun canDeleteMasterItem(id: String): Boolean = canDeleteByItem[id] ?: true
+
+    /** FIFO cost returned for remove transactions; adds derive qty × unit price. */
+    var removeCostPaise: Long = 0L
+
+    override suspend fun recordTransactionForValue(txn: InventoryTransaction): Long {
+        recordedTransactions += txn
+        return when (txn.transactionType) {
+            com.itsluminous.samaroh.core.model.TxnType.ADD -> (txn.quantity * txn.unitPricePaise).toLong()
+            com.itsluminous.samaroh.core.model.TxnType.REMOVE -> removeCostPaise
+        }
+    }
 }
 
 /** Single-business fake for the interim active-business resolution. */
@@ -92,6 +104,7 @@ class FakeBusinessRepository(
 /** Records requests and returns a deterministic path without touching the filesystem. */
 class FakeItemImageStore : ItemImageStore {
     val requests = mutableListOf<String>()
+    val deletedItemIds = mutableListOf<String>()
 
     override suspend fun compressItemImage(
         source: Uri,
@@ -99,5 +112,9 @@ class FakeItemImageStore : ItemImageStore {
     ): String {
         requests += itemId
         return "fake-images/$itemId.webp"
+    }
+
+    override suspend fun deleteItemImage(itemId: String) {
+        deletedItemIds += itemId
     }
 }

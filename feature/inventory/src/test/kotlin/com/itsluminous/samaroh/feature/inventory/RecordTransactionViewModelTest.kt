@@ -28,7 +28,7 @@ class RecordTransactionViewModelTest {
     fun setUp() {
         inventory = FakeInventoryRepository()
         inventory.masterItemsFlow.value = listOf(plate, glass)
-        viewModel = RecordTransactionViewModel(FakeBusinessRepository(), FakeActiveBusinessProvider(), inventory, clock)
+        viewModel = RecordTransactionViewModel(FakeBusinessRepository(), FakeActiveBusinessProvider(), inventory, inventory, clock)
     }
 
     private fun selectPlate() {
@@ -120,7 +120,7 @@ class RecordTransactionViewModelTest {
             assertThat(txn.notes).isEqualTo("restock")
             assertThat(txn.masterItemId).isEqualTo("item-plate")
             assertThat(txn.createdBy).isEqualTo(Fixtures.USER_ID)
-            assertThat(viewModel.uiState.value.saved).isTrue()
+            assertThat(viewModel.uiState.value.saved).isNotNull()
         }
 
     @Test
@@ -136,7 +136,7 @@ class RecordTransactionViewModelTest {
             assertThat(txn.transactionType).isEqualTo(TxnType.REMOVE)
             assertThat(txn.quantity).isEqualTo(4.0)
             assertThat(txn.unitPricePaise).isEqualTo(0L)
-            assertThat(viewModel.uiState.value.saved).isTrue()
+            assertThat(viewModel.uiState.value.saved).isNotNull()
         }
 
     @Test
@@ -150,4 +150,121 @@ class RecordTransactionViewModelTest {
             assertThat(state.selectedItem).isNull()
             assertThat(state.availableStock).isNull()
         }
+
+    @Test
+    fun `blank query lists every item sorted by name`() =
+        runTest {
+            viewModel.onItemQueryDebounced("")
+
+            val state = viewModel.uiState.value
+            assertThat(state.suggestions.map { it.name }).containsExactly("Steel Glass", "Steel Plate").inOrder()
+        }
+
+    @Test
+    fun `short query substring-filters instead of returning nothing`() =
+        runTest {
+            // "gl" is below FuzzyMatcher.MIN_QUERY_LENGTH — the old behavior showed nothing.
+            viewModel.onItemQueryDebounced("gl")
+
+            val state = viewModel.uiState.value
+            assertThat(state.suggestions.map { it.name }).containsExactly("Steel Glass")
+        }
+
+    @Test
+    fun `remove mode offers only in-stock items and exposes the stock map`() =
+        runTest {
+            inventory.linesFlow.value =
+                listOf(
+                    inventoryLine(id = "item-plate", name = "Steel Plate", quantity = 4.0),
+                    inventoryLine(id = "item-glass", name = "Steel Glass", quantity = 0.0),
+                )
+            viewModel.onTypeChange(TxnType.REMOVE)
+            viewModel.onItemQueryDebounced("")
+
+            val state = viewModel.uiState.value
+            assertThat(state.suggestions.map { it.id }).containsExactly("item-plate")
+            assertThat(state.stockByItemId["item-plate"]).isEqualTo(4.0)
+        }
+
+    @Test
+    fun `remove quantity above stock flags the error live while typing`() =
+        runTest {
+            inventory.stockByItem["item-plate"] = 3.0
+            selectPlate()
+            viewModel.onTypeChange(TxnType.REMOVE)
+
+            viewModel.onQuantityChange("5")
+            assertThat(viewModel.uiState.value.error).isEqualTo(TransactionFormError.INSUFFICIENT_STOCK)
+
+            viewModel.onQuantityChange("2")
+            assertThat(viewModel.uiState.value.error).isNull()
+        }
+
+    @Test
+    fun `saved add carries quantity times unit price`() =
+        runTest {
+            selectPlate()
+            viewModel.onQuantityChange("10")
+            viewModel.onUnitPriceChange("100.50")
+            viewModel.save()
+
+            val saved = viewModel.uiState.value.saved
+            assertThat(saved?.type).isEqualTo(TxnType.ADD)
+            assertThat(saved?.totalValuePaise).isEqualTo(100_500L)
+        }
+
+    @Test
+    fun `saved remove carries the FIFO cost from the repository`() =
+        runTest {
+            inventory.stockByItem["item-plate"] = 10.0
+            inventory.removeCostPaise = 42_00L
+            selectPlate()
+            viewModel.onTypeChange(TxnType.REMOVE)
+            viewModel.onQuantityChange("4")
+            viewModel.save()
+
+            val saved = viewModel.uiState.value.saved
+            assertThat(saved?.type).isEqualTo(TxnType.REMOVE)
+            assertThat(saved?.totalValuePaise).isEqualTo(42_00L)
+        }
+
+    @Test
+    fun `preselectItem selects the item and loads its stock`() =
+        runTest {
+            inventory.stockByItem["item-glass"] = 6.0
+            viewModel.preselectItem("item-glass", TxnType.REMOVE)
+
+            val state = viewModel.uiState.value
+            assertThat(state.selectedItem?.id).isEqualTo("item-glass")
+            assertThat(state.itemQuery).isEqualTo("Steel Glass")
+            assertThat(state.type).isEqualTo(TxnType.REMOVE)
+            assertThat(state.availableStock).isEqualTo(6.0)
+        }
+
+    @Test
+    fun `consumeSaved resets the form for the next opening`() =
+        runTest {
+            selectPlate()
+            viewModel.onQuantityChange("1")
+            viewModel.onUnitPriceChange("10")
+            viewModel.save()
+            assertThat(viewModel.uiState.value.saved).isNotNull()
+
+            viewModel.consumeSaved()
+            assertThat(viewModel.uiState.value).isEqualTo(RecordTransactionUiState())
+        }
+
+    private fun inventoryLine(
+        id: String,
+        name: String,
+        quantity: Double,
+    ) = com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine(
+        masterItemId = id,
+        name = name,
+        unit = "pcs",
+        imagePath = null,
+        currentQuantity = quantity,
+        totalValuePaise = 0L,
+        lastTransactionAt = null,
+    )
 }

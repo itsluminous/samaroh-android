@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -13,42 +14,60 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.TypeAheadField
+import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.feature.inventory.RecordTransactionViewModel
+import com.itsluminous.samaroh.feature.inventory.SavedTransaction
 import com.itsluminous.samaroh.feature.inventory.TransactionFormError
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import com.itsluminous.samaroh.feature.inventory.domain.parseQuantity
+import com.itsluminous.samaroh.feature.inventory.domain.parseRupeesToPaise
+import kotlin.math.roundToLong
 
 /**
- * Record-transaction dialog (§4.3): debounced fuzzy type-ahead item picker, Add/Remove
- * toggle, quantity (required), unit price (required for Add — removes cost out of FIFO
- * lots), notes, and the cannot-remove-more-than-stock validation.
+ * Record-transaction dialog (§4.3): type-ahead item picker (full list when blank,
+ * substring for short queries, fuzzy from 3 characters; Remove mode offers only
+ * in-stock items with availability notes), Add/Remove toggle, quantity (required),
+ * unit price (required for Add — removes cost out of FIFO lots) with a live total
+ * preview, notes, and live cannot-remove-more-than-stock validation.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun RecordTransactionDialog(
     onDismiss: () -> Unit,
+    preselectedItemId: String? = null,
+    initialType: TxnType = TxnType.ADD,
+    onSaved: (SavedTransaction) -> Unit = {},
     viewModel: RecordTransactionViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val currentOnSaved by rememberUpdatedState(onSaved)
+
+    LaunchedEffect(preselectedItemId, initialType) {
+        if (preselectedItemId != null) viewModel.preselectItem(preselectedItemId, initialType)
+    }
 
     LaunchedEffect(state.saved) {
-        if (state.saved) {
+        state.saved?.let { saved ->
             // Reset BEFORE dismissing: the view model outlives the dialog (screen scope),
             // and a stale `saved` would instantly close the next opening (W2-B bug-fix).
             viewModel.consumeSaved()
+            currentOnSaved(saved)
             onDismiss()
         }
     }
@@ -57,7 +76,10 @@ fun RecordTransactionDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.inventory_txn_title)) },
         confirmButton = {
-            TextButton(onClick = viewModel::save, enabled = !state.saving) {
+            TextButton(
+                onClick = viewModel::save,
+                enabled = !state.saving && state.error != TransactionFormError.INSUFFICIENT_STOCK,
+            ) {
                 Text(stringResource(R.string.common_action_save))
             }
         },
@@ -72,6 +94,21 @@ fun RecordTransactionDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.verticalScroll(rememberScrollState()),
             ) {
+                // Availability notes per suggestion (Remove mode), pre-localized here
+                // because the dropdown lambda is not a composable context.
+                val availabilityByName =
+                    if (state.type == TxnType.REMOVE) {
+                        state.suggestions.associate { item ->
+                            item.name to
+                                stringResource(
+                                    R.string.inventory_txn_option_available,
+                                    formatQuantity(state.stockByItemId[item.id] ?: 0.0),
+                                    unitDisplayLabel(item.unit),
+                                )
+                        }
+                    } else {
+                        emptyMap()
+                    }
                 TypeAheadField(
                     value = state.itemQuery,
                     onValueChange = viewModel::onItemQueryChange,
@@ -79,6 +116,9 @@ fun RecordTransactionDialog(
                     onSuggestionSelected = viewModel::onItemSelected,
                     onQueryDebounced = viewModel::onItemQueryDebounced,
                     label = { Text(stringResource(R.string.inventory_txn_item_label)) },
+                    queryOnBlank = true,
+                    expandOnFocus = true,
+                    suggestionSupportingText = { name -> availabilityByName[name] },
                 )
                 val stock = state.availableStock
                 val selected = state.selectedItem
@@ -117,6 +157,7 @@ fun RecordTransactionDialog(
                         label = { Text(stringResource(R.string.inventory_txn_quantity_label)) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
+                        isError = state.error == TransactionFormError.INSUFFICIENT_STOCK,
                         modifier = Modifier.weight(1f),
                     )
                     if (state.type == TxnType.ADD) {
@@ -129,6 +170,9 @@ fun RecordTransactionDialog(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                }
+                if (state.type == TxnType.ADD) {
+                    TotalPricePreview(quantityText = state.quantityText, unitPriceText = state.unitPriceText)
                 }
                 OutlinedTextField(
                     value = state.notes,
@@ -146,6 +190,29 @@ fun RecordTransactionDialog(
             }
         },
     )
+}
+
+/** Live "Total price: ₹X" box, shown as soon as quantity and unit price both parse. */
+@Composable
+private fun TotalPricePreview(
+    quantityText: String,
+    unitPriceText: String,
+) {
+    val quantity = parseQuantity(quantityText) ?: return
+    val unitPricePaise = parseRupeesToPaise(unitPriceText) ?: return
+    val totalPaise = (quantity * unitPricePaise).roundToLong()
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = stringResource(R.string.inventory_txn_total_preview, AmountFormatter.format(totalPaise)),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+    }
 }
 
 @Composable
