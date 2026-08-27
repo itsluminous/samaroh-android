@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.feature.menu.ui.about
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -28,7 +29,7 @@ import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 /** URL is data (not user-visible copy) — kept as a constant, shown verbatim. */
 private const val GITHUB_URL = "https://github.com/itsluminous/samaroh-android"
 
-/** About screen (§4.4): version, GitHub link, licenses, made-with-love. */
+/** About screen (§4.4): version, source link, Donate via UPI, licenses, made-with-love. */
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -48,11 +49,25 @@ fun AboutScreen(onBack: () -> Unit) {
             supportingContent = { Text(stringResource(R.string.menu_about_version, versionName)) },
         )
         HorizontalDivider()
+        // Short label only — the URL is the destination, not the copy.
         ListItem(
             headlineContent = { Text(stringResource(R.string.menu_about_source_code)) },
-            supportingContent = { Text(GITHUB_URL) },
             trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
             modifier = Modifier.clickable { uriHandler.openUri(GITHUB_URL) },
+        )
+        HorizontalDivider()
+        val donateChooserTitle = stringResource(R.string.menu_about_donate_upi)
+        val donateNoApp = stringResource(R.string.menu_about_donate_no_upi_app)
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.menu_about_donate_upi)) },
+            supportingContent = { Text(stringResource(R.string.menu_about_donate_upi_summary)) },
+            trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+            modifier =
+                Modifier.clickable {
+                    if (!UpiDonate.open(context, donateChooserTitle)) {
+                        Toast.makeText(context, donateNoApp, Toast.LENGTH_SHORT).show()
+                    }
+                },
         )
         HorizontalDivider()
         ListItem(

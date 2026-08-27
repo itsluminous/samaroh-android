@@ -7,6 +7,15 @@
     <!-- Supabase sync/auth and Google Drive/Calendar REST (Wave 1). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Package visibility (Android 11+): resolve installed UPI apps for the About
+         screen's Donate link so a missing handler degrades to a localized notice. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
+    </queries>
+
     <application
         android:name=".SamarohApplication"
         android:allowBackup="true"
