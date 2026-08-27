@@ -27,6 +27,12 @@ android {
         lintConfig = rootProject.file("lint.xml")
         abortOnError = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -40,7 +46,12 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
+    testImplementation(project(":core:testing"))
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core.ktx)
+    // SamarohDatabase's RoomDatabase supertype must be on the test compile classpath.
+    testImplementation(libs.room.runtime)
 }

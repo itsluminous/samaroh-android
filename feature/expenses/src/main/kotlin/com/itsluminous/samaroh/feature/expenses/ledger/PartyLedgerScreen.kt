@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.feature.expenses.ledger
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,9 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -30,12 +33,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +48,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -79,8 +86,24 @@ fun PartyLedgerScreen(
     viewModel: PartyLedgerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val editPartyError by viewModel.editPartyError.collectAsStateWithLifecycle()
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
     var showEditParty by remember { mutableStateOf(false) }
+    var confirmDeleteParty by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val deletedNoticeTemplate = stringResource(R.string.expenses_party_deleted_notice)
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                PartyLedgerEvent.PartySaved -> showEditParty = false
+                is PartyLedgerEvent.PartyDeleted -> {
+                    Toast.makeText(context, deletedNoticeTemplate.format(event.partyName), Toast.LENGTH_SHORT).show()
+                    onBack()
+                }
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -110,12 +133,37 @@ fun PartyLedgerScreen(
                     }
                 },
                 actions = {
-                    if (state.party != null && state.canEditEntries) {
-                        ExplainableIcon(
-                            icon = Icons.Filled.Edit,
-                            explanationRes = R.string.common_action_edit,
-                            onClick = { showEditParty = true },
-                        )
+                    if (state.party != null && (state.canEditParty || state.canDeleteParty)) {
+                        Box {
+                            var menuOpen by remember { mutableStateOf(false) }
+                            ExplainableIcon(
+                                icon = Icons.Filled.MoreVert,
+                                explanationRes = R.string.expenses_party_menu,
+                                onClick = { menuOpen = true },
+                            )
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                if (state.canEditParty) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.expenses_party_edit_title)) },
+                                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                        onClick = {
+                                            menuOpen = false
+                                            showEditParty = true
+                                        },
+                                    )
+                                }
+                                if (state.canDeleteParty) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.expenses_party_delete_action)) },
+                                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                        onClick = {
+                                            menuOpen = false
+                                            confirmDeleteParty = true
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
             )
@@ -188,41 +236,99 @@ fun PartyLedgerScreen(
     if (showEditParty) {
         state.party?.let { party ->
             EditPartyDialog(
-                partyName = party.name,
-                businessName = state.businessName,
+                initialName = party.name,
+                initialPhone = party.phone.orEmpty(),
                 initialBusinessRelated = party.businessRelated,
-                onDismiss = { showEditParty = false },
-                onSave = { businessRelated ->
-                    viewModel.setBusinessRelated(businessRelated)
+                businessName = state.businessName,
+                error = editPartyError,
+                onErrorConsumed = viewModel::clearEditPartyError,
+                onDismiss = {
+                    viewModel.clearEditPartyError()
                     showEditParty = false
+                },
+                onSave = { name, phone, businessRelated -> viewModel.saveParty(name, phone, businessRelated) },
+            )
+        }
+    }
+
+    if (confirmDeleteParty) {
+        state.party?.let { party ->
+            AlertDialog(
+                onDismissRequest = { confirmDeleteParty = false },
+                title = { Text(stringResource(R.string.expenses_party_delete_confirm_title, party.name)) },
+                text = { Text(stringResource(R.string.expenses_party_delete_confirm_message)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDeleteParty = false
+                        viewModel.deleteParty()
+                    }) { Text(stringResource(R.string.common_action_delete)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteParty = false }) { Text(stringResource(R.string.common_action_cancel)) }
                 },
             )
         }
     }
 }
 
-/** Edit-party dialog (ADR-027): toggles the business/personal association of the party. */
+/**
+ * Edit-party dialog (ADR-028): full parity with the add-person form — name (deduped
+ * against the business's other parties), optional phone, business/personal pill.
+ */
 @Composable
 private fun EditPartyDialog(
-    partyName: String,
-    businessName: String,
+    initialName: String,
+    initialPhone: String,
     initialBusinessRelated: Boolean,
+    businessName: String,
+    error: EditPartyError?,
+    onErrorConsumed: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (Boolean) -> Unit,
+    onSave: (name: String, phone: String, businessRelated: Boolean) -> Unit,
 ) {
+    var name by remember { mutableStateOf(initialName) }
+    var phone by remember { mutableStateOf(initialPhone) }
     var businessRelated by remember { mutableStateOf(initialBusinessRelated) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(partyName) },
+        title = { Text(stringResource(R.string.expenses_party_edit_title)) },
         text = {
-            BusinessRelatedPill(
-                businessName = businessName,
-                businessRelated = businessRelated,
-                onBusinessRelatedChange = { businessRelated = it },
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        onErrorConsumed()
+                    },
+                    label = { Text(stringResource(R.string.expenses_add_person_name_label)) },
+                    isError = error != null,
+                    supportingText = {
+                        when (error) {
+                            EditPartyError.EMPTY_NAME -> Text(stringResource(R.string.expenses_add_person_name_required))
+                            EditPartyError.DUPLICATE_NAME -> Text(stringResource(R.string.expenses_person_duplicate_exists))
+                            null -> Unit
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text(stringResource(R.string.expenses_add_person_phone_label)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                BusinessRelatedPill(
+                    businessName = businessName,
+                    businessRelated = businessRelated,
+                    onBusinessRelatedChange = { businessRelated = it },
+                )
+            }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(businessRelated) }) { Text(stringResource(R.string.common_action_save)) }
+            TextButton(onClick = { onSave(name, phone, businessRelated) }) { Text(stringResource(R.string.common_action_save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_action_cancel)) }

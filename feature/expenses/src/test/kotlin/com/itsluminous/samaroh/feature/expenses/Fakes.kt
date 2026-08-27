@@ -70,6 +70,7 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
     val expenses = MutableStateFlow<List<Expense>>(emptyList())
     val attachments = MutableStateFlow<List<AttachmentWithLocalState>>(emptyList())
     val savedAttachments = mutableListOf<Pair<ExpenseAttachment, String?>>()
+    val cascadeDeletedPartyIds = mutableListOf<String>()
 
     override fun totals(businessId: String): Flow<ExpenseTotals> =
         expenses.map { list ->
@@ -108,14 +109,32 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
     override suspend fun deleteAttachment(id: String) {
         attachments.value = attachments.value.filter { it.attachment.id != id }
     }
+
+    override suspend fun deletePartyCascade(partyId: String): List<String> {
+        cascadeDeletedPartyIds += partyId
+        val liveExpenseIds =
+            expenses.value
+                .filter { it.partyId == partyId }
+                .map { it.id }
+                .toSet()
+        val removed = attachments.value.filter { it.attachment.expenseId in liveExpenseIds }
+        attachments.value = attachments.value - removed.toSet()
+        expenses.value = expenses.value.filterNot { it.id in liveExpenseIds }
+        parties.value = parties.value.filter { it.id != partyId }
+        return removed.mapNotNull { it.localCachePath }
+    }
 }
 
-/** Session fake: fixed business + optional signed-in user, full-access permissions. */
+/** Session fake: fixed business + optional signed-in user; owner by default. */
 fun fakeExpensesSession(
     business: com.itsluminous.samaroh.core.model.Business? =
         com.itsluminous.samaroh.core.testing.Fixtures
             .business(),
     userId: String? = null,
+    isOwner: Boolean = true,
+    permissions: com.itsluminous.samaroh.core.model.MemberPermissions =
+        com.itsluminous.samaroh.core.model
+            .MemberPermissions(),
 ): ExpensesSession =
     ExpensesSession(
         activeBusinessProvider =
@@ -128,12 +147,8 @@ fun fakeExpensesSession(
             },
         permissionGuard =
             object : com.itsluminous.samaroh.core.auth.PermissionGuard {
-                override fun permissions(businessId: String) =
-                    kotlinx.coroutines.flow.MutableStateFlow(
-                        com.itsluminous.samaroh.core.model
-                            .MemberPermissions(),
-                    )
+                override fun permissions(businessId: String) = kotlinx.coroutines.flow.MutableStateFlow(permissions)
 
-                override fun isOwner(businessId: String) = kotlinx.coroutines.flow.MutableStateFlow(true)
+                override fun isOwner(businessId: String) = kotlinx.coroutines.flow.MutableStateFlow(isOwner)
             },
     )

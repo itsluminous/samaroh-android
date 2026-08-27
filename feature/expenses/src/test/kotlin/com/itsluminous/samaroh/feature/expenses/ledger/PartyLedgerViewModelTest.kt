@@ -142,6 +142,167 @@ class PartyLedgerViewModelTest {
             }
         }
 
+    @Test
+    fun `party gates follow expenses permissions for non-owners`() =
+        runTest {
+            val viewModel =
+                PartyLedgerViewModel(
+                    savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
+                    expensesRepository = expensesRepository,
+                    ledgerRepository = ledgerRepository,
+                    session =
+                        fakeExpensesSession(
+                            userId = "member-1",
+                            isOwner = false,
+                            permissions =
+                                com.itsluminous.samaroh.core.model.MemberPermissions(
+                                    expenses =
+                                        com.itsluminous.samaroh.core.model.ExpensesPermissions(
+                                            view = true,
+                                            manageParties = true,
+                                        ),
+                                ),
+                        ),
+                    clock = java.time.Clock.fixed(Fixtures.NOW, java.time.ZoneOffset.UTC),
+                )
+            viewModel.state.test {
+                val loaded = awaitItemMatching { it.loaded }
+                // manage_parties grants party edit without expenses.edit; delete needs expenses.delete.
+                assertThat(loaded.canEditParty).isTrue()
+                assertThat(loaded.canEditEntries).isFalse()
+                assertThat(loaded.canDeleteParty).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `saveParty rejects a blank name`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.state.test {
+                awaitItemMatching { it.party != null }
+
+                viewModel.saveParty(name = "   ", phone = "", businessRelated = true)
+
+                assertThat(viewModel.editPartyError.value).isEqualTo(EditPartyError.EMPTY_NAME)
+                assertThat(expensesRepository.savedParties).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `saveParty rejects a name already used by another party`() =
+        runTest {
+            val other = Fixtures.party(name = "Ramesh Kumar")
+            expensesRepository.parties.value = listOf(party, other)
+
+            val viewModel = viewModel()
+            viewModel.state.test {
+                awaitItemMatching { it.party != null }
+
+                // Case/spacing-insensitive duplicate of the OTHER party's name.
+                viewModel.saveParty(name = "  ramesh   KUMAR ", phone = "", businessRelated = true)
+
+                assertThat(viewModel.editPartyError.value).isEqualTo(EditPartyError.DUPLICATE_NAME)
+                assertThat(expensesRepository.savedParties).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `saveParty keeping the party's own name is not a duplicate`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.state.test {
+                awaitItemMatching { it.party != null }
+                viewModel.events.test {
+                    viewModel.saveParty(name = party.name, phone = "9876543210", businessRelated = false)
+
+                    assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.PartySaved)
+                    assertThat(viewModel.editPartyError.value).isNull()
+                    val saved = expensesRepository.savedParties.single()
+                    assertThat(saved.name).isEqualTo(party.name)
+                    assertThat(saved.phone).isEqualTo("9876543210")
+                    assertThat(saved.businessRelated).isFalse()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `saveParty trims name and phone and updates the party`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.state.test {
+                awaitItemMatching { it.party != null }
+                viewModel.events.test {
+                    viewModel.saveParty(name = "  Renamed Party  ", phone = "  ", businessRelated = true)
+
+                    assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.PartySaved)
+                    val saved = expensesRepository.savedParties.single()
+                    assertThat(saved.id).isEqualTo(party.id)
+                    assertThat(saved.name).isEqualTo("Renamed Party")
+                    assertThat(saved.phone).isNull()
+                    assertThat(saved.updatedAt).isEqualTo(Fixtures.NOW)
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `deleteParty cascades via the ledger repository and emits PartyDeleted`() =
+        runTest {
+            val entry = Fixtures.expense(partyId = party.id)
+            expensesRepository.expenses.value = listOf(entry)
+            ledgerRepository.expenses.value = listOf(entry)
+
+            val viewModel = viewModel()
+            viewModel.state.test {
+                awaitItemMatching { it.party != null }
+                viewModel.events.test {
+                    viewModel.deleteParty()
+
+                    assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.PartyDeleted(party.name))
+                    assertThat(ledgerRepository.cascadeDeletedPartyIds).containsExactly(party.id)
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `deleteParty removes the returned local cached attachment files`() =
+        runTest {
+            val cacheFile = java.io.File.createTempFile("party-cascade", ".jpg")
+            assertThat(cacheFile.exists()).isTrue()
+            val entry = Fixtures.expense(partyId = party.id)
+            expensesRepository.expenses.value = listOf(entry)
+            ledgerRepository.expenses.value = listOf(entry)
+            ledgerRepository.saveAttachment(
+                ExpenseAttachment(
+                    id = "att-cascade",
+                    expenseId = entry.id,
+                    businessId = Fixtures.BUSINESS_ID,
+                    driveFileId = null,
+                    mimeType = "image/jpeg",
+                    fileName = "bill.jpg",
+                    createdAt = Fixtures.NOW,
+                ),
+                localCachePath = cacheFile.absolutePath,
+            )
+
+            val viewModel = viewModel()
+            viewModel.state.test {
+                awaitItemMatching { it.party != null }
+                viewModel.events.test {
+                    viewModel.deleteParty()
+
+                    assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.PartyDeleted(party.name))
+                    assertThat(cacheFile.exists()).isFalse()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
     private suspend fun app.cash.turbine.ReceiveTurbine<PartyLedgerState>.awaitItemMatching(
         predicate: (PartyLedgerState) -> Boolean,
     ): PartyLedgerState {

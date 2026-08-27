@@ -8,17 +8,24 @@ import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
+import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
 import com.itsluminous.samaroh.feature.expenses.domain.LedgerRow
 import com.itsluminous.samaroh.feature.expenses.domain.RunningBalanceCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Clock
 import javax.inject.Inject
 
@@ -35,10 +42,33 @@ data class PartyLedgerState(
     val netBalancePaise: Long = 0,
     /** Drives the PermissionGate around edit/delete (`expenses.edit`, owner-mode default). */
     val canEditEntries: Boolean = true,
+    /** Party-edit gate (ADR-028): `expenses.edit` OR `expenses.manage_parties`. */
+    val canEditParty: Boolean = true,
+    /** Party-delete gate (ADR-028): `expenses.delete`. */
+    val canDeleteParty: Boolean = true,
     /** Active business display name for the edit-party "Associated with {business}?" pill. */
     val businessName: String = "",
     val loaded: Boolean = false,
 )
+
+/** Validation outcome of an edit-party save attempt (ADR-028). */
+enum class EditPartyError {
+    /** Trimmed name is empty. */
+    EMPTY_NAME,
+
+    /** Another live party of the business already carries this (normalized) name. */
+    DUPLICATE_NAME,
+}
+
+sealed interface PartyLedgerEvent {
+    /** The edit-party dialog saved successfully — close it. */
+    data object PartySaved : PartyLedgerEvent
+
+    /** The party (and its cascade) was deleted — toast + navigate back to the list. */
+    data class PartyDeleted(
+        val partyName: String,
+    ) : PartyLedgerEvent
+}
 
 @HiltViewModel
 class PartyLedgerViewModel
@@ -47,7 +77,7 @@ class PartyLedgerViewModel
         savedStateHandle: SavedStateHandle,
         private val expensesRepository: ExpensesRepository,
         private val ledgerRepository: ExpensesLedgerRepository,
-        session: ExpensesSession,
+        private val session: ExpensesSession,
         private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
@@ -55,14 +85,30 @@ class PartyLedgerViewModel
         /** Bumped after a party edit so the one-shot party lookup re-emits the fresh row. */
         private val partyRefresh = MutableStateFlow(0)
 
+        private val _editPartyError = MutableStateFlow<EditPartyError?>(null)
+
+        /** Validation error of the last edit-party save attempt; cleared on retry/dismiss. */
+        val editPartyError: StateFlow<EditPartyError?> = _editPartyError.asStateFlow()
+
+        private val _events = MutableSharedFlow<PartyLedgerEvent>(extraBufferCapacity = 1)
+        val events: SharedFlow<PartyLedgerEvent> = _events.asSharedFlow()
+
+        /** The three permission gates as one flow (keeps the state combine at 5 sources). */
+        private val gates =
+            combine(
+                session.canEditEntries,
+                session.canManageParties,
+                session.canDeleteParties,
+            ) { canEdit, canManage, canDelete -> Triple(canEdit, canManage, canDelete) }
+
         val state: StateFlow<PartyLedgerState> =
             combine(
                 partyRefresh.map { ledgerRepository.party(partyId) },
                 expensesRepository.entriesForParty(partyId),
                 ledgerRepository.attachmentsForParty(partyId),
-                session.canEditEntries,
+                gates,
                 session.businessName,
-            ) { party, entries, attachments, canEdit, businessName ->
+            ) { party, entries, attachments, (canEdit, canManage, canDelete), businessName ->
                 val rows = RunningBalanceCalculator.withRunningBalance(entries)
                 PartyLedgerState(
                     party = party,
@@ -70,6 +116,8 @@ class PartyLedgerViewModel
                     attachmentsByExpense = attachments.groupBy { it.attachment.expenseId },
                     netBalancePaise = rows.firstOrNull()?.balanceAfterPaise ?: 0,
                     canEditEntries = canEdit,
+                    canEditParty = canManage,
+                    canDeleteParty = canDelete,
                     businessName = businessName,
                     loaded = true,
                 )
@@ -82,15 +130,64 @@ class PartyLedgerViewModel
             }
         }
 
-        /** Edit-party toggle (ADR-027): flips the business/personal flag via Room + outbox. */
-        fun setBusinessRelated(businessRelated: Boolean) {
+        /**
+         * Edit-party save (ADR-028): name (trimmed, deduped against the business's other
+         * live parties), optional phone and the business/personal flag — full parity with
+         * the add-person form. Emits [PartyLedgerEvent.PartySaved] on success; sets
+         * [editPartyError] and keeps the dialog open otherwise.
+         */
+        fun saveParty(
+            name: String,
+            phone: String,
+            businessRelated: Boolean,
+        ) {
             val party = state.value.party ?: return
-            if (party.businessRelated == businessRelated) return
+            val trimmed = name.trim()
+            if (trimmed.isEmpty()) {
+                _editPartyError.value = EditPartyError.EMPTY_NAME
+                return
+            }
             viewModelScope.launch {
-                expensesRepository.saveParty(
-                    party.copy(businessRelated = businessRelated, updatedAt = clock.instant()),
-                )
+                val normalized = FuzzyNameMatcher.normalize(trimmed)
+                val duplicate =
+                    expensesRepository
+                        .partiesWithBalance(session.businessId())
+                        .first()
+                        .any { it.party.id != party.id && FuzzyNameMatcher.normalize(it.party.name) == normalized }
+                if (duplicate) {
+                    _editPartyError.value = EditPartyError.DUPLICATE_NAME
+                    return@launch
+                }
+                _editPartyError.value = null
+                val updated =
+                    party.copy(
+                        name = trimmed,
+                        phone = phone.trim().ifEmpty { null },
+                        businessRelated = businessRelated,
+                        updatedAt = clock.instant(),
+                    )
+                if (updated != party) expensesRepository.saveParty(updated)
                 partyRefresh.update { it + 1 }
+                _events.emit(PartyLedgerEvent.PartySaved)
+            }
+        }
+
+        /** Clears the edit validation error (dialog dismissed or the name was retyped). */
+        fun clearEditPartyError() {
+            _editPartyError.value = null
+        }
+
+        /**
+         * Delete party (ADR-028): cascade-tombstones the party, its expenses and their
+         * attachments (one outbox DELETE per row), removes the local cached attachment
+         * files, then emits [PartyLedgerEvent.PartyDeleted] so the UI navigates back.
+         */
+        fun deleteParty() {
+            val party = state.value.party ?: return
+            viewModelScope.launch {
+                val localCachePaths = ledgerRepository.deletePartyCascade(party.id)
+                localCachePaths.forEach { path -> runCatching { File(path).delete() } }
+                _events.emit(PartyLedgerEvent.PartyDeleted(party.name))
             }
         }
     }

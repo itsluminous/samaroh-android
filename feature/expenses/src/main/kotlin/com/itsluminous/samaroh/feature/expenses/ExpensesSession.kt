@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.expenses
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
+import com.itsluminous.samaroh.core.model.MemberPermissions
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -51,7 +52,19 @@ class ExpensesSession
          * `expenses.edit` gate (§4.2). Owners always pass; signed-out/offline keeps the
          * historical owner-mode default (true).
          */
-        val canEditEntries: Flow<Boolean> =
+        val canEditEntries: Flow<Boolean> = permissionGate { it.expenses.edit }
+
+        /** Party edit gate (ADR-028): `expenses.edit` OR `expenses.manage_parties`. */
+        val canManageParties: Flow<Boolean> = permissionGate { it.expenses.edit || it.expenses.manageParties }
+
+        /** Party/entry delete gate (ADR-028): `expenses.delete`. */
+        val canDeleteParties: Flow<Boolean> = permissionGate { it.expenses.delete }
+
+        /**
+         * Owners always pass [allowed]; signed-out/offline keeps the historical
+         * owner-mode default (true).
+         */
+        private fun permissionGate(allowed: (MemberPermissions) -> Boolean): Flow<Boolean> =
             combine(
                 currentUserProvider.currentUserId,
                 activeBusinessProvider.activeBusiness,
@@ -64,7 +77,7 @@ class ExpensesSession
                         combine(
                             permissionGuard.permissions(business.id),
                             permissionGuard.isOwner(business.id),
-                        ) { permissions, isOwner -> isOwner || permissions.expenses.edit }
+                        ) { permissions, isOwner -> isOwner || allowed(permissions) }
                 }
             }
 

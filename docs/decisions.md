@@ -695,3 +695,43 @@ reports. Shared migration `004_party_business_flag.sql` adds
    decimals, no ₹, no grouping — `CsvValues.rupees`) and ISO dates/months so spreadsheet
    apps parse them as numbers/dates. On-screen and PDF keep `AmountFormatter`/localized
    dates unchanged.
+
+## ADR-028 — Party edit/delete parity: cascade tombstone + `ChipRow` scrollable filter pills (2026-08-27)
+
+**Status:** accepted.
+
+**Context.** The ledger's edit affordance only toggled ADR-027's business flag, and there
+was no way to delete a party at all. Separately, the owner's Profit-report screenshot
+showed the date-preset chip row WRAPPING on narrow screens — the last "Custom" pill was
+squashed to one character per line. Both fixes touch frozen contracts, hence this ADR.
+
+**Decision.**
+1. **Party edit parity.** The ledger's edit-party dialog now carries the full add-party
+   form: name (trimmed, deduped case/whitespace-insensitively against the business's
+   other live parties via `FuzzyNameMatcher.normalize`, excluding the party itself),
+   optional phone, and the ADR-027 business/personal pill. Saves go through the existing
+   `ExpensesRepository.saveParty` (UPSERT outbox row). Gate: `expenses.edit` OR
+   `expenses.manage_parties` (owners always pass) — `ExpensesSession.canManageParties`.
+2. **Party delete = cascade tombstone.** ADDITIVE contract methods (frozen files):
+   - `core:database` `ExpenseDao.liveForParty(partyId)` and
+     `ExpenseAttachmentDao.liveForParty(partyId)` — one-shot live rows of a party.
+   - `core:data` `ExpensesLedgerRepository.deletePartyCascade(partyId): List<String>` —
+     tombstones children first (attachments → expenses → party), enqueues one outbox
+     DELETE per row (id + `deleted_at` payload, same shape the sync engine already
+     pushes), and returns the `local_cache_path` of every tombstoned attachment; the
+     ViewModel deletes those on-device files. Attachments with a `drive_file_id` only
+     get their metadata tombstoned — Drive-side purge is out of scope pre-OAuth.
+   The server needs no new endpoint: the cascade is N ordinary tombstones in FIFO outbox
+   order (children before parents mirrors the FK order). Gate: `expenses.delete`
+   (`ExpensesSession.canDeleteParties`); the confirmation dialog warns that all entries
+   and attached bills die too (`expenses.party.delete_confirm_*` keys), and the UI
+   navigates back to the party list after `PartyLedgerEvent.PartyDeleted`.
+3. **`ChipRow` in `core:designsystem`.** One reusable horizontally scrollable, never
+   wrapping quick-filter row (`Row` + `horizontalScroll`, 8dp spacing, optional
+   `contentPadding` INSIDE the scroll area so edge padding scrolls with content, and a
+   `chip_row` test tag). Swapped in everywhere chips form a quick-filter row: report
+   date presets, theme + backup-frequency chips (Settings), reminder lead-day chips,
+   booking status/follow-up/source chips, payment-method chips (record-payment sheet),
+   permission preset chips and the business-related yes/no pill. NOT converted:
+   `MasterlistScreen` duplicate suggestions (already a `LazyRow`), 2-option
+   `SegmentedButton` toggles (fixed-width by design), and lone `AssistChip` badges.

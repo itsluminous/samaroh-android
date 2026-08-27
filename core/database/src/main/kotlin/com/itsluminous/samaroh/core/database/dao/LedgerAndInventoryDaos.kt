@@ -120,6 +120,13 @@ interface ExpenseDao {
     fun entriesForParty(partyId: String): Flow<List<ExpenseEntity>>
 
     /**
+     * One-shot live entries of a party — the party-delete cascade input (ADR-028):
+     * every returned row is tombstoned together with the party.
+     */
+    @Query("SELECT * FROM expenses WHERE party_id = :partyId AND deleted_at IS NULL")
+    suspend fun liveForParty(partyId: String): List<ExpenseEntity>
+
+    /**
      * Live entries of every party dated in [from]..[to] — the cross-party input of the
      * expense-summary and profit reports (W2-A additive; ADR-019).
      */
@@ -178,6 +185,19 @@ interface ExpenseAttachmentDao {
         """,
     )
     fun attachmentsForParty(partyId: String): Flow<List<ExpenseAttachmentEntity>>
+
+    /**
+     * One-shot live attachments across a party's live entries — the party-delete cascade
+     * input (ADR-028): rows are tombstoned and their `local_cache_path` files removed.
+     */
+    @Query(
+        """
+        SELECT a.* FROM expense_attachments a
+        JOIN expenses e ON e.id = a.expense_id
+        WHERE e.party_id = :partyId AND a.deleted_at IS NULL AND e.deleted_at IS NULL
+        """,
+    )
+    suspend fun liveForParty(partyId: String): List<ExpenseAttachmentEntity>
 
     @Query("UPDATE expense_attachments SET deleted_at = :at WHERE id = :id")
     suspend fun tombstone(

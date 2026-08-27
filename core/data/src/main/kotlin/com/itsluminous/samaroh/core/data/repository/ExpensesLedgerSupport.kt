@@ -72,6 +72,16 @@ interface ExpensesLedgerRepository {
     )
 
     suspend fun deleteAttachment(id: String)
+
+    /**
+     * Party delete (ADR-028): tombstones the party AND cascades to its live expenses and
+     * their attachments — children first (attachments → expenses → party), one outbox
+     * DELETE row per tombstone so the server mirrors the cascade. Attachments with a
+     * `drive_file_id` only get their metadata tombstoned (Drive purge is out of scope
+     * pre-OAuth). Returns the `local_cache_path` of every tombstoned attachment so the
+     * caller can remove the on-device cached files.
+     */
+    suspend fun deletePartyCascade(partyId: String): List<String>
 }
 
 @Singleton
@@ -123,20 +133,38 @@ class RoomExpensesLedgerRepository
         override suspend fun deleteAttachment(id: String) {
             val now = clock.instant()
             attachmentDao.tombstone(id, now)
-            outboxWriter.enqueue(
-                "expense_attachments",
-                id,
-                OutboxOperation.DELETE,
-                json.encodeToString(
-                    kotlinx.serialization.json.JsonObject
-                        .serializer(),
-                    buildJsonObject {
-                        put("id", id)
-                        put("deleted_at", now.toString())
-                    },
-                ),
-            )
+            outboxWriter.enqueue("expense_attachments", id, OutboxOperation.DELETE, deletePayload(id, now))
         }
+
+        override suspend fun deletePartyCascade(partyId: String): List<String> {
+            val now = clock.instant()
+            // Children first — mirrors the server FK order (attachments → expenses → party).
+            val attachments = attachmentDao.liveForParty(partyId)
+            attachments.forEach { attachment ->
+                attachmentDao.tombstone(attachment.id, now)
+                outboxWriter.enqueue("expense_attachments", attachment.id, OutboxOperation.DELETE, deletePayload(attachment.id, now))
+            }
+            expenseDao.liveForParty(partyId).forEach { expense ->
+                expenseDao.tombstone(expense.id, now)
+                outboxWriter.enqueue("expenses", expense.id, OutboxOperation.DELETE, deletePayload(expense.id, now))
+            }
+            partyDao.tombstone(partyId, now)
+            outboxWriter.enqueue("parties", partyId, OutboxOperation.DELETE, deletePayload(partyId, now))
+            return attachments.mapNotNull { it.localCachePath }
+        }
+
+        private fun deletePayload(
+            id: String,
+            at: Instant,
+        ): String =
+            json.encodeToString(
+                kotlinx.serialization.json.JsonObject
+                    .serializer(),
+                buildJsonObject {
+                    put("id", id)
+                    put("deleted_at", at.toString())
+                },
+            )
     }
 
 private fun ExpenseAttachmentEntity.toModelWithLocalState() =
