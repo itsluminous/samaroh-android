@@ -19,6 +19,14 @@ val copyEventTypes by tasks.registering(Copy::class) {
     into(generatedAssetsDir)
 }
 
+// Booking colour palette (ADR-030): same single-source-of-truth pattern as event types.
+val copyBookingColors by tasks.registering(Copy::class) {
+    group = "assets"
+    description = "Copies shared/booking-colors.json into the feature's generated assets"
+    from(rootProject.file("shared/booking-colors.json"))
+    into(generatedAssetsDir)
+}
+
 android {
     namespace = "com.itsluminous.samaroh.feature.booking"
     compileSdk = 35
@@ -60,6 +68,7 @@ android {
 
 tasks.named("preBuild") {
     dependsOn(copyEventTypes)
+    dependsOn(copyBookingColors)
 }
 
 dependencies {

@@ -43,6 +43,14 @@ object CalendarMonthMapper {
          * outline. Both flags can be true on a mixed date.
          */
         val hasTentativeBooking: Boolean = false,
+        /**
+         * Palette key (`shared/booking-colors.json`) painting the cell's FILL, or null
+         * for the default treatment (ADR-030). Set only when EXACTLY ONE live booking
+         * covers this date, that booking is firm (confirmed/completed — never
+         * tentative), and it carries a colour. Multi-booking days keep the default
+         * fill; the tentative amber outline + 👤 are unaffected either way.
+         */
+        val fillColorKey: String? = null,
     )
 
     /** One week row: exactly 7 days. */
@@ -93,6 +101,11 @@ object CalendarMonthMapper {
                         bookingNames = covering.map { BookingTitleFormatter.firstName(it.customerName) },
                         hasFirmBooking = covering.any { it.status != BookingStatus.TENTATIVE },
                         hasTentativeBooking = covering.any { it.status == BookingStatus.TENTATIVE },
+                        fillColorKey =
+                            covering
+                                .singleOrNull()
+                                ?.takeIf { it.status != BookingStatus.TENTATIVE }
+                                ?.color,
                     )
                 }
             weeks += Week(days)

@@ -17,6 +17,7 @@ import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -127,6 +128,8 @@ class BookingCalendarViewModel
         private val invoiceGenerator: InvoiceGenerator,
         private val syncScheduler: SyncScheduler,
         val eventTypesProvider: EventTypeCatalog,
+        /** Booking colour palette (ADR-030), exposed like [eventTypesProvider] for the UI. */
+        val bookingColorsProvider: BookingColorCatalog,
         private val calendarPrefs: BookingCalendarPrefs,
         private val clock: Clock,
     ) : ViewModel() {

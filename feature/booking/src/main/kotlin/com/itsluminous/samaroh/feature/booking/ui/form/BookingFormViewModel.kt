@@ -15,6 +15,7 @@ import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
@@ -73,6 +74,8 @@ data class BookingFormState(
     val advanceText: String = "",
     val source: BookingSource? = null,
     val notes: String = "",
+    /** Palette key from `shared/booking-colors.json` (ADR-030); null = Default. */
+    val colorKey: String? = null,
     /** Which optional fields render (ADR-020, Settings → Booking form fields). */
     val fieldVisibility: BookingFormFieldVisibility = BookingFormFieldVisibility(),
     /** Manual invoice number as typed; editable only while [frozenInvoiceNumber] is null. */
@@ -126,6 +129,8 @@ class BookingFormViewModel
         private val businessRepository: BusinessRepository,
         private val actorProvider: BookingActorProvider,
         private val eventTypesProvider: EventTypeCatalog,
+        /** Booking colour palette (ADR-030), exposed for the form's picker row. */
+        val bookingColorsProvider: BookingColorCatalog,
         private val syncScheduler: SyncScheduler,
         fieldPrefs: BookingFormFieldPrefs,
         private val clock: Clock,
@@ -187,6 +192,7 @@ class BookingFormViewModel
                             securityDepositText = paiseToRupeeText(existing.securityDepositPaise),
                             source = existing.source,
                             notes = existing.notes.orEmpty(),
+                            colorKey = existing.color,
                             frozenInvoiceNumber = existing.invoiceNumber,
                         )
                     }
@@ -226,6 +232,9 @@ class BookingFormViewModel
         fun setAdvance(text: String) = _state.update { it.copy(advanceText = text) }
 
         fun setSource(source: BookingSource?) = _state.update { it.copy(source = source) }
+
+        /** Booking colour (ADR-030): palette key, or null for the Default themed look. */
+        fun setColor(colorKey: String?) = _state.update { it.copy(colorKey = colorKey) }
 
         fun setNotes(value: String) = _state.update { it.copy(notes = value) }
 
@@ -363,6 +372,7 @@ class BookingFormViewModel
                     source = form.source,
                     notes = form.notes.trim().ifBlank { null },
                     status = form.status,
+                    color = form.colorKey,
                     gcalEventId = base?.gcalEventId,
                     // Frozen once set (manually or by the allocator, ADR-006/ADR-020);
                     // otherwise an optional manual number, validated unique in attemptSave.

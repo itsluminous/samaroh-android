@@ -29,8 +29,11 @@ import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
+import com.itsluminous.samaroh.feature.booking.ui.fill
 import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
+import com.itsluminous.samaroh.feature.booking.ui.onFill
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -51,11 +54,12 @@ internal fun CalendarGrid(
     onDayTapped: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
     iconWatermarkAlpha: Float = DataStoreBookingCalendarPrefs.DEFAULT_ICON_WATERMARK_ALPHA,
+    bookingColors: BookingColorCatalog? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         WeekdayHeader(locale)
         grid.weeks.forEach { week ->
-            WeekRow(week, onDayTapped, iconWatermarkAlpha)
+            WeekRow(week, onDayTapped, iconWatermarkAlpha, bookingColors)
         }
     }
 }
@@ -82,6 +86,7 @@ private fun WeekRow(
     week: CalendarMonthMapper.Week,
     onDayTapped: (LocalDate) -> Unit,
     iconWatermarkAlpha: Float,
+    bookingColors: BookingColorCatalog?,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
         week.days.forEach { day ->
@@ -89,6 +94,7 @@ private fun WeekRow(
                 day = day,
                 onTapped = onDayTapped,
                 iconWatermarkAlpha = iconWatermarkAlpha,
+                bookingColors = bookingColors,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -100,6 +106,7 @@ private fun DayCell(
     day: CalendarMonthMapper.Day,
     onTapped: (LocalDate) -> Unit,
     iconWatermarkAlpha: Float,
+    bookingColors: BookingColorCatalog?,
     modifier: Modifier = Modifier,
 ) {
     val outline = MaterialTheme.colorScheme.primary
@@ -107,6 +114,12 @@ private fun DayCell(
     val firmContainer = MaterialTheme.colorScheme.tertiaryContainer
     val tentative = SamarohTheme.semanticColors.tentative
     val shape = MaterialTheme.shapes.small
+    // Booking colour (ADR-030): a single firm coloured booking paints the cell's fill;
+    // the palette's on_hex keeps the date number legible on it. Multi-booking days and
+    // unknown keys fall back to the default tertiary-container fill.
+    val customFill = bookingColors?.byKey(day.fillColorKey)
+    val fillColor = customFill?.fill
+    val onFillColor = customFill?.onFill
     // TalkBack announcement (§6): full date + today/blocked state + booking summary
     // (customer names), so the calendar is navigable cell by cell without sight.
     val description =
@@ -136,10 +149,11 @@ private fun DayCell(
                 .clip(shape)
                 .then(
                     // Status treatment ON the cell (the old bars' visual vocabulary):
-                    // any firm booking → filled container; any tentative booking →
-                    // amber outline. A mixed date carries both.
+                    // any firm booking → filled container (the booking's own colour when
+                    // exactly one coloured firm booking covers the day, ADR-030); any
+                    // tentative booking → amber outline. A mixed date carries both.
                     if (day.hasFirmBooking && day.inMonth) {
-                        Modifier.background(firmContainer)
+                        Modifier.background(fillColor ?: firmContainer)
                     } else {
                         Modifier
                     },
@@ -213,6 +227,9 @@ private fun DayCell(
             color =
                 when {
                     !day.inMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    // Custom fill (ADR-030): the palette's paired on-colour keeps the
+                    // date number AA-legible on the booking's own colour.
+                    day.hasFirmBooking && onFillColor != null && fillColor != null -> onFillColor
                     day.hasFirmBooking -> MaterialTheme.colorScheme.onTertiaryContainer
                     else -> MaterialTheme.colorScheme.onSurface
                 },

@@ -63,12 +63,15 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.displayIcon
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
+import com.itsluminous.samaroh.feature.booking.ui.BookingColorDot
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
 import com.itsluminous.samaroh.feature.booking.ui.eventTypeLabel
+import com.itsluminous.samaroh.feature.booking.ui.fill
 import com.itsluminous.samaroh.feature.booking.ui.formatDate
 import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
 import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
@@ -86,6 +89,7 @@ fun BookingCalendarScreen(
     onEditBooking: (String) -> Unit,
     viewModel: BookingCalendarViewModel = hiltViewModel(),
     eventTypes: EventTypeCatalog = viewModel.eventTypesProvider,
+    bookingColors: BookingColorCatalog = viewModel.bookingColorsProvider,
 ) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
@@ -176,6 +180,7 @@ fun BookingCalendarScreen(
                 EventsAgendaList(
                     agenda = eventsAgenda,
                     eventTypes = eventTypes,
+                    bookingColors = bookingColors,
                     today = state.today,
                     onOpenBooking = viewModel::openBooking,
                     onLoadOlder = viewModel::loadOlderEvents,
@@ -357,6 +362,7 @@ fun BookingCalendarScreen(
                             grid = animatedGrid,
                             locale = currentLocale(),
                             iconWatermarkAlpha = iconWatermarkAlpha,
+                            bookingColors = bookingColors,
                             onDayTapped = { date ->
                                 when (val result = viewModel.onDayTapped(date)) {
                                     is DayTapResult.ShowBookings ->
@@ -398,6 +404,10 @@ fun BookingCalendarScreen(
                                     .clickable { viewModel.openBooking(booking.id) }
                                     .padding(vertical = 8.dp),
                         ) {
+                            // Booking colour dot (ADR-030) — decorative; text carries the info.
+                            bookingColors.byKey(booking.color)?.fill?.let { dotColor ->
+                                BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
+                            }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "${booking.displayIcon} ${eventTypeLabel(
@@ -488,6 +498,7 @@ fun BookingCalendarScreen(
         BookingCardSheet(
             detail = current,
             eventTypes = eventTypes,
+            bookingColors = bookingColors,
             creatorName = actor?.displayName ?: state.business?.ownerName.orEmpty(),
             canEdit = canEdit,
             canDelete = canDelete,
@@ -573,6 +584,7 @@ private fun CalendarOverflowMenu(
 private fun EventsAgendaList(
     agenda: BookingCalendarViewModel.EventsAgendaState,
     eventTypes: EventTypeCatalog,
+    bookingColors: BookingColorCatalog,
     today: LocalDate,
     onOpenBooking: (String) -> Unit,
     onLoadOlder: () -> Unit,
@@ -638,6 +650,10 @@ private fun EventsAgendaList(
                             .clickable { onOpenBooking(booking.id) }
                             .padding(vertical = 8.dp),
                 ) {
+                    // Booking colour dot (ADR-030) — decorative; text carries the info.
+                    bookingColors.byKey(booking.color)?.fill?.let { dotColor ->
+                        BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
+                    }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",

@@ -17,6 +17,8 @@ import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
+import com.itsluminous.samaroh.feature.booking.domain.BookingColor
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
@@ -282,5 +284,14 @@ class FakeEventTypeCatalog : EventTypeCatalog {
             EventType(key = "wedding", emoji = "\uD83D\uDC92", labelRes = 101),
             EventType(key = "birthday", emoji = "\uD83C\uDF82", labelRes = 102),
             EventType(key = EventType.CUSTOM_KEY, emoji = "\u2728", labelRes = 103),
+        )
+}
+
+/** Static palette mirroring shared/booking-colors.json (ADR-030), without asset loading. */
+class FakeBookingColorCatalog : BookingColorCatalog {
+    override val colors: List<BookingColor> =
+        listOf(
+            BookingColor(key = "tomato", hex = "#C62828", onHex = "#FFFFFF", labelRes = 201),
+            BookingColor(key = "sky", hex = "#4FC3F7", onHex = "#212121", labelRes = 202),
         )
 }

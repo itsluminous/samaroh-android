@@ -207,4 +207,66 @@ class CalendarMonthMapperTest {
         assertThat(CalendarMonthMapper.blocksOn(listOf(block(date)), date)).hasSize(1)
         assertThat(CalendarMonthMapper.bookingsOn(listOf(booking), date.plusDays(5))).isEmpty()
     }
+
+    // ---- booking colour → cell fill (ADR-030) ----
+
+    @Test
+    fun `single firm colored booking paints its dates' fillColorKey`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val booking = Fixtures.booking(startDate = date, endDate = date.plusDays(1)).copy(color = "peacock")
+        val grid = CalendarMonthMapper.map(month, today, listOf(booking), emptyList())
+        assertThat(days(grid).getValue(date).fillColorKey).isEqualTo("peacock")
+        assertThat(days(grid).getValue(date.plusDays(1)).fillColorKey).isEqualTo("peacock")
+        assertThat(days(grid).getValue(date.plusDays(2)).fillColorKey).isNull()
+    }
+
+    @Test
+    fun `firm booking without a color keeps the default fill`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val grid = CalendarMonthMapper.map(month, today, listOf(Fixtures.booking(startDate = date)), emptyList())
+        val day = days(grid).getValue(date)
+        assertThat(day.hasFirmBooking).isTrue()
+        assertThat(day.fillColorKey).isNull()
+    }
+
+    @Test
+    fun `multiple bookings on a day keep the default fill even when colored`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val first = Fixtures.booking(startDate = date).copy(color = "peacock")
+        val second = Fixtures.booking(startDate = date).copy(color = "tomato")
+        val grid = CalendarMonthMapper.map(month, today, listOf(first, second), emptyList())
+        val day = days(grid).getValue(date)
+        assertThat(day.hasFirmBooking).isTrue()
+        assertThat(day.fillColorKey).isNull()
+    }
+
+    @Test
+    fun `tentative booking never contributes a fill color`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val tentative = Fixtures.booking(startDate = date, status = BookingStatus.TENTATIVE).copy(color = "grape")
+        val grid = CalendarMonthMapper.map(month, today, listOf(tentative), emptyList())
+        val day = days(grid).getValue(date)
+        assertThat(day.hasTentativeBooking).isTrue()
+        assertThat(day.fillColorKey).isNull()
+    }
+
+    @Test
+    fun `completed booking counts as firm for the fill color`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val completed = Fixtures.booking(startDate = date, status = BookingStatus.COMPLETED).copy(color = "banana")
+        val grid = CalendarMonthMapper.map(month, today, listOf(completed), emptyList())
+        assertThat(days(grid).getValue(date).fillColorKey).isEqualTo("banana")
+    }
+
+    @Test
+    fun `mixed firm plus tentative day keeps default fill but both status flags`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val firm = Fixtures.booking(startDate = date).copy(color = "sky")
+        val tentative = Fixtures.booking(startDate = date, status = BookingStatus.TENTATIVE)
+        val grid = CalendarMonthMapper.map(month, today, listOf(firm, tentative), emptyList())
+        val day = days(grid).getValue(date)
+        assertThat(day.fillColorKey).isNull()
+        assertThat(day.hasFirmBooking).isTrue()
+        assertThat(day.hasTentativeBooking).isTrue()
+    }
 }

@@ -358,6 +358,15 @@ fun BookingFormScreen(
                     }
                 }
 
+                // ★ Booking colour (ADR-030): Default + 16-swatch palette grid; drives
+                // the calendar cell fill, agenda dots and the booking card.
+                Text(text = stringResource(R.string.booking_form_color), style = MaterialTheme.typography.labelLarge)
+                BookingColorPicker(
+                    colors = viewModel.bookingColorsProvider.colors,
+                    selectedKey = state.colorKey,
+                    onSelect = viewModel::setColor,
+                )
+
                 OutlinedTextField(
                     value = state.notes,
                     onValueChange = viewModel::setNotes,

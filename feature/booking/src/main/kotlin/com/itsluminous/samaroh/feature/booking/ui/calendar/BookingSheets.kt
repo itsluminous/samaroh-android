@@ -39,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -50,9 +52,12 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.displayIcon
+import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
+import com.itsluminous.samaroh.feature.booking.ui.BookingColorDot
 import com.itsluminous.samaroh.feature.booking.ui.eventTypeLabel
+import com.itsluminous.samaroh.feature.booking.ui.fill
 import com.itsluminous.samaroh.feature.booking.ui.form.parseRupeesToPaise
 import com.itsluminous.samaroh.feature.booking.ui.formatDate
 import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
@@ -71,6 +76,7 @@ import java.time.ZoneOffset
 internal fun BookingCardSheet(
     detail: BookingDetail,
     eventTypes: EventTypeCatalog,
+    bookingColors: BookingColorCatalog,
     creatorName: String,
     canEdit: Boolean,
     canDelete: Boolean,
@@ -95,6 +101,17 @@ internal fun BookingCardSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Booking colour (ADR-030): dot announcing its localized colour name.
+                bookingColors.byKey(booking.color)?.let { paletteColor ->
+                    paletteColor.fill?.let { dotColor ->
+                        val colorName = stringResource(paletteColor.labelRes)
+                        BookingColorDot(
+                            color = dotColor,
+                            size = 14.dp,
+                            modifier = Modifier.semantics { contentDescription = colorName },
+                        )
+                    }
+                }
                 Text(
                     text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)}",
                     style = MaterialTheme.typography.titleLarge,

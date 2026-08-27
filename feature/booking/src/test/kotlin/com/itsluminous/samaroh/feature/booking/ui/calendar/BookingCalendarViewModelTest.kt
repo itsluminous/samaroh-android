@@ -11,6 +11,7 @@ import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.booking.FakeActorProvider
 import com.itsluminous.samaroh.feature.booking.FakeBookingCalendarPrefs
+import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
@@ -49,6 +50,7 @@ class BookingCalendarViewModelTest {
             invoiceGenerator = invoiceGenerator,
             syncScheduler = syncScheduler,
             eventTypesProvider = FakeEventTypeCatalog(),
+            bookingColorsProvider = FakeBookingColorCatalog(),
             calendarPrefs = calendarPrefs,
             clock = clock,
         )

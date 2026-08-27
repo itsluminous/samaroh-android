@@ -11,6 +11,7 @@ import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.booking.FakeActorProvider
+import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
@@ -50,6 +51,7 @@ class BookingFormViewModelTest {
         businessRepository = businessRepository,
         actorProvider = actorProvider,
         eventTypesProvider = FakeEventTypeCatalog(),
+        bookingColorsProvider = FakeBookingColorCatalog(),
         syncScheduler = syncScheduler,
         fieldPrefs = fieldPrefs,
         clock = clock,
