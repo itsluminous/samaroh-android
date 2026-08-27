@@ -42,6 +42,18 @@ interface BookingDao {
         to: LocalDate,
     ): Flow<List<BookingEntity>>
 
+    /**
+     * Earliest start date of the business's live bookings, or null when there are none —
+     * clamps the events-view window expansion (additive; see BookingRepository.bookingDateBounds).
+     * ISO-8601 TEXT: MIN/MAX compare chronologically.
+     */
+    @Query("SELECT MIN(start_date) FROM bookings WHERE business_id = :businessId AND deleted_at IS NULL")
+    suspend fun minStartDate(businessId: String): LocalDate?
+
+    /** Latest start date of the business's live bookings; see [minStartDate]. */
+    @Query("SELECT MAX(start_date) FROM bookings WHERE business_id = :businessId AND deleted_at IS NULL")
+    suspend fun maxStartDate(businessId: String): LocalDate?
+
     /** Non-blocking conflict warning input: live bookings covering one date. */
     @Query(
         """

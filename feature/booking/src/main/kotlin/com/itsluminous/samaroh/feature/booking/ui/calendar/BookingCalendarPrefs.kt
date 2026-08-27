@@ -2,6 +2,8 @@ package com.itsluminous.samaroh.feature.booking.ui.calendar
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
@@ -18,6 +20,12 @@ interface BookingCalendarPrefs {
      * [CalendarDayCrossfade].
      */
     val iconWatermarkAlpha: Flow<Float>
+
+    /** Whether the Booking tab shows the full agenda (events) list instead of the month grid. */
+    val eventsView: Flow<Boolean>
+
+    /** Persists the events-view toggle (per device — DataStore, never synced). */
+    suspend fun setEventsView(enabled: Boolean)
 }
 
 /**
@@ -37,8 +45,18 @@ class DataStoreBookingCalendarPrefs
                     .coerceIn(ICON_WATERMARK_ALPHA_MIN, ICON_WATERMARK_ALPHA_MAX)
             }
 
+        override val eventsView: Flow<Boolean> =
+            dataStore.data.map { prefs -> prefs[KEY_EVENTS_VIEW] ?: false }
+
+        override suspend fun setEventsView(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[KEY_EVENTS_VIEW] = enabled }
+        }
+
         companion object {
             val KEY_ICON_WATERMARK_ALPHA = floatPreferencesKey("booking_calendar_icon_alpha")
+
+            /** Month grid ⇄ full agenda list toggle (§4.1 events view) — per device. */
+            val KEY_EVENTS_VIEW = booleanPreferencesKey("booking_calendar_events_view")
 
             /**
              * Default slider value (matches the original hardcoded watermark opacity):

@@ -71,6 +71,11 @@ class FakeBookingRepository : BookingRepository {
 
     override suspend fun booking(id: String): Booking? = bookingsFlow.value.firstOrNull { it.id == id }
 
+    override suspend fun bookingDateBounds(businessId: String): ClosedRange<LocalDate>? =
+        bookingsFlow.value
+            .takeIf { it.isNotEmpty() }
+            ?.let { list -> list.minOf { it.startDate }..list.maxOf { it.startDate } }
+
     override suspend fun saveBooking(booking: Booking) = throw UnsupportedOperationException()
 
     override suspend fun deleteBooking(id: String) = throw UnsupportedOperationException()

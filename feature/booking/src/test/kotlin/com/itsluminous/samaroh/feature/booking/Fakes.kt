@@ -52,6 +52,12 @@ class FakeBookingRepository : BookingRepository {
 
     override suspend fun booking(id: String): Booking? = bookings.value.firstOrNull { it.id == id }
 
+    override suspend fun bookingDateBounds(businessId: String): ClosedRange<LocalDate>? {
+        val live = bookings.value.filter { it.businessId == businessId && it.deletedAt == null }
+        if (live.isEmpty()) return null
+        return live.minOf { it.startDate }..live.maxOf { it.startDate }
+    }
+
     override suspend fun saveBooking(booking: Booking) {
         bookings.value = bookings.value.filterNot { it.id == booking.id } + booking
     }
@@ -176,9 +182,17 @@ class FakeFormFieldPrefs(
 /** In-memory booking-calendar appearance prefs. */
 class FakeBookingCalendarPrefs(
     initial: Float = DataStoreBookingCalendarPrefs.DEFAULT_ICON_WATERMARK_ALPHA,
+    eventsViewInitial: Boolean = false,
 ) : BookingCalendarPrefs {
     val alpha = MutableStateFlow(initial)
     override val iconWatermarkAlpha: Flow<Float> = alpha
+
+    val eventsViewState = MutableStateFlow(eventsViewInitial)
+    override val eventsView: Flow<Boolean> = eventsViewState
+
+    override suspend fun setEventsView(enabled: Boolean) {
+        eventsViewState.value = enabled
+    }
 }
 
 class FakeBusinessRepository(

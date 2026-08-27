@@ -28,6 +28,13 @@ interface BookingRepository {
         to: LocalDate,
     ): Flow<List<Booking>>
 
+    /**
+     * Earliest..latest start date of the business's live bookings, or null when it has
+     * none — clamps the events-view window expansion so the agenda list never scrolls
+     * into empty decades. Additive extension of the frozen contract (ADR-029).
+     */
+    suspend fun bookingDateBounds(businessId: String): ClosedRange<LocalDate>?
+
     suspend fun booking(id: String): Booking?
 
     /** Upserts locally and enqueues an outbox push. */

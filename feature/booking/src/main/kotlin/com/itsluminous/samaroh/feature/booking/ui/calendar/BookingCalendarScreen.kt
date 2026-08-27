@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,7 +37,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,12 +64,14 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
 import com.itsluminous.samaroh.feature.booking.ui.eventTypeLabel
 import com.itsluminous.samaroh.feature.booking.ui.formatDate
 import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
+import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
 import com.itsluminous.samaroh.feature.booking.ui.formatMonthYear
 import java.time.LocalDate
 
@@ -84,9 +91,10 @@ fun BookingCalendarScreen(
     val state by viewModel.uiState.collectAsState()
     val detail by viewModel.detail.collectAsState()
     val iconWatermarkAlpha by viewModel.iconWatermarkAlpha.collectAsState()
+    val eventsView by viewModel.eventsView.collectAsState()
+    val eventsAgenda by viewModel.eventsAgenda.collectAsState()
 
     var monthPicker by remember { mutableStateOf(false) }
-    var overflowMenu by remember { mutableStateOf(false) }
     var blockDialog by remember { mutableStateOf(false) }
     var blockDetails by remember { mutableStateOf<DateBlock?>(null) }
     var chooser by remember { mutableStateOf<List<String>?>(null) }
@@ -141,249 +149,276 @@ fun BookingCalendarScreen(
             return@Scaffold
         }
 
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            // Header: month navigation + year/month picker + overflow (block dates).
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                ExplainableIcon(
-                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    explanationRes = R.string.booking_calendar_prev_month,
-                    onClick = viewModel::previousMonth,
+        // ★ Events view (§4.1): the month grid swaps for the full agenda list — every
+        // booking, grouped by date, anchored at today; the SAME booking-card sheet opens.
+        if (eventsView) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = stringResource(R.string.booking_calendar_events_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f).semantics { heading() },
+                    )
+                    CalendarOverflowMenu(
+                        eventsView = true,
+                        canEdit = canEdit,
+                        onToggleView = { viewModel.setEventsView(false) },
+                        onBlockDates = { blockDialog = true },
+                    )
+                }
+                EventsAgendaList(
+                    agenda = eventsAgenda,
+                    eventTypes = eventTypes,
+                    today = state.today,
+                    onOpenBooking = viewModel::openBooking,
+                    onLoadOlder = viewModel::loadOlderEvents,
+                    onLoadNewer = viewModel::loadNewerEvents,
+                    modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = formatMonthYear(state.month),
-                    style = MaterialTheme.typography.titleLarge,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .clickable { monthPicker = true }
-                            .semantics { heading() },
-                )
-                ExplainableIcon(
-                    icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    explanationRes = R.string.booking_calendar_next_month,
-                    onClick = viewModel::nextMonth,
-                )
-                Box {
+            }
+        } else {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Header: month navigation + year/month picker + overflow (block dates).
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     ExplainableIcon(
-                        icon = Icons.Filled.MoreVert,
-                        explanationRes = R.string.booking_calendar_more_options,
-                        onClick = { overflowMenu = true },
-                    )
-                    DropdownMenu(expanded = overflowMenu, onDismissRequest = { overflowMenu = false }) {
-                        if (canEdit) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.booking_calendar_block_dates)) },
-                                onClick = {
-                                    overflowMenu = false
-                                    blockDialog = true
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ★ Month summary card: "Received ₹X · Pending ₹Y" (§4.1) — received is
-            // green (moneyIn), pending is red (moneyOut), per shared/brand/palette.md.
-            SamarohCard {
-                Text(
-                    text = stringResource(R.string.booking_summary_this_month),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        text =
-                            stringResource(
-                                R.string.booking_summary_received,
-                                AmountFormatter.format(state.receivedPaise),
-                            ),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = SamarohTheme.semanticColors.moneyIn,
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        explanationRes = R.string.booking_calendar_prev_month,
+                        onClick = viewModel::previousMonth,
                     )
                     Text(
-                        text =
-                            stringResource(
-                                R.string.booking_summary_pending,
-                                AmountFormatter.format(state.pendingPaise),
-                            ),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = SamarohTheme.semanticColors.moneyOut,
-                    )
-                }
-            }
-
-            // ★ In-app pending-confirmations card — the reliable reminder path (§4.1).
-            if (state.pendingConfirmations.isNotEmpty()) {
-                SamarohCard {
-                    Text(
-                        text = stringResource(R.string.booking_reminder_pending_card_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                    state.pendingConfirmations.forEach { confirmation ->
-                        val due = confirmation.reminder.amountDueSnapshotPaise
-                        Text(
-                            text =
-                                stringResource(
-                                    R.string.booking_reminder_payment_question,
-                                    confirmation.booking.customerName,
-                                    AmountFormatter.format(due),
-                                    eventTypeLabel(eventTypes, confirmation.booking.eventType),
-                                ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                        Row {
-                            TextButton(onClick = { viewModel.confirmFullPayment(confirmation) }) {
-                                Text(stringResource(R.string.booking_reminder_action_yes_full))
-                            }
-                            TextButton(onClick = {
-                                paymentSheet = Triple(confirmation.booking.id, due, confirmation.reminder.id)
-                            }) {
-                                Text(stringResource(R.string.booking_reminder_action_partial))
-                            }
-                            TextButton(onClick = { viewModel.snoozeReminder(confirmation) }) {
-                                Text(stringResource(R.string.booking_reminder_action_not_yet))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ★ Tentative follow-ups due today (ADR-020): Confirm / Cancel / Snooze.
-            if (state.pendingFollowUps.isNotEmpty()) {
-                SamarohCard {
-                    Text(
-                        text = stringResource(R.string.booking_reminder_follow_up_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                    state.pendingFollowUps.forEach { followUp ->
-                        Text(
-                            text =
-                                stringResource(
-                                    R.string.booking_reminder_follow_up_question,
-                                    followUp.booking.customerName,
-                                    eventTypeLabel(eventTypes, followUp.booking.eventType),
-                                ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                        Row {
-                            TextButton(onClick = { viewModel.confirmTentativeBooking(followUp) }) {
-                                Text(stringResource(R.string.booking_reminder_action_confirm_booking))
-                            }
-                            TextButton(onClick = { viewModel.cancelTentativeBooking(followUp) }) {
-                                Text(stringResource(R.string.booking_card_action_cancel_booking))
-                            }
-                            TextButton(onClick = { viewModel.snoozeFollowUp(followUp) }) {
-                                Text(stringResource(R.string.booking_reminder_action_snooze))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Month grid with swipe navigation; month changes slide in the swipe
-            // direction using the shared motion spec (no motion when reduced).
-            val reducedMotion = rememberReducedMotion()
-            state.grid?.let { grid ->
-                AnimatedContent(
-                    targetState = grid,
-                    contentKey = { it.month },
-                    transitionSpec = {
-                        val forward = targetState.month > initialState.month
-                        SamarohMotion.slideEnter(reducedMotion, towardStart = forward) togetherWith
-                            SamarohMotion.slideExit(reducedMotion, towardStart = forward)
-                    },
-                    label = "month_grid",
-                    modifier =
-                        Modifier.pointerInput(state.month) {
-                            var dragTotal = 0f
-                            detectHorizontalDragGestures(
-                                onDragStart = { dragTotal = 0f },
-                                onDragEnd = {
-                                    if (dragTotal < -120f) {
-                                        viewModel.nextMonth()
-                                    } else if (dragTotal > 120f) {
-                                        viewModel.previousMonth()
-                                    }
-                                },
-                            ) { _, dragAmount -> dragTotal += dragAmount }
-                        },
-                ) { animatedGrid ->
-                    CalendarGrid(
-                        grid = animatedGrid,
-                        locale = currentLocale(),
-                        iconWatermarkAlpha = iconWatermarkAlpha,
-                        onDayTapped = { date ->
-                            when (val result = viewModel.onDayTapped(date)) {
-                                is DayTapResult.ShowBookings ->
-                                    if (result.bookingIds.size == 1) {
-                                        viewModel.openBooking(result.bookingIds.first())
-                                    } else {
-                                        chooser = result.bookingIds
-                                    }
-
-                                is DayTapResult.ShowBlock -> blockDetails = result.block
-                                is DayTapResult.AddBooking -> if (canCreate) onAddBooking(result.date)
-                            }
-                        },
-                    )
-                }
-            }
-
-            // Agenda list of the selected month (§4.1) — cancelled struck through.
-            Text(
-                text = stringResource(R.string.booking_calendar_agenda_title),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.semantics { heading() },
-            )
-            if (state.agenda.isEmpty()) {
-                EmptyStateCompact(
-                    icon = Icons.Filled.EventAvailable,
-                    title = stringResource(R.string.booking_calendar_agenda_empty),
-                    message = stringResource(R.string.booking_calendar_agenda_empty_hint),
-                )
-            } else {
-                state.agenda.forEach { item ->
-                    val booking = item.booking
-                    val cancelled = booking.status == BookingStatus.CANCELLED
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                        text = formatMonthYear(state.month),
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier =
                             Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.openBooking(booking.id) }
-                                .padding(vertical = 8.dp),
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                                .weight(1f)
+                                .clickable { monthPicker = true }
+                                .semantics { heading() },
+                    )
+                    ExplainableIcon(
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        explanationRes = R.string.booking_calendar_next_month,
+                        onClick = viewModel::nextMonth,
+                    )
+                    CalendarOverflowMenu(
+                        eventsView = false,
+                        canEdit = canEdit,
+                        onToggleView = { viewModel.setEventsView(true) },
+                        onBlockDates = { blockDialog = true },
+                    )
+                }
+
+                // ★ Month summary card: "Received ₹X · Pending ₹Y" (§4.1) — received is
+                // green (moneyIn), pending is red (moneyOut), per shared/brand/palette.md.
+                SamarohCard {
+                    Text(
+                        text = stringResource(R.string.booking_summary_this_month),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.booking_summary_received,
+                                    AmountFormatter.format(state.receivedPaise),
+                                ),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = SamarohTheme.semanticColors.moneyIn,
+                        )
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.booking_summary_pending,
+                                    AmountFormatter.format(state.pendingPaise),
+                                ),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = SamarohTheme.semanticColors.moneyOut,
+                        )
+                    }
+                }
+
+                // ★ In-app pending-confirmations card — the reliable reminder path (§4.1).
+                if (state.pendingConfirmations.isNotEmpty()) {
+                    SamarohCard {
+                        Text(
+                            text = stringResource(R.string.booking_reminder_pending_card_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                        state.pendingConfirmations.forEach { confirmation ->
+                            val due = confirmation.reminder.amountDueSnapshotPaise
                             Text(
-                                text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                            )
-                            Text(
-                                text = formatDateRange(booking.startDate, booking.endDate),
+                                text =
+                                    stringResource(
+                                        R.string.booking_reminder_payment_question,
+                                        confirmation.booking.customerName,
+                                        AmountFormatter.format(due),
+                                        eventTypeLabel(eventTypes, confirmation.booking.eventType),
+                                    ),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            Row {
+                                TextButton(onClick = { viewModel.confirmFullPayment(confirmation) }) {
+                                    Text(stringResource(R.string.booking_reminder_action_yes_full))
+                                }
+                                TextButton(onClick = {
+                                    paymentSheet = Triple(confirmation.booking.id, due, confirmation.reminder.id)
+                                }) {
+                                    Text(stringResource(R.string.booking_reminder_action_partial))
+                                }
+                                TextButton(onClick = { viewModel.snoozeReminder(confirmation) }) {
+                                    Text(stringResource(R.string.booking_reminder_action_not_yet))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ★ Tentative follow-ups due today (ADR-020): Confirm / Cancel / Snooze.
+                if (state.pendingFollowUps.isNotEmpty()) {
+                    SamarohCard {
+                        Text(
+                            text = stringResource(R.string.booking_reminder_follow_up_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                        state.pendingFollowUps.forEach { followUp ->
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.booking_reminder_follow_up_question,
+                                        followUp.booking.customerName,
+                                        eventTypeLabel(eventTypes, followUp.booking.eventType),
+                                    ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            Row {
+                                TextButton(onClick = { viewModel.confirmTentativeBooking(followUp) }) {
+                                    Text(stringResource(R.string.booking_reminder_action_confirm_booking))
+                                }
+                                TextButton(onClick = { viewModel.cancelTentativeBooking(followUp) }) {
+                                    Text(stringResource(R.string.booking_card_action_cancel_booking))
+                                }
+                                TextButton(onClick = { viewModel.snoozeFollowUp(followUp) }) {
+                                    Text(stringResource(R.string.booking_reminder_action_snooze))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Month grid with swipe navigation; month changes slide in the swipe
+                // direction using the shared motion spec (no motion when reduced).
+                val reducedMotion = rememberReducedMotion()
+                state.grid?.let { grid ->
+                    AnimatedContent(
+                        targetState = grid,
+                        contentKey = { it.month },
+                        transitionSpec = {
+                            val forward = targetState.month > initialState.month
+                            SamarohMotion.slideEnter(reducedMotion, towardStart = forward) togetherWith
+                                SamarohMotion.slideExit(reducedMotion, towardStart = forward)
+                        },
+                        label = "month_grid",
+                        modifier =
+                            Modifier.pointerInput(state.month) {
+                                var dragTotal = 0f
+                                detectHorizontalDragGestures(
+                                    onDragStart = { dragTotal = 0f },
+                                    onDragEnd = {
+                                        if (dragTotal < -120f) {
+                                            viewModel.nextMonth()
+                                        } else if (dragTotal > 120f) {
+                                            viewModel.previousMonth()
+                                        }
+                                    },
+                                ) { _, dragAmount -> dragTotal += dragAmount }
+                            },
+                    ) { animatedGrid ->
+                        CalendarGrid(
+                            grid = animatedGrid,
+                            locale = currentLocale(),
+                            iconWatermarkAlpha = iconWatermarkAlpha,
+                            onDayTapped = { date ->
+                                when (val result = viewModel.onDayTapped(date)) {
+                                    is DayTapResult.ShowBookings ->
+                                        if (result.bookingIds.size == 1) {
+                                            viewModel.openBooking(result.bookingIds.first())
+                                        } else {
+                                            chooser = result.bookingIds
+                                        }
+
+                                    is DayTapResult.ShowBlock -> blockDetails = result.block
+                                    is DayTapResult.AddBooking -> if (canCreate) onAddBooking(result.date)
+                                }
+                            },
+                        )
+                    }
+                }
+
+                // Agenda list of the selected month (§4.1) — cancelled struck through.
+                Text(
+                    text = stringResource(R.string.booking_calendar_agenda_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.semantics { heading() },
+                )
+                if (state.agenda.isEmpty()) {
+                    EmptyStateCompact(
+                        icon = Icons.Filled.EventAvailable,
+                        title = stringResource(R.string.booking_calendar_agenda_empty),
+                        message = stringResource(R.string.booking_calendar_agenda_empty_hint),
+                    )
+                } else {
+                    state.agenda.forEach { item ->
+                        val booking = item.booking
+                        val cancelled = booking.status == BookingStatus.CANCELLED
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.openBooking(booking.id) }
+                                    .padding(vertical = 8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${booking.displayIcon} ${eventTypeLabel(
+                                        eventTypes,
+                                        booking.eventType,
+                                    )} - ${booking.customerName}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textDecoration = if (cancelled) TextDecoration.LineThrough else null,
+                                )
+                                Text(
+                                    text = formatDateRange(booking.startDate, booking.endDate),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = statusLabel(booking.status),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = statusColor(booking.status),
                             )
                         }
-                        Text(
-                            text = statusLabel(booking.status),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = statusColor(booking.status),
-                        )
                     }
                 }
             }
@@ -481,5 +516,147 @@ fun BookingCalendarScreen(
                 viewModel.recordPayment(bookingId, amountPaise, paidOn, method, notes, reminderId)
             },
         )
+    }
+}
+
+/**
+ * The calendar's three-dots menu, shared by the month and events headers: the
+ * month ⇄ events view toggle (label flips with the current mode) plus Block dates.
+ */
+@Composable
+private fun CalendarOverflowMenu(
+    eventsView: Boolean,
+    canEdit: Boolean,
+    onToggleView: () -> Unit,
+    onBlockDates: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        ExplainableIcon(
+            icon = Icons.Filled.MoreVert,
+            explanationRes = R.string.booking_calendar_more_options,
+            onClick = { expanded = true },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (eventsView) R.string.booking_calendar_month_view else R.string.booking_calendar_events_view,
+                        ),
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onToggleView()
+                },
+            )
+            if (canEdit) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.booking_calendar_block_dates)) },
+                    onClick = {
+                        expanded = false
+                        onBlockDates()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Full agenda list (events view): windowed date groups, anchored at today; nearing
+ * either edge grows the window (past above, future below) instead of loading every
+ * booking eagerly. Tapping a row opens the same booking-card sheet as the month view.
+ */
+@Composable
+private fun EventsAgendaList(
+    agenda: BookingCalendarViewModel.EventsAgendaState,
+    eventTypes: EventTypeCatalog,
+    today: LocalDate,
+    onOpenBooking: (String) -> Unit,
+    onLoadOlder: () -> Unit,
+    onLoadNewer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (agenda.loaded && agenda.days.isEmpty()) {
+        EmptyStateCompact(
+            icon = Icons.Filled.EventAvailable,
+            title = stringResource(R.string.booking_calendar_events_empty),
+            message = stringResource(R.string.booking_calendar_agenda_empty_hint),
+            modifier = modifier,
+        )
+        return
+    }
+
+    val listState = rememberLazyListState()
+    // One-shot initial anchor on today's group (process restore keeps the old position).
+    var anchored by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(agenda.days.isNotEmpty()) {
+        if (!anchored && agenda.days.isNotEmpty()) {
+            val index = EventsAgenda.flatAnchorIndex(agenda.days, today)
+            if (index >= 0) listState.scrollToItem(index)
+            anchored = true
+        }
+    }
+    // Edge triggers: keys keep the viewport stable when older items are PREPENDED.
+    LaunchedEffect(listState, agenda.hasMorePast, agenda.hasMoreFuture) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex to
+                (
+                    listState.layoutInfo.visibleItemsInfo
+                        .lastOrNull()
+                        ?.index ?: 0
+                )
+        }.collect { (first, last) ->
+            if (first <= 1 && agenda.hasMorePast) onLoadOlder()
+            if (agenda.hasMoreFuture && last >= listState.layoutInfo.totalItemsCount - 3) onLoadNewer()
+        }
+    }
+
+    LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
+        agenda.days.forEach { day ->
+            item(key = "d:${day.date}") {
+                Text(
+                    text = formatFullDate(day.date),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp, bottom = 4.dp)
+                            .semantics { heading() },
+                )
+            }
+            items(day.bookings, key = { "b:${it.id}" }) { booking ->
+                val cancelled = booking.status == BookingStatus.CANCELLED
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenBooking(booking.id) }
+                            .padding(vertical = 8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            textDecoration = if (cancelled) TextDecoration.LineThrough else null,
+                        )
+                        Text(
+                            text = formatDateRange(booking.startDate, booking.endDate),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = statusLabel(booking.status),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = statusColor(booking.status),
+                    )
+                }
+            }
+        }
     }
 }

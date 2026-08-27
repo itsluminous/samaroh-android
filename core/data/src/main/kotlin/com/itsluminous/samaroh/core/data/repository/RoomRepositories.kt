@@ -73,6 +73,12 @@ class RoomBookingRepository
             to: LocalDate,
         ): Flow<List<Booking>> = bookingDao.bookingsBetween(businessId, from, to).map { list -> list.map { it.toModel() } }
 
+        override suspend fun bookingDateBounds(businessId: String): ClosedRange<LocalDate>? {
+            val min = bookingDao.minStartDate(businessId) ?: return null
+            val max = bookingDao.maxStartDate(businessId) ?: return null
+            return min..max
+        }
+
         override suspend fun booking(id: String): Booking? = bookingDao.byId(id)?.toModel()
 
         override suspend fun saveBooking(booking: Booking) {

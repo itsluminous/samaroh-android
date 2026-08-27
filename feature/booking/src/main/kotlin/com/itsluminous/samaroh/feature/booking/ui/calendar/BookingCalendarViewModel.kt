@@ -20,6 +20,7 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.domain.PaymentReminderPlanner
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -125,11 +127,22 @@ class BookingCalendarViewModel
         private val invoiceGenerator: InvoiceGenerator,
         private val syncScheduler: SyncScheduler,
         val eventTypesProvider: EventTypeCatalog,
-        calendarPrefs: BookingCalendarPrefs,
+        private val calendarPrefs: BookingCalendarPrefs,
         private val clock: Clock,
     ) : ViewModel() {
         private val month = MutableStateFlow(YearMonth.now(clock))
         private val selectedBookingId = MutableStateFlow<String?>(null)
+
+        /** Loaded date window of the events (full agenda) view — grows on edge scroll. */
+        private val agendaWindow = MutableStateFlow(EventsAgenda.initialWindow(LocalDate.now(clock)))
+
+        /** Month grid ⇄ events list toggle, persisted per device (DataStore). */
+        val eventsView: StateFlow<Boolean> =
+            calendarPrefs.eventsView.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+        fun setEventsView(enabled: Boolean) {
+            viewModelScope.launch { calendarPrefs.setEventsView(enabled) }
+        }
 
         /** Day-cell icon-watermark opacity — user-configurable in Settings. */
         val iconWatermarkAlpha: StateFlow<Float> =
@@ -203,13 +216,70 @@ class BookingCalendarViewModel
                             uiState.map { state -> state.bookings.firstOrNull { it.id == id } },
                             bookingRepository.paymentsForBooking(id),
                         ) { booking, payments ->
-                            booking?.let {
+                            // Events view opens bookings outside the shown month — fall
+                            // back to a direct lookup when the month state lacks the row.
+                            (booking ?: bookingRepository.booking(id))?.let {
                                 val paid = payments.sumOf { p -> p.amountPaise }
                                 BookingDetail(it, payments, paid, DueCalculator.duePaise(it, paid))
                             }
                         }
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+        /** Events (full agenda) view state: date-grouped rows of the loaded window. */
+        data class EventsAgendaState(
+            val loaded: Boolean = false,
+            val days: List<EventsAgenda.Day> = emptyList(),
+            /** True when bookings exist before/after the loaded window (edge scroll loads them). */
+            val hasMorePast: Boolean = false,
+            val hasMoreFuture: Boolean = false,
+        )
+
+        /** Only queried while the events view is active — the month view costs nothing extra. */
+        val eventsAgenda: StateFlow<EventsAgendaState> =
+            eventsView
+                .flatMapLatest { enabled ->
+                    if (!enabled) {
+                        flowOf(EventsAgendaState())
+                    } else {
+                        combine(businessFlow, agendaWindow) { business, window -> business to window }
+                            .flatMapLatest { (business, window) ->
+                                if (business == null) {
+                                    flowOf(EventsAgendaState(loaded = true))
+                                } else {
+                                    bookingRepository
+                                        .bookingsBetween(business.id, window.from, window.to)
+                                        .map { bookings ->
+                                            val bounds = bookingRepository.bookingDateBounds(business.id)
+                                            EventsAgendaState(
+                                                loaded = true,
+                                                days = EventsAgenda.groupByDate(bookings.filter { it.deletedAt == null }),
+                                                hasMorePast = EventsAgenda.hasMorePast(window, bounds),
+                                                hasMoreFuture = EventsAgenda.hasMoreFuture(window, bounds),
+                                            )
+                                        }
+                                }
+                            }
+                    }
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EventsAgendaState())
+
+        /** Grows the events window into the past (scroll-to-top trigger); clamped to real data. */
+        fun loadOlderEvents() {
+            viewModelScope.launch {
+                val businessId = businessFlow.first()?.id ?: return@launch
+                val bounds = bookingRepository.bookingDateBounds(businessId)
+                agendaWindow.update { window -> EventsAgenda.expandPast(window, bounds) ?: window }
+            }
+        }
+
+        /** Grows the events window into the future (scroll-to-bottom trigger). */
+        fun loadNewerEvents() {
+            viewModelScope.launch {
+                val businessId = businessFlow.first()?.id ?: return@launch
+                val bounds = bookingRepository.bookingDateBounds(businessId)
+                agendaWindow.update { window -> EventsAgenda.expandFuture(window, bounds) ?: window }
+            }
+        }
 
         private suspend fun buildState(
             business: Business,

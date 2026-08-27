@@ -304,6 +304,73 @@ class BookingCalendarViewModelTest {
                 cancelAndIgnoreRemainingEvents()
             }
         }
+
+    // ---- events (full agenda) view ----
+
+    @Test
+    fun `events view toggle persists through the calendar prefs`() =
+        runTest {
+            val vm = viewModel()
+            vm.eventsView.test {
+                assertThat(awaitItem()).isFalse()
+
+                vm.setEventsView(true)
+                assertThat(awaitItem()).isTrue()
+                assertThat(calendarPrefs.eventsViewState.value).isTrue()
+
+                vm.setEventsView(false)
+                assertThat(awaitItem()).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `events agenda groups the window by date and flags older bookings`() =
+        runTest {
+            // Inside the initial window (Jun–Dec 2026 around today 2026-08-25)...
+            val todayBooking = Fixtures.booking(id = "b-today", startDate = today)
+            val nextMonth = Fixtures.booking(id = "b-next", startDate = LocalDate.of(2026, 9, 10))
+            // ...and one far in the past, outside it.
+            val old = Fixtures.booking(id = "b-old", startDate = LocalDate.of(2026, 1, 15))
+            repository.bookings.value = listOf(nextMonth, todayBooking, old)
+            calendarPrefs.eventsViewState.value = true
+
+            val vm = viewModel()
+            vm.eventsAgenda.test {
+                val state = awaitItemMatching { it.loaded && it.days.isNotEmpty() }
+                assertThat(state.days.map { it.date }).containsExactly(today, LocalDate.of(2026, 9, 10)).inOrder()
+                assertThat(state.hasMorePast).isTrue()
+                assertThat(state.hasMoreFuture).isFalse()
+
+                // Nearing the top edge loads the older window until the oldest booking is in.
+                vm.loadOlderEvents()
+                val expanded = awaitItemMatching { it.days.size == 3 }
+                assertThat(
+                    expanded.days
+                        .first()
+                        .bookings
+                        .single()
+                        .id,
+                ).isEqualTo("b-old")
+                assertThat(expanded.hasMorePast).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `booking card opens from events view for bookings outside the shown month`() =
+        runTest {
+            val far = Fixtures.booking(id = "b-far", startDate = LocalDate.of(2026, 11, 20))
+            repository.bookings.value = listOf(far)
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-far")
+                assertThat(awaitItemMatching { it != null }?.booking?.id).isEqualTo("b-far")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
 }
 
 /** Awaits until the state stream emits an item satisfying [predicate]. */
