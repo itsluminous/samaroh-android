@@ -38,6 +38,8 @@ data class ThemePrefs(
 data class SyncIndicator(
     val pendingCount: Int = 0,
     val errorCount: Int = 0,
+    /** True while a sync run is executing — the cloud icon animates (§4.5). */
+    val syncing: Boolean = false,
 )
 
 /**
@@ -78,8 +80,8 @@ class MainViewModel
                 }.stateIn(viewModelScope, SharingStarted.Eagerly, ThemePrefs())
 
         val syncIndicator: StateFlow<SyncIndicator> =
-            combine(syncStatus.pendingCount, syncStatus.itemErrors) { pending, errors ->
-                SyncIndicator(pendingCount = pending, errorCount = errors.size)
+            combine(syncStatus.pendingCount, syncStatus.itemErrors, syncStatus.isSyncing) { pending, errors, syncing ->
+                SyncIndicator(pendingCount = pending, errorCount = errors.size, syncing = syncing)
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncIndicator())
 
         /** Marks first-launch onboarding as done (§4.0 step 7) — persists across restarts. */

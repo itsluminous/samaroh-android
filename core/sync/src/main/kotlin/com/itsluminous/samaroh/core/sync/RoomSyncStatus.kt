@@ -27,8 +27,11 @@ class RoomSyncStatus
         private val conflictDao: SyncConflictDao,
         private val syncMetaStore: SyncMetaStore,
         private val syncScheduler: SyncScheduler,
+        syncRunState: SyncRunState,
     ) : SyncStatus {
         override val pendingCount: Flow<Int> = outboxDao.pendingCount()
+
+        override val isSyncing: Flow<Boolean> = syncRunState.isRunning
 
         override val pendingItems: Flow<List<SyncPendingItem>> =
             outboxDao.pendingEntries().map { entries ->

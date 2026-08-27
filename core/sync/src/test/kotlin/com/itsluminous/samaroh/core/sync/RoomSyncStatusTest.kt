@@ -36,18 +36,31 @@ class RoomSyncStatusTest {
     private lateinit var db: SamarohDatabase
     private lateinit var scheduler: RecordingScheduler
     private lateinit var status: RoomSyncStatus
+    private val syncRunState = SyncRunState()
 
     @Before
     fun setUp() {
         db = newTestDatabase()
         scheduler = RecordingScheduler()
-        status = RoomSyncStatus(db.outboxDao(), db.syncConflictDao(), InMemorySyncMetaStore(), scheduler)
+        status = RoomSyncStatus(db.outboxDao(), db.syncConflictDao(), InMemorySyncMetaStore(), scheduler, syncRunState)
     }
 
     @After
     fun tearDown() {
         db.close()
     }
+
+    @Test
+    fun `isSyncing mirrors the worker's run state`() =
+        runTest {
+            assertThat(status.isSyncing.first()).isFalse()
+
+            syncRunState.setRunning(true)
+            assertThat(status.isSyncing.first()).isTrue()
+
+            syncRunState.setRunning(false)
+            assertThat(status.isSyncing.first()).isFalse()
+        }
 
     @Test
     fun `pending count and item errors reflect the outbox`() =

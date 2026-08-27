@@ -50,15 +50,24 @@ class SyncWorker(
     @InstallIn(SingletonComponent::class)
     interface SyncWorkerEntryPoint {
         fun syncEngine(): SyncEngine
+
+        fun syncRunState(): SyncRunState
     }
 
     override suspend fun doWork(): Result {
-        val engine =
+        val entryPoint =
             EntryPointAccessors
                 .fromApplication(applicationContext, SyncWorkerEntryPoint::class.java)
-                .syncEngine()
+        val engine = entryPoint.syncEngine()
+        val runState = entryPoint.syncRunState()
         Log.i(TAG, "sync run started")
-        val outcome = engine.runSync()
+        runState.setRunning(true)
+        val outcome =
+            try {
+                engine.runSync()
+            } finally {
+                runState.setRunning(false)
+            }
         Log.i(
             TAG,
             "sync run finished: configured=${outcome.configured} pushed=${outcome.pushedCount} " +

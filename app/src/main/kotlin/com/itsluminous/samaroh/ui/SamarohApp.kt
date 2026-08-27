@@ -2,6 +2,11 @@ package com.itsluminous.samaroh.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -28,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -225,15 +231,42 @@ private fun SyncCloudIcon(
     val badgeCount = if (indicator.errorCount > 0) indicator.errorCount else indicator.pendingCount
     // Tapping the icon while items are pending/errored opens the Sync-status list (§4.5).
     val onTap: (() -> Unit)? = if (badgeCount > 0) onOpenSyncStatus else null
+    // Active-run feedback (§4.5): the CloudSync icon spins while a run executes; with
+    // reduced motion on, a static badge dot marks the run instead of the rotation.
+    val reducedMotion = rememberReducedMotion()
+    val spinning = indicator.syncing && !reducedMotion
+    val rotation: Float =
+        if (spinning) {
+            val transition = rememberInfiniteTransition(label = "sync_spin")
+            transition
+                .animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1200, easing = LinearEasing)),
+                    label = "sync_spin_angle",
+                ).value
+        } else {
+            0f
+        }
     BadgedBox(
         badge = {
             if (badgeCount > 0) {
                 Badge { Text(badgeCount.toString()) }
+            } else if (indicator.syncing && reducedMotion) {
+                // Reduced-motion fallback: a plain dot instead of the spin.
+                Badge()
             }
         },
         modifier = modifier,
     ) {
         when {
+            indicator.syncing ->
+                ExplainableIcon(
+                    icon = Icons.Filled.CloudSync,
+                    explanationRes = R.string.sync_notification_syncing,
+                    onClick = onTap,
+                    modifier = Modifier.graphicsLayer { rotationZ = rotation },
+                )
             indicator.errorCount > 0 ->
                 ExplainableIcon(
                     icon = Icons.Filled.CloudOff,

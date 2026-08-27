@@ -89,6 +89,12 @@ interface SyncStatus {
     /** In-app conflict banner state: true while unacknowledged conflicts exist. */
     val hasUnacknowledgedConflicts: Flow<Boolean>
 
+    /**
+     * True while a sync run (push+pull) is actively executing — drives the app bar's
+     * animated cloud icon (§4.5). Additive extension of the frozen contract (ADR-029).
+     */
+    val isSyncing: Flow<Boolean>
+
     /** Requests an immediate (expedited) sync — the Settings "Sync now" button. */
     fun syncNow()
 
