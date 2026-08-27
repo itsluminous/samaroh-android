@@ -298,10 +298,18 @@ private fun MasterItemEditorDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(state.duplicates, key = { it.id }) { duplicate ->
+                        items(state.duplicates, key = { it.item.id }) { duplicate ->
                             AssistChip(
-                                onClick = { viewModel.onDuplicateSelected(duplicate) },
-                                label = { Text(duplicate.name) },
+                                onClick = { viewModel.onDuplicateSelected(duplicate.item) },
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            R.string.inventory_masterlist_similar_chip,
+                                            duplicate.item.name,
+                                            duplicate.percent.toString(),
+                                        ),
+                                    )
+                                },
                             )
                         }
                     }

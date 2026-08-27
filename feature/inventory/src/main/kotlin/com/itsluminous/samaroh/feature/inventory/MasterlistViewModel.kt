@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 /** Unit dropdown options (§4.3). [wire] is the stored value; CUSTOM stores free text. */
 enum class UnitOption(
@@ -51,6 +52,13 @@ enum class MasterItemFormError {
     DUPLICATE_NAME,
 }
 
+/** A fuzzy duplicate suggestion: the existing item plus its similarity percentage. */
+data class DuplicateSuggestion(
+    val item: MasterItem,
+    /** Rounded similarity in 0..100, shown on the chip ("name (NN%)"). */
+    val percent: Int,
+)
+
 /** State of the add/edit item dialog. */
 data class MasterItemEditorState(
     /** Null id = creating a new item. */
@@ -60,7 +68,7 @@ data class MasterItemEditorState(
     val customUnit: String = "",
     val imagePath: String? = null,
     /** Fuzzy duplicate suggestions (3+ chars, 40% similarity), best match first. */
-    val duplicates: List<MasterItem> = emptyList(),
+    val duplicates: List<DuplicateSuggestion> = emptyList(),
     val error: MasterItemFormError? = null,
     val saving: Boolean = false,
 )
@@ -127,7 +135,7 @@ class MasterlistViewModel
                         items = items.value.filter { it.id != editingId },
                         nameOf = { it.name },
                         threshold = FuzzyMatcher.DUPLICATE_THRESHOLD,
-                    ).map { it.item }
+                    ).map { DuplicateSuggestion(item = it.item, percent = (it.score * 100).roundToInt()) }
             editorState.update { it?.copy(name = value, duplicates = duplicates, error = null) }
         }
 
@@ -198,6 +206,11 @@ class MasterlistViewModel
                             updatedAt = now,
                         ),
                 )
+                // An explicitly removed photo must not leak on disk (deleted only after a
+                // committed save — cancelling the dialog keeps the file).
+                if (existing?.imagePath != null && snapshot.imagePath == null) {
+                    imageStore.deleteItemImage(existing.id)
+                }
                 editorState.value = null
             }
         }
@@ -215,6 +228,8 @@ class MasterlistViewModel
             if (!request.deletable) return
             viewModelScope.launch {
                 inventoryRepository.deleteMasterItem(request.item.id)
+                // The deleted item's photo must not leak on disk.
+                if (request.item.imagePath != null) imageStore.deleteItemImage(request.item.id)
                 deleteRequestState.value = null
             }
         }

@@ -28,6 +28,9 @@ interface ItemImageStore {
         source: Uri,
         itemId: String,
     ): String?
+
+    /** Deletes the stored photo of [itemId], if any — removal must not leak files on disk. */
+    suspend fun deleteItemImage(itemId: String)
 }
 
 @Singleton
@@ -64,6 +67,12 @@ class LocalItemImageStore
                     file.absolutePath
                 }.getOrNull()
             }
+
+        override suspend fun deleteItemImage(itemId: String) {
+            withContext(Dispatchers.IO) {
+                File(File(context.filesDir, "inventory-images"), "$itemId.webp").delete()
+            }
+        }
 
         private fun webpFormat(): Bitmap.CompressFormat =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

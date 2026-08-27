@@ -47,7 +47,7 @@ class MasterlistViewModelTest {
             viewModel.onNameChange("Ste")
 
             val editor = viewModel.editor.value
-            assertThat(editor?.duplicates?.map { it.name }).contains("Steel Plate")
+            assertThat(editor?.duplicates?.map { it.item.name }).contains("Steel Plate")
         }
 
     @Test
@@ -145,5 +145,57 @@ class MasterlistViewModelTest {
             viewModel.confirmDelete()
             assertThat(inventory.deletedItemIds).containsExactly("item-plate")
             assertThat(viewModel.deleteRequest.value).isNull()
+        }
+
+    @Test
+    fun `duplicate chips carry a similarity percentage`() =
+        runTest {
+            viewModel.items.test { expectMostRecentItem() }
+            viewModel.openEditor()
+            viewModel.onNameChange("Ste")
+
+            // "Ste" is a starts-with match against "Steel Plate": score 0.9 → 90%.
+            val duplicate =
+                viewModel.editor.value
+                    ?.duplicates
+                    ?.first { it.item.name == "Steel Plate" }
+            assertThat(duplicate?.percent).isEqualTo(90)
+        }
+
+    @Test
+    fun `removing the photo deletes the stored file after a committed save`() =
+        runTest {
+            val withPhoto = plate.copy(imagePath = "fake-images/item-plate.webp")
+            inventory.masterItemsFlow.value = listOf(withPhoto)
+            viewModel.items.test { expectMostRecentItem() }
+            viewModel.openEditor(withPhoto)
+            viewModel.onImageRemoved()
+            viewModel.saveItem()
+
+            assertThat(imageStore.deletedItemIds).containsExactly("item-plate")
+            assertThat(inventory.savedItems.single().imagePath).isNull()
+        }
+
+    @Test
+    fun `cancelling after removing the photo keeps the stored file`() =
+        runTest {
+            val withPhoto = plate.copy(imagePath = "fake-images/item-plate.webp")
+            inventory.masterItemsFlow.value = listOf(withPhoto)
+            viewModel.openEditor(withPhoto)
+            viewModel.onImageRemoved()
+            viewModel.dismissEditor()
+
+            assertThat(imageStore.deletedItemIds).isEmpty()
+        }
+
+    @Test
+    fun `deleting an item with a photo deletes the stored file`() =
+        runTest {
+            val withPhoto = plate.copy(imagePath = "fake-images/item-plate.webp")
+            inventory.canDeleteByItem["item-plate"] = true
+            viewModel.requestDelete(withPhoto)
+            viewModel.confirmDelete()
+
+            assertThat(imageStore.deletedItemIds).containsExactly("item-plate")
         }
 }
