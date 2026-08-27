@@ -64,7 +64,7 @@ import com.itsluminous.samaroh.feature.inventory.MasterItemEditorState
 import com.itsluminous.samaroh.feature.inventory.MasterItemFormError
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
 import com.itsluminous.samaroh.feature.inventory.UnitOption
-import java.io.File
+import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 
 /**
  * Masterlist screen (§4.3): master-item CRUD with photo (square-cropped, ≤320px WebP),
@@ -181,9 +181,10 @@ private fun MasterItemRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (item.imagePath != null) {
+            val imageModel = rememberItemImageModel(item.imagePath)
+            if (imageModel != null) {
                 AsyncImage(
-                    model = File(item.imagePath ?: ""),
+                    model = imageModel,
                     contentDescription = item.name,
                     modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
                 )
@@ -257,9 +258,10 @@ private fun MasterItemEditorDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (state.imagePath != null) {
+                    val editorImageModel = rememberItemImageModel(state.imagePath)
+                    if (editorImageModel != null) {
                         AsyncImage(
-                            model = File(state.imagePath ?: ""),
+                            model = editorImageModel,
                             contentDescription = stringResource(R.string.inventory_image_expanded),
                             modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)),
                         )

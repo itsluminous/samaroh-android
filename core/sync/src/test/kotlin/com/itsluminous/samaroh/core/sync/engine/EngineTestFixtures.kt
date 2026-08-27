@@ -135,12 +135,31 @@ class FakeAttachmentUploader(
     }
 }
 
+class FakeItemImageMirror(
+    private val result: (itemId: String) -> ItemImageMirror.Result = { itemId ->
+        ItemImageMirror.Result.Uploaded("mirrored/$itemId/1.webp")
+    },
+) : ItemImageMirror {
+    /** Each call as (businessId, itemId, localPath). */
+    val calls = mutableListOf<Triple<String, String, String>>()
+
+    override suspend fun mirror(
+        businessId: String,
+        itemId: String,
+        localPath: String,
+    ): ItemImageMirror.Result {
+        calls += Triple(businessId, itemId, localPath)
+        return result(itemId)
+    }
+}
+
 fun syncEngine(
     db: SamarohDatabase,
     remote: RemoteStore?,
     notifier: RecordingConflictNotifier = RecordingConflictNotifier(),
     metaStore: SyncMetaStore = InMemorySyncMetaStore(),
     uploader: AttachmentUploader? = null,
+    imageMirror: ItemImageMirror = FakeItemImageMirror(),
     clock: Clock = FIXED_CLOCK,
 ): SyncEngine =
     SyncEngine(
@@ -166,6 +185,7 @@ fun syncEngine(
             ),
         remoteStoreProvider = RemoteStoreProvider { remote },
         attachmentUploader = Optional.ofNullable(uploader),
+        itemImageMirror = imageMirror,
         conflictNotifier = notifier,
         syncMetaStore = metaStore,
         clock = clock,

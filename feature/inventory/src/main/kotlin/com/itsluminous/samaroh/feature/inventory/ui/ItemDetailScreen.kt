@@ -62,8 +62,8 @@ import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.feature.inventory.ItemDetailViewModel
 import com.itsluminous.samaroh.feature.inventory.SavedTransaction
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
-import java.io.File
 import kotlin.math.roundToLong
 
 /**
@@ -196,7 +196,7 @@ fun ItemDetailScreen(
     expandedImagePath?.let { path ->
         Dialog(onDismissRequest = { expandedImagePath = null }) {
             AsyncImage(
-                model = File(path),
+                model = rememberItemImageModel(path),
                 contentDescription = stringResource(R.string.inventory_image_expanded),
                 modifier =
                     Modifier
@@ -238,9 +238,10 @@ private fun ItemDetailHeader(
     Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (imagePath != null) {
+                val imageModel = rememberItemImageModel(imagePath)
+                if (imageModel != null && imagePath != null) {
                     AsyncImage(
-                        model = File(imagePath),
+                        model = imageModel,
                         contentDescription = name,
                         modifier =
                             Modifier

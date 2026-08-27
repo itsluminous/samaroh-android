@@ -56,8 +56,8 @@ import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
-import java.io.File
 
 /**
  * Current Inventory screen (§4.3): searchable per-item stock list (in-stock items only)
@@ -165,7 +165,7 @@ fun CurrentInventoryScreen(
     expandedImagePath?.let { path ->
         Dialog(onDismissRequest = { expandedImagePath = null }) {
             AsyncImage(
-                model = File(path),
+                model = rememberItemImageModel(path),
                 contentDescription = stringResource(R.string.inventory_image_expanded),
                 modifier =
                     Modifier
@@ -191,9 +191,10 @@ private fun CurrentInventoryRowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (line.imagePath != null) {
+            val imageModel = rememberItemImageModel(line.imagePath)
+            if (imageModel != null) {
                 AsyncImage(
-                    model = File(line.imagePath),
+                    model = imageModel,
                     contentDescription = line.name,
                     modifier =
                         Modifier

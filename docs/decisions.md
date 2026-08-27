@@ -482,3 +482,40 @@ Additive changes to frozen contracts:
    `created_at` (business_settings, google_accounts) render as Update. Verb/noun words
    are catalog keys composed via `settings.sync.op_phrase` ("{verb} {noun}" en,
    "{noun} {verb}" hi — Hindi uses gender-neutral infinitives: "बुकिंग जोड़ना").
+
+## ADR-023 — Item photos: dual-form `image_path` + Storage mirroring on sync (2026-08-27, web/Android parity)
+
+**Problem.** Imported and web-added `master_items` carry `image_path` = Supabase Storage
+object paths in the private `inventory-images` bucket (`{business_id}/{item_id}/{file}`);
+web renders them via signed URLs. Android treated EVERY `image_path` as a local file
+(`AsyncImage(model = File(path))`), so remote-only photos never rendered. Conversely,
+Android-added photos stored only a device-local absolute path — pushed as-is, they were
+meaningless to the web (the Wave-1 "photos stored locally, mirroring deferred" gap).
+
+**Decision.**
+1. `image_path` officially carries TWO forms, classified by prefix
+   (`core:data/image/ItemImageSource.kt`): absolute local paths (`/…`, `file:`,
+   `content:`) = a photo on this device not mirrored yet; anything else = a Storage
+   object path.
+2. **Display** (new `ItemImageResolver` interface in `core:data`, bound in `core:auth` to
+   `StorageItemImageResolver`): local paths load as files; storage paths load via the
+   bucket's stable AUTHENTICATED object URL (`…/object/authenticated/…`) with the current
+   access token as a header. Authenticated URLs — not signed URLs — because a signed
+   URL's token changes on every creation and would defeat Coil's cache keys (and creating
+   one is itself a network call, so offline could not even build the request). Coil
+   requests pin `memoryCacheKey`/`diskCacheKey` to the raw object path, and the app-wide
+   `ImageLoader` sets `respectCacheHeaders(false)`, so once fetched a photo renders
+   offline indefinitely, even signed out.
+3. **Mirroring** (`ItemImageMirror` in `core:sync`, mirroring the attachment queue
+   contract): before a `master_items` upsert pushes, a local `image_path` is uploaded to
+   `inventory-images` at `{business_id}/{item_id}/{millis}.webp` and the payload is
+   patched to the object path in the outbox AND Room. Timestamped names mean a replaced
+   photo gets a NEW path — no stale caches on any platform. Transient upload failures
+   keep the op queued (pending state); a vanished local file pushes `image_path = null`
+   rather than blocking the entity forever. A device-local path can no longer reach the
+   server.
+
+**Contract note.** `core:data` gains the additive `image/ItemImageSource.kt` (constant,
+prefix classifier, `ItemImageResolver` interface). No frozen repository interface, Room
+schema or wire format changed. Known small leak: replacing/removing a photo orphans the
+previous ~15 KB Storage object; acceptable for now.

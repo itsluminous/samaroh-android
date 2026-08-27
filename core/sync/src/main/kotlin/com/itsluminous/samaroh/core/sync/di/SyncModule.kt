@@ -11,6 +11,8 @@ import com.itsluminous.samaroh.core.sync.RoomOutboxWriter
 import com.itsluminous.samaroh.core.sync.RoomSyncStatus
 import com.itsluminous.samaroh.core.sync.SyncMetaStore
 import com.itsluminous.samaroh.core.sync.WorkManagerSyncScheduler
+import com.itsluminous.samaroh.core.sync.engine.ItemImageMirror
+import com.itsluminous.samaroh.core.sync.engine.StorageItemImageMirror
 import com.itsluminous.samaroh.core.sync.remote.PostgrestRemoteStore
 import com.itsluminous.samaroh.core.sync.remote.RemoteStore
 import com.itsluminous.samaroh.core.sync.remote.RemoteStoreProvider
@@ -39,6 +41,9 @@ abstract class SyncModule {
 
     /** Bound by `core:google` (W1-F); while absent, attachment ops stay queued with a pending state. */
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
+
+    /** Mirrors local item photos to Supabase Storage before their row op pushes (ADR-023). */
+    @Binds abstract fun bindItemImageMirror(impl: StorageItemImageMirror): ItemImageMirror
 
     companion object {
         /**

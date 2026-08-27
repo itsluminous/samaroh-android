@@ -8,8 +8,10 @@ import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.auth.SessionActiveBusinessProvider
 import com.itsluminous.samaroh.core.auth.SessionCurrentUserProvider
 import com.itsluminous.samaroh.core.auth.SessionHolder
+import com.itsluminous.samaroh.core.auth.StorageItemImageResolver
 import com.itsluminous.samaroh.core.auth.SupabaseAuthManager
 import com.itsluminous.samaroh.core.auth.SupabaseMembershipRefresher
+import com.itsluminous.samaroh.core.data.image.ItemImageResolver
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import dagger.Binds
@@ -21,6 +23,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
 import javax.inject.Singleton
 
 @Module
@@ -38,6 +41,9 @@ abstract class AuthModule {
     @Binds abstract fun bindActiveBusinessProvider(impl: SessionActiveBusinessProvider): ActiveBusinessProvider
 
     @Binds abstract fun bindCurrentUserProvider(impl: SessionCurrentUserProvider): CurrentUserProvider
+
+    /** Item photo display resolution (ADR-023) — rides on the shared authed client. */
+    @Binds abstract fun bindItemImageResolver(impl: StorageItemImageResolver): ItemImageResolver
 
     companion object {
         @Provides
@@ -58,6 +64,8 @@ abstract class AuthModule {
             ) {
                 install(Auth)
                 install(Postgrest)
+                // Storage serves item photos (private `inventory-images` bucket, ADR-023).
+                install(Storage)
             }
         }
     }
