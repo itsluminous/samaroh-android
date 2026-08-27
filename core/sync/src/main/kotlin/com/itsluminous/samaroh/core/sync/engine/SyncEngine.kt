@@ -197,23 +197,42 @@ class SyncEngine
 
         // ---------------------------------------------------------------- pull
 
+        /**
+         * Loop-until-stable pull (bounded): each pass pulls the global tables (cursor-
+         * incremental, so repeats are cheap) then the business-scoped tables for every
+         * business not yet covered THIS run. Businesses can land in Room mid-pass — the
+         * global `businesses` pull itself, or `MembershipRefresher` writing DAOs directly
+         * during sign-in — so a single enumeration would skip their bookings/payments/etc.
+         * until the NEXT run (the "calendar empty right after login" bug). Re-enumerating
+         * after each pass guarantees one sync run fetches everything, capped at
+         * [MAX_PULL_PASSES] so a pathological stream of new businesses cannot spin forever.
+         */
         private suspend fun pull(remote: RemoteStore): Pair<Int, Int> {
             var applied = 0
             var conflicts = 0
             val (globalTables, scopedTables) = SyncTables.ALL.partition { !it.businessScoped }
-            // Global tables first so a freshly discovered business is included in this run.
-            for (spec in globalTables) {
-                val result = pullTable(remote, spec, SyncCursorEntity.GLOBAL_SCOPE)
-                applied += result.first
-                conflicts += result.second
-            }
-            val businessIds = businessDao.allBusinesses().first().map { it.id }
-            for (spec in scopedTables) {
-                for (businessId in businessIds) {
-                    val result = pullTable(remote, spec, businessId)
+            val coveredBusinessIds = mutableSetOf<String>()
+            for (pass in 1..MAX_PULL_PASSES) {
+                for (spec in globalTables) {
+                    val result = pullTable(remote, spec, SyncCursorEntity.GLOBAL_SCOPE)
                     applied += result.first
                     conflicts += result.second
                 }
+                val newBusinessIds =
+                    businessDao
+                        .allBusinesses()
+                        .first()
+                        .map { it.id }
+                        .filter { it !in coveredBusinessIds }
+                if (newBusinessIds.isEmpty()) break
+                for (spec in scopedTables) {
+                    for (businessId in newBusinessIds) {
+                        val result = pullTable(remote, spec, businessId)
+                        applied += result.first
+                        conflicts += result.second
+                    }
+                }
+                coveredBusinessIds += newBusinessIds
             }
             return applied to conflicts
         }
@@ -358,6 +377,9 @@ class SyncEngine
         companion object {
             private const val PUSH_BATCH_SIZE = 50
             private const val PULL_PAGE_SIZE = 200
+
+            /** Re-enumeration bound: pass 1 covers known businesses, later passes catch mid-run arrivals. */
+            private const val MAX_PULL_PASSES = 3
             private const val ATTACHMENTS_TABLE = "expense_attachments"
 
             /** Machine-readable error code; the Settings sync-status UI maps it to a localized string. */

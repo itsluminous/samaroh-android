@@ -356,6 +356,115 @@ class SyncEnginePullTest {
                 .isEqualTo(Instant.parse("2026-08-25T10:00:00Z"))
         }
 
+    // ---- one-run coverage: businesses discovered mid-run (§8 "calendar empty after sign-in" bug) ----
+
+    @Test
+    fun `fresh sign-in - a business pulled this run gets its bookings in the SAME run`() =
+        runTest {
+            // No local business at all (fresh install, first authenticated sync): the
+            // business arrives via the global `businesses` pull, and its bookings must
+            // land in Room within this single runSync() — no second run, no app restart.
+            remote.servePage("businesses", listOf(remoteBusinessRow("biz-new", updatedAt = "2026-08-25T10:00:00+00:00")))
+            remote.servePage(
+                "bookings",
+                listOf(remoteBookingRow("b-fresh", updatedAt = "2026-08-25T10:30:00+00:00", businessId = "biz-new")),
+            )
+
+            val outcome = syncEngine(db, remote, notifier).runSync()
+
+            assertThat(db.bookingDao().byId("b-fresh")).isNotNull()
+            assertThat(outcome.pulledCount).isEqualTo(2)
+            assertThat(remote.pullCalls.single { it.first == "bookings" }.second).isEqualTo("biz-new")
+        }
+
+    @Test
+    fun `business landing in room MID-RUN still gets its per-business tables pulled this run`() =
+        runTest {
+            // Reproduces the empty-first-pass bug: a single up-front enumeration would
+            // fix the business list BEFORE `MembershipRefresher` (sign-in path) upserts
+            // a business into Room concurrently — its bookings would only arrive on the
+            // NEXT run. The bounded re-enumeration loop must catch it in THIS run.
+            seedBusiness()
+            var inserted = false
+            remote.onPull = { table, _ ->
+                if (table == "bookings" && !inserted) {
+                    inserted = true
+                    db.businessDao().upsert(
+                        com.itsluminous.samaroh.core.database.entity
+                            .BusinessEntity(
+                                id = "biz-late",
+                                name = "late-arrival",
+                                ownerName = "owner",
+                                ownerUserId = Fixtures.USER_ID,
+                                createdAt = Fixtures.NOW,
+                                updatedAt = Fixtures.NOW,
+                            ),
+                    )
+                }
+            }
+            // Page 1: the seeded business's (empty) bookings pull — the hook fires here.
+            remote.servePage("bookings", emptyList())
+            // Page 2: the late business's bookings, only reachable via re-enumeration.
+            remote.servePage(
+                "bookings",
+                listOf(remoteBookingRow("b-late", updatedAt = "2026-08-25T11:00:00+00:00", businessId = "biz-late")),
+            )
+
+            syncEngine(db, remote, notifier).runSync()
+
+            assertThat(db.bookingDao().byId("b-late")).isNotNull()
+            assertThat(remote.pullCalls.filter { it.first == "bookings" }.map { it.second })
+                .containsExactly(Fixtures.BUSINESS_ID, "biz-late")
+                .inOrder()
+        }
+
+    @Test
+    fun `re-enumeration is bounded - an endless stream of new businesses cannot spin the pull forever`() =
+        runTest {
+            var counter = 0
+            remote.onPull = { table, _ ->
+                if (table == "businesses") {
+                    counter++
+                    db.businessDao().upsert(
+                        com.itsluminous.samaroh.core.database.entity
+                            .BusinessEntity(
+                                id = "biz-$counter",
+                                name = "spawn-$counter",
+                                ownerName = "owner",
+                                ownerUserId = Fixtures.USER_ID,
+                                createdAt = Fixtures.NOW,
+                                updatedAt = Fixtures.NOW,
+                            ),
+                    )
+                }
+            }
+
+            syncEngine(db, remote, notifier).runSync()
+
+            // One global `businesses` pull per pass — the run stops at the pass cap.
+            assertThat(remote.pullCalls.count { it.first == "businesses" }).isEqualTo(3)
+        }
+
+    private fun remoteBusinessRow(
+        id: String,
+        updatedAt: String,
+    ): JsonObject =
+        buildJsonObject {
+            put("id", id)
+            put("name", "remote-business")
+            put("business_type", "Marriage Hall")
+            put("address", JsonNull)
+            put("owner_name", "remote-owner")
+            put("logo_path", JsonNull)
+            put("currency", "INR")
+            put("invoice_prefix", "INV")
+            put("invoice_counter", 0)
+            put("owner_user_id", Fixtures.USER_ID)
+            put("created_at", "2026-08-01T09:00:00+00:00")
+            put("updated_at", updatedAt)
+            put("deleted_at", JsonNull)
+        }
+
     private fun remoteBookingRow(
         id: String,
         updatedAt: String,
@@ -363,10 +472,11 @@ class SyncEnginePullTest {
         totalRupees: String = "2000.00",
         deletedAt: String? = null,
         notes: String? = null,
+        businessId: String = Fixtures.BUSINESS_ID,
     ): JsonObject =
         buildJsonObject {
             put("id", id)
-            put("business_id", Fixtures.BUSINESS_ID)
+            put("business_id", businessId)
             put("event_type", "wedding")
             put("event_icon", "\uD83D\uDC92")
             put("customer_name", customerName)

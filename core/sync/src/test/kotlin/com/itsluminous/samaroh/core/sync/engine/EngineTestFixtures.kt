@@ -49,6 +49,13 @@ class FakeRemoteStore : RemoteStore {
     /** Programmable failure hook for tombstone updates. */
     var onTombstone: ((table: String, id: String) -> Exception?)? = null
 
+    /**
+     * Side-effect hook invoked on every pull — lets tests simulate concurrent local
+     * writes mid-run (e.g. `MembershipRefresher` upserting a business into Room while
+     * the engine's pull pass is in flight).
+     */
+    var onPull: (suspend (table: String, businessId: String?) -> Unit)? = null
+
     fun servePage(
         table: String,
         rows: List<JsonObject>,
@@ -85,6 +92,7 @@ class FakeRemoteStore : RemoteStore {
     ): List<JsonObject> {
         pullCalls += Triple(table, businessId, after)
         pullCursorColumns[table] = cursorColumn
+        onPull?.invoke(table, businessId)
         return pullPages[table]?.removeFirstOrNull() ?: emptyList()
     }
 }
