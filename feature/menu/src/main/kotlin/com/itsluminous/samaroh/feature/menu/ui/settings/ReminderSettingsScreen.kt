@@ -7,7 +7,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.data.ReminderStyle
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
@@ -65,14 +66,13 @@ fun ReminderSettingsScreen(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(16.dp),
         )
-        Row(modifier = Modifier.padding(horizontal = 16.dp)) {
+        ChipRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
             val presetAndSelected = (PRESET_LEAD_DAYS + current.reminderLeadDays).distinct().sorted()
             for (day in presetAndSelected) {
                 FilterChip(
                     selected = day in current.reminderLeadDays,
                     onClick = { viewModel.toggleLeadDay(day) },
                     label = { Text(pluralStringResource(R.plurals.settings_reminders_lead_option, day, day)) },
-                    modifier = Modifier.padding(end = 8.dp),
                 )
             }
             FilterChip(

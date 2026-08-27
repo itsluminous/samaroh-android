@@ -1,6 +1,5 @@
 package com.itsluminous.samaroh.core.auth.permissions
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -15,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.MemberPermissions
 
@@ -38,10 +38,7 @@ fun PermissionMatrixEditor(
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        ChipRow(modifier = Modifier.padding(top = 4.dp)) {
             PermissionPreset.entries.forEach { preset ->
                 FilterChip(
                     selected = preset == matchingPreset,

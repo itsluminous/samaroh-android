@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.reports.ui.detail
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.i18n.R
@@ -148,8 +150,8 @@ private fun RangeFilterRow(
     onCustomClick: () -> Unit,
 ) {
     val locale = currentLocale()
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column {
+        ChipRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
             FilterChip(
                 selected = state.preset == RangePreset.THIS_MONTH,
                 onClick = { onPreset(RangePreset.THIS_MONTH) },
@@ -180,7 +182,7 @@ private fun RangeFilterRow(
                 ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 4.dp, start = 16.dp, end = 16.dp),
         )
     }
 }

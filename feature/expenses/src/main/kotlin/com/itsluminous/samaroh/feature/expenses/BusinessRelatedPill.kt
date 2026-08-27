@@ -1,8 +1,6 @@
 package com.itsluminous.samaroh.feature.expenses
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -13,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.i18n.R
 
 /**
@@ -31,7 +30,7 @@ fun BusinessRelatedPill(
             text = stringResource(R.string.expenses_add_person_business_question, businessName),
             style = MaterialTheme.typography.bodyLarge,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+        ChipRow(modifier = Modifier.padding(top = 4.dp)) {
             FilterChip(
                 selected = businessRelated,
                 onClick = { onBusinessRelatedChange(true) },

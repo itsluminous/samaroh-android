@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.google.backup.BackupFrequency
 import com.itsluminous.samaroh.core.i18n.R
@@ -91,7 +93,7 @@ fun SettingsScreen(
 
         // Theme: System / Light / Dark + dynamic color (§4.4).
         SettingsSectionHeader(R.string.settings_theme_title)
-        Row(modifier = Modifier.padding(horizontal = 16.dp)) {
+        ChipRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
             ThemeChip(R.string.settings_theme_system, state.device?.themeMode == ThemeMode.SYSTEM) {
                 viewModel.setThemeMode(ThemeMode.SYSTEM)
             }
@@ -223,7 +225,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            Row(modifier = Modifier.padding(horizontal = 16.dp)) {
+            ChipRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
                 BackupFrequencyChip(R.string.settings_backup_freq_daily, state.backupFrequency == BackupFrequency.DAILY) {
                     viewModel.setBackupFrequency(BackupFrequency.DAILY)
                 }
@@ -383,7 +385,6 @@ private fun ThemeChip(
         selected = selected,
         onClick = onClick,
         label = { Text(stringResource(labelRes)) },
-        modifier = Modifier.padding(end = 8.dp),
     )
 }
 
@@ -397,7 +398,6 @@ private fun BackupFrequencyChip(
         selected = selected,
         onClick = onClick,
         label = { Text(stringResource(labelRes)) },
-        modifier = Modifier.padding(end = 8.dp),
     )
 }
 

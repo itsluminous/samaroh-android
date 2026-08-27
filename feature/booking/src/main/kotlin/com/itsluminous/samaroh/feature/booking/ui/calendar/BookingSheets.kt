@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
@@ -349,8 +348,8 @@ internal fun RecordPaymentSheet(
                 )
                 DateField(labelRes = R.string.booking_payment_date, date = date, onDateChange = { date = it })
                 Text(text = stringResource(R.string.booking_payment_method), style = MaterialTheme.typography.labelLarge)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(PaymentMethod.entries) { candidate ->
+                ChipRow {
+                    PaymentMethod.entries.forEach { candidate ->
                         FilterChip(
                             selected = method == candidate,
                             onClick = { method = candidate },

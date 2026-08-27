@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingSource
@@ -201,7 +200,7 @@ fun BookingFormScreen(
 
                 // Status: Confirmed (default) / Tentative ★.
                 Text(text = stringResource(R.string.booking_form_status), style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChipRow {
                     FilterChip(
                         selected = state.status == BookingStatus.CONFIRMED,
                         onClick = { viewModel.setStatus(BookingStatus.CONFIRMED) },
@@ -220,7 +219,7 @@ fun BookingFormScreen(
                         text = stringResource(R.string.booking_form_follow_up_label),
                         style = MaterialTheme.typography.labelLarge,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChipRow {
                         TentativeFollowUpPlanner.PRESET_DAYS.forEach { days ->
                             FilterChip(
                                 selected = !state.followUpCustom && state.followUpDays == days,
@@ -348,8 +347,8 @@ fun BookingFormScreen(
                 // ★ Source chips (§4.1) — hideable via Settings → Booking form fields.
                 if (state.fieldVisibility.showSource) {
                     Text(text = stringResource(R.string.booking_form_source), style = MaterialTheme.typography.labelLarge)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(BookingSource.entries) { source ->
+                    ChipRow {
+                        BookingSource.entries.forEach { source ->
                             FilterChip(
                                 selected = state.source == source,
                                 onClick = { viewModel.setSource(if (state.source == source) null else source) },
