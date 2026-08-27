@@ -94,4 +94,47 @@ class CurrentInventoryViewModelTest {
                 assertThat(state.noSearchResults).isFalse()
             }
         }
+
+    @Test
+    fun `zero-quantity items are hidden from the stock list`() =
+        runTest {
+            inventory.linesFlow.value =
+                listOf(
+                    line("item-plate", "Steel Plate", quantity = 7.0),
+                    line("item-chair", "Plastic Chair", quantity = 0.0),
+                    line("item-spoon", "Spoon", quantity = -0.0),
+                )
+            viewModel.uiState.test {
+                val state = expectMostRecentItem()
+                assertThat(state.lines.map { it.name }).containsExactly("Steel Plate")
+                assertThat(state.allZero).isFalse()
+            }
+        }
+
+    @Test
+    fun `all items at zero sets the allZero flag instead of the no-items empty state`() =
+        runTest {
+            inventory.linesFlow.value =
+                listOf(
+                    line("item-plate", "Steel Plate", quantity = 0.0),
+                    line("item-chair", "Plastic Chair", quantity = 0.0),
+                )
+            viewModel.uiState.test {
+                val state = expectMostRecentItem()
+                assertThat(state.lines).isEmpty()
+                assertThat(state.allZero).isTrue()
+                assertThat(state.noSearchResults).isFalse()
+            }
+        }
+
+    @Test
+    fun `no items at all leaves allZero false`() =
+        runTest {
+            inventory.linesFlow.value = emptyList()
+            viewModel.uiState.test {
+                val state = expectMostRecentItem()
+                assertThat(state.lines).isEmpty()
+                assertThat(state.allZero).isFalse()
+            }
+        }
 }
