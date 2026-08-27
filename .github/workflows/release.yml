@@ -45,7 +45,7 @@ jobs:
       contents: write
     env:
       # True only when all four signing secrets are configured; forks fall back
-      # to an unsigned release APK instead of failing.
+      # to a debug-keystore-signed release APK instead of failing.
       HAS_SIGNING_SECRETS: >-
         ${{
           secrets.KEYSTORE_B64 != '' &&
@@ -89,6 +89,17 @@ jobs:
         if: env.HAS_SIGNING_SECRETS == 'true'
         run: printf '%s' "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/keystore.jks"
 
+      # Without signing secrets an unsigned release APK would be produced, which
+      # Android refuses to install. Fall back to a standard debug keystore so the
+      # published artifact is at least installable (clearly named *-debugsigned).
+      - name: Generate debug keystore fallback
+        if: env.HAS_SIGNING_SECRETS != 'true'
+        run: |
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/debug.keystore" \
+            -storepass android -keypass android -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       # versionName derives from the tag (v0.1.0 -> 0.1.0); versionCode from run number.
       - name: Assemble release APK
         env:
@@ -98,12 +109,18 @@ jobs:
         run: |
           if [ "$HAS_SIGNING_SECRETS" = "true" ]; then
             export SIGNING_KEYSTORE_FILE="$RUNNER_TEMP/keystore.jks"
+          else
+            # Debug-keystore fallback: overrides the (empty) release secrets so the
+            # Gradle signing config activates and the APK is installable.
+            export SIGNING_KEYSTORE_FILE="$RUNNER_TEMP/debug.keystore"
+            export SIGNING_KEYSTORE_PASSWORD=android
+            export SIGNING_KEY_ALIAS=androiddebugkey
+            export SIGNING_KEY_PASSWORD=android
           fi
           VERSION_NAME="${GITHUB_REF_NAME#v}"
           ./gradlew assembleRelease -PappVersionName="$VERSION_NAME" -PappVersionCode="$GITHUB_RUN_NUMBER"
 
       - name: Verify APK signature
-        if: env.HAS_SIGNING_SECRETS == 'true'
         run: |
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
           for apk in app/build/outputs/apk/release/*.apk; do
@@ -114,7 +131,11 @@ jobs:
       - name: Rename artifact with version
         run: |
           VERSION_NAME="${GITHUB_REF_NAME#v}"
-          mv app/build/outputs/apk/release/Samaroh.apk "app/build/outputs/apk/release/Samaroh-$VERSION_NAME.apk"
+          SUFFIX=""
+          if [ "$HAS_SIGNING_SECRETS" != "true" ]; then
+            SUFFIX="-debugsigned"
+          fi
+          mv app/build/outputs/apk/release/Samaroh.apk "app/build/outputs/apk/release/Samaroh-$VERSION_NAME$SUFFIX.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
