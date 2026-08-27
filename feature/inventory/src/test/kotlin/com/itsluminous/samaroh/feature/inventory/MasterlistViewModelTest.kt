@@ -28,7 +28,7 @@ class MasterlistViewModelTest {
         inventory = FakeInventoryRepository()
         inventory.masterItemsFlow.value = listOf(plate)
         imageStore = FakeItemImageStore()
-        viewModel = MasterlistViewModel(FakeActiveBusinessProvider(), inventory, inventory, imageStore, clock)
+        viewModel = MasterlistViewModel(FakeActiveBusinessProvider(), ownerModeInventorySession(), inventory, inventory, imageStore, clock)
     }
 
     @Test

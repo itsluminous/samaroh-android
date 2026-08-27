@@ -117,3 +117,28 @@ class FakeItemImageStore : ItemImageStore {
         deletedItemIds += itemId
     }
 }
+
+/** Fixed signed-in user id (null = signed out → owner-mode default). */
+class FakeCurrentUserProvider(
+    userId: String? = null,
+) : com.itsluminous.samaroh.core.data.session.CurrentUserProvider {
+    override val currentUserId: Flow<String?> = MutableStateFlow(userId)
+}
+
+/** Scriptable permission guard for [InventorySession] gating tests. */
+class FakePermissionGuard(
+    val permissionsFlow: MutableStateFlow<com.itsluminous.samaroh.core.model.MemberPermissions> =
+        MutableStateFlow(
+            com.itsluminous.samaroh.core.model
+                .MemberPermissions(),
+        ),
+    val ownerFlow: MutableStateFlow<Boolean> = MutableStateFlow(false),
+) : com.itsluminous.samaroh.core.auth.PermissionGuard {
+    override fun permissions(businessId: String): Flow<com.itsluminous.samaroh.core.model.MemberPermissions> = permissionsFlow
+
+    override fun isOwner(businessId: String): Flow<Boolean> = ownerFlow
+}
+
+/** Owner-mode (signed-out) session — the historical default of every existing test. */
+fun ownerModeInventorySession(businessProvider: FakeActiveBusinessProvider = FakeActiveBusinessProvider()): InventorySession =
+    InventorySession(businessProvider, FakeCurrentUserProvider(null), FakePermissionGuard())

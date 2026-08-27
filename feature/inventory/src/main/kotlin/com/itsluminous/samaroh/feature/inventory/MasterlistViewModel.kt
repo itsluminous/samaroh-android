@@ -86,11 +86,21 @@ class MasterlistViewModel
     @Inject
     constructor(
         activeBusinessProvider: ActiveBusinessProvider,
+        session: InventorySession,
         private val inventoryRepository: InventoryRepository,
         private val overviewRepository: InventoryOverviewRepository,
         private val imageStore: ItemImageStore,
         private val clock: Clock,
     ) : ViewModel() {
+        /**
+         * Master-item CRUD gate (§4.3): `inventory.manage_master_items` OR
+         * `inventory.edit`; owners always pass. Drives the Masterlist FAB/row
+         * affordances and the item-detail edit/delete menu.
+         */
+        val canManageMasterItems: StateFlow<Boolean> =
+            session.canManageMasterItems
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
         private val activeBusinessId: Flow<String?> =
             activeBusinessProvider.activeBusiness
                 .map { it?.id }

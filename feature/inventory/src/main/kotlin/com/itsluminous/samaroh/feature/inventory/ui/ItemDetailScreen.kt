@@ -18,10 +18,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +66,7 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.feature.inventory.ItemDetailViewModel
+import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
 import com.itsluminous.samaroh.feature.inventory.SavedTransaction
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
@@ -78,13 +84,18 @@ fun ItemDetailScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ItemDetailViewModel = hiltViewModel(),
+    masterlistViewModel: MasterlistViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val editor by masterlistViewModel.editor.collectAsState()
+    val deleteRequest by masterlistViewModel.deleteRequest.collectAsState()
+    val canManage by masterlistViewModel.canManageMasterItems.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var dialogType by remember { mutableStateOf<TxnType?>(null) }
     var expandedImagePath by remember { mutableStateOf<String?>(null) }
+    var overflowMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -103,6 +114,38 @@ fun ItemDetailScreen(
                         explanationRes = R.string.inventory_detail_back,
                         onClick = onBack,
                     )
+                },
+                actions = {
+                    // Edit/delete affordance (party-ledger parity): overflow menu opening
+                    // the SAME editor dialog + delete flow as the Masterlist screen.
+                    val item = uiState.item
+                    if (item != null && canManage) {
+                        Box {
+                            ExplainableIcon(
+                                icon = Icons.Filled.MoreVert,
+                                explanationRes = R.string.inventory_detail_more_options,
+                                onClick = { overflowMenu = true },
+                            )
+                            DropdownMenu(expanded = overflowMenu, onDismissRequest = { overflowMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inventory_detail_edit_item)) },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = {
+                                        overflowMenu = false
+                                        masterlistViewModel.openEditor(item)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.inventory_detail_delete_item)) },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                    onClick = {
+                                        overflowMenu = false
+                                        masterlistViewModel.requestDelete(item)
+                                    },
+                                )
+                            }
+                        }
+                    }
                 },
             )
         },
@@ -192,6 +235,16 @@ fun ItemDetailScreen(
                 scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved)) }
             },
         )
+    }
+
+    editor?.let { state ->
+        MasterItemEditorDialog(state = state, viewModel = masterlistViewModel)
+    }
+
+    deleteRequest?.let { request ->
+        // Same delete flow as the Masterlist (delete-blocked-if-transactions rule);
+        // a confirmed delete leaves the now-gone item's screen.
+        MasterItemDeleteDialogs(request = request, viewModel = masterlistViewModel, onDeleted = onBack)
     }
 
     expandedImagePath?.let { path ->
