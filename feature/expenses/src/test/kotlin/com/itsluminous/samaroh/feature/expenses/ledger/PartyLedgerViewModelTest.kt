@@ -38,6 +38,7 @@ class PartyLedgerViewModelTest {
             expensesRepository = expensesRepository,
             ledgerRepository = ledgerRepository,
             session = fakeExpensesSession(),
+            clock = java.time.Clock.fixed(com.itsluminous.samaroh.core.testing.Fixtures.NOW, java.time.ZoneOffset.UTC),
         )
 
     @Test

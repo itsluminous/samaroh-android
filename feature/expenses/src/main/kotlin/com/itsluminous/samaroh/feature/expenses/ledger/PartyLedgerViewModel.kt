@@ -11,12 +11,15 @@ import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.LedgerRow
 import com.itsluminous.samaroh.feature.expenses.domain.RunningBalanceCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Clock
 import javax.inject.Inject
 
 /** Route argument name for the party id (shared by ledger and add-entry destinations). */
@@ -32,6 +35,8 @@ data class PartyLedgerState(
     val netBalancePaise: Long = 0,
     /** Drives the PermissionGate around edit/delete (`expenses.edit`, owner-mode default). */
     val canEditEntries: Boolean = true,
+    /** Active business display name for the edit-party "Associated with {business}?" pill. */
+    val businessName: String = "",
     val loaded: Boolean = false,
 )
 
@@ -43,16 +48,21 @@ class PartyLedgerViewModel
         private val expensesRepository: ExpensesRepository,
         private val ledgerRepository: ExpensesLedgerRepository,
         session: ExpensesSession,
+        private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
 
+        /** Bumped after a party edit so the one-shot party lookup re-emits the fresh row. */
+        private val partyRefresh = MutableStateFlow(0)
+
         val state: StateFlow<PartyLedgerState> =
             combine(
-                flow { emit(ledgerRepository.party(partyId)) },
+                partyRefresh.map { ledgerRepository.party(partyId) },
                 expensesRepository.entriesForParty(partyId),
                 ledgerRepository.attachmentsForParty(partyId),
                 session.canEditEntries,
-            ) { party, entries, attachments, canEdit ->
+                session.businessName,
+            ) { party, entries, attachments, canEdit, businessName ->
                 val rows = RunningBalanceCalculator.withRunningBalance(entries)
                 PartyLedgerState(
                     party = party,
@@ -60,6 +70,7 @@ class PartyLedgerViewModel
                     attachmentsByExpense = attachments.groupBy { it.attachment.expenseId },
                     netBalancePaise = rows.firstOrNull()?.balanceAfterPaise ?: 0,
                     canEditEntries = canEdit,
+                    businessName = businessName,
                     loaded = true,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PartyLedgerState())
@@ -68,6 +79,18 @@ class PartyLedgerViewModel
         fun deleteEntry(expenseId: String) {
             viewModelScope.launch {
                 expensesRepository.deleteExpense(expenseId)
+            }
+        }
+
+        /** Edit-party toggle (ADR-027): flips the business/personal flag via Room + outbox. */
+        fun setBusinessRelated(businessRelated: Boolean) {
+            val party = state.value.party ?: return
+            if (party.businessRelated == businessRelated) return
+            viewModelScope.launch {
+                expensesRepository.saveParty(
+                    party.copy(businessRelated = businessRelated, updatedAt = clock.instant()),
+                )
+                partyRefresh.update { it + 1 }
             }
         }
     }

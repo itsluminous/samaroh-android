@@ -93,9 +93,9 @@ internal fun PaymentReminderEntity.toModel() =
 internal fun PaymentReminder.toEntity() =
     PaymentReminderEntity(id, bookingId, businessId, remindOn, status, amountDueSnapshotPaise, kind, createdAt, updatedAt, deletedAt)
 
-internal fun PartyEntity.toModel() = Party(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt)
+internal fun PartyEntity.toModel() = Party(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt, businessRelated)
 
-internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt)
+internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt, businessRelated)
 
 internal fun ExpenseEntity.toModel() =
     Expense(id, businessId, partyId, direction, amountPaise, expenseDate, notes, createdBy, createdAt, updatedAt, deletedAt)

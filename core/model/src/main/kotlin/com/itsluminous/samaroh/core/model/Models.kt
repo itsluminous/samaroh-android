@@ -160,6 +160,12 @@ data class Party(
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+    /**
+     * false = personal party: its entries are excluded from the money reports and shown
+     * only in the Personal-expenses report (ADR-027). Defaulted so rows pulled from a
+     * server without migration 004 decode as business-related.
+     */
+    @SerialName("business_related") val businessRelated: Boolean = true,
 )
 
 @Serializable

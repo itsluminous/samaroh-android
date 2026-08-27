@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.TypeAheadField
 import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.feature.expenses.BusinessRelatedPill
 
 /** Add-person screen (§4.2): fuzzy dedupe type-ahead, optional phone + contact picker. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,6 +157,12 @@ fun AddPersonScreen(
                         },
                     )
                 }
+                BusinessRelatedPill(
+                    businessName = state.businessName,
+                    businessRelated = state.businessRelated,
+                    onBusinessRelatedChange = viewModel::onBusinessRelatedChange,
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                )
             }
             // Pinned action row — always visible, also above the keyboard.
             Button(

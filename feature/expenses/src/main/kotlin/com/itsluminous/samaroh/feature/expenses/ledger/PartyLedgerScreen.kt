@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.AlertDialog
@@ -60,6 +61,8 @@ import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
+import com.itsluminous.samaroh.feature.expenses.BusinessRelatedPill
+import com.itsluminous.samaroh.feature.expenses.PersonalPartyTag
 import com.itsluminous.samaroh.feature.expenses.domain.LedgerRow
 import java.io.File
 import java.time.format.DateTimeFormatter
@@ -77,6 +80,7 @@ fun PartyLedgerScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
+    var showEditParty by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -84,11 +88,16 @@ fun PartyLedgerScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(
-                            state.party?.name.orEmpty(),
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.semantics { heading() },
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                state.party?.name.orEmpty(),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            if (state.party?.businessRelated == false) {
+                                PersonalPartyTag(modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
                         state.party?.phone?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                     }
                 },
@@ -97,6 +106,15 @@ fun PartyLedgerScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.expenses_a11y_back),
+                        )
+                    }
+                },
+                actions = {
+                    if (state.party != null && state.canEditEntries) {
+                        ExplainableIcon(
+                            icon = Icons.Filled.Edit,
+                            explanationRes = R.string.common_action_edit,
+                            onClick = { showEditParty = true },
                         )
                     }
                 },
@@ -166,6 +184,50 @@ fun PartyLedgerScreen(
             },
         )
     }
+
+    if (showEditParty) {
+        state.party?.let { party ->
+            EditPartyDialog(
+                partyName = party.name,
+                businessName = state.businessName,
+                initialBusinessRelated = party.businessRelated,
+                onDismiss = { showEditParty = false },
+                onSave = { businessRelated ->
+                    viewModel.setBusinessRelated(businessRelated)
+                    showEditParty = false
+                },
+            )
+        }
+    }
+}
+
+/** Edit-party dialog (ADR-027): toggles the business/personal association of the party. */
+@Composable
+private fun EditPartyDialog(
+    partyName: String,
+    businessName: String,
+    initialBusinessRelated: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (Boolean) -> Unit,
+) {
+    var businessRelated by remember { mutableStateOf(initialBusinessRelated) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(partyName) },
+        text = {
+            BusinessRelatedPill(
+                businessName = businessName,
+                businessRelated = businessRelated,
+                onBusinessRelatedChange = { businessRelated = it },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(businessRelated) }) { Text(stringResource(R.string.common_action_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_action_cancel)) }
+        },
+    )
 }
 
 @Composable

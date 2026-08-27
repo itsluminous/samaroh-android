@@ -40,6 +40,7 @@ import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
 import com.itsluminous.samaroh.core.designsystem.component.SamarohExtendedFab
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.feature.expenses.PersonalPartyTag
 
 /** Expenses tab home (§4.2): totals card, search, party list, add-person FAB. */
 @Composable
@@ -148,7 +149,14 @@ private fun PartyRow(
     ListItem(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         leadingContent = { InitialsAvatar(initials = item.initials) },
-        headlineContent = { Text(item.party.name, style = MaterialTheme.typography.bodyLarge) },
+        headlineContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(item.party.name, style = MaterialTheme.typography.bodyLarge)
+                if (!item.party.businessRelated) {
+                    PersonalPartyTag(modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        },
         supportingContent = {
             item.lastEntryAt?.let { at ->
                 // System-localized relative time ("2 hours ago") — follows the app locale.

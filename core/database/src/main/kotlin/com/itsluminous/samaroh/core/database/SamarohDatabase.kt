@@ -63,7 +63,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -128,6 +128,19 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE sync_cursors ADD COLUMN last_pulled_id TEXT",
+                    )
+                }
+            }
+
+        /**
+         * v3 → v4 (ADR-027): `parties.business_related` flag mirroring shared migration
+         * 004 — existing parties default to business-related (counted in money reports).
+         */
+        val MIGRATION_3_4: Migration =
+            object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE parties ADD COLUMN business_related INTEGER NOT NULL DEFAULT 1",
                     )
                 }
             }

@@ -32,6 +32,11 @@ android {
             isIncludeAndroidResources = true
         }
     }
+
+    // MigrationTestHelper reads the committed schema JSONs as (test) assets.
+    sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 // Exported Room schemas (schemas/<db>/<version>.json) are committed so future schema

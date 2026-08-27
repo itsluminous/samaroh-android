@@ -645,3 +645,53 @@ since each client is consistent with its own displayed dates.
 **Consequences.** Expense summary totals and Profit nets now include stock purchases,
 matching web. The ledger column intentionally counts 'paid' entries only (web parity)
 while the per-party breakdown keeps netting paid − received, same as before.
+
+## ADR-027 — Personal parties: `parties.business_related`, report exclusion + Personal-expenses report, total rows, machine-readable CSV (2026-08-27)
+
+**Status:** accepted.
+
+**Context.** Owners record spend on people unrelated to the business (family, personal
+loans) in the same party ledger; those entries polluted the Expense summary and Profit
+reports. Shared migration `004_party_business_flag.sql` adds
+`parties.business_related boolean not null default true` server-side.
+
+**Decision.**
+1. **Contract changes (frozen, hence this ADR):**
+   - `core:model` `Party` gains `@SerialName("business_related") businessRelated:
+     Boolean = true` — defaulted so rows pulled from a pre-migration server decode as
+     business-related, and appended last so positional constructions stay valid.
+   - `core:database` v4 (`MIGRATION_3_4`): `ALTER TABLE parties ADD COLUMN
+     business_related INTEGER NOT NULL DEFAULT 1`; exported schema 4.json; no DAO
+     signature change (entities carry the flag through existing queries).
+   - Sync wire: `business_related` rides the existing generic pipeline — outbox party
+     payloads are the serialized model (`encodeDefaults = true`), so every upsert now
+     carries the flag; `WireConverter` passes booleans through untouched; pulls select
+     `*` and `LocalApplier` decodes via the defaulted model field.
+2. **⚠️ ORDERING REQUIREMENT — server migration FIRST.** Because `encodeDefaults = true`
+   puts `business_related` in EVERY party upsert payload, PostgREST rejects party pushes
+   (unknown column, PGRST204) until the owner applies shared migration 004. That failure
+   is non-fatal by design: the §8 push loop records a per-item error, holds only that
+   party's ops (other entities keep syncing) and retries next run — self-healing once the
+   migration lands. Pulls never break (select `*`). The field is deliberately NOT gated
+   client-side: a gate would silently drop the personal flag on the server and let the
+   two sides diverge.
+3. **UX:** "Add person" is now "Add party" (shared key value change). The add-party
+   screen and an edit-party dialog on the ledger get a yes/no pill "Associated with
+   {business}?" (default YES); personal parties show a subtle localized "Personal" tag
+   on party rows and the ledger header.
+4. **Reports:** personal parties' entries are EXCLUDED from the Expense-summary and
+   Profit calculators (exclusion sets computed from the live party list) and listed
+   exclusively by the NEW Personal-expenses report (`ReportType.PERSONAL_EXPENSES`):
+   net spend per personal party per month, date-range filter, CSV/PDF export. The two
+   sides are exact complements — no entry is dropped from both.
+5. **Total rows:** every tabular money report (revenue, dues aging, event types,
+   sources, expense summary + its party sub-table, profit, inventory valuation, personal
+   expenses) renders a final localized TOTAL row on screen, in the PDF (bold, ruled
+   off) and in the CSV. Profit totals income / expense / net. Pure sums live in
+   `ReportTotals` (unit-tested). Occupancy and collection are not money tables and keep
+   no total row.
+6. **Machine-readable CSV:** `ReportTable` gains `totalRow` plus CSV-only `csvRows` /
+   `csvTotalRow`; the CSV export writes plain unformatted amounts (decimal rupees, two
+   decimals, no ₹, no grouping — `CsvValues.rupees`) and ISO dates/months so spreadsheet
+   apps parse them as numbers/dates. On-screen and PDF keep `AmountFormatter`/localized
+   dates unchanged.

@@ -27,6 +27,10 @@ data class AddPersonState(
     val suggestions: List<Party> = emptyList(),
     val nameError: Boolean = false,
     val saving: Boolean = false,
+    /** "Associated with {business}?" pill — default YES (ADR-027). */
+    val businessRelated: Boolean = true,
+    /** Active business display name for the pill title. */
+    val businessName: String = "",
 )
 
 sealed interface AddPersonEvent {
@@ -59,8 +63,20 @@ class AddPersonViewModel
         private val _events = MutableSharedFlow<AddPersonEvent>(extraBufferCapacity = 1)
         val events: SharedFlow<AddPersonEvent> = _events.asSharedFlow()
 
+        init {
+            viewModelScope.launch {
+                session.businessName.collect { name ->
+                    _state.update { it.copy(businessName = name) }
+                }
+            }
+        }
+
         fun onNameChange(name: String) {
             _state.update { it.copy(name = name, nameError = false) }
+        }
+
+        fun onBusinessRelatedChange(businessRelated: Boolean) {
+            _state.update { it.copy(businessRelated = businessRelated) }
         }
 
         fun onPhoneChange(phone: String) {
@@ -129,6 +145,7 @@ class AddPersonViewModel
                                 .ifEmpty { null },
                         createdAt = now,
                         updatedAt = now,
+                        businessRelated = _state.value.businessRelated,
                     )
                 expensesRepository.saveParty(party)
                 _events.emit(AddPersonEvent.Created(party.id))

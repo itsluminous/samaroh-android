@@ -22,6 +22,8 @@ data class PartyEntity(
     @ColumnInfo(name = "created_at") val createdAt: Instant,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
+    /** false = personal party, excluded from the money reports (ADR-027). */
+    @ColumnInfo(name = "business_related", defaultValue = "1") val businessRelated: Boolean = true,
 )
 
 @Entity(

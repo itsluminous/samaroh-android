@@ -114,4 +114,32 @@ class AddPersonViewModelTest {
                 assertThat(awaitItem()).isEqualTo(AddPersonEvent.ContactPickFailed)
             }
         }
+
+    @Test
+    fun `new parties default to business-related`() =
+        runTest {
+            viewModel.onNameChange("Suresh Traders")
+
+            viewModel.events.test {
+                viewModel.save()
+                awaitItem()
+            }
+
+            assertThat(viewModel.state.value.businessRelated).isTrue()
+            assertThat(repository.savedParties.single().businessRelated).isTrue()
+        }
+
+    @Test
+    fun `toggling the pill to NO persists a personal party`() =
+        runTest {
+            viewModel.onNameChange("Family friend")
+            viewModel.onBusinessRelatedChange(false)
+
+            viewModel.events.test {
+                viewModel.save()
+                awaitItem()
+            }
+
+            assertThat(repository.savedParties.single().businessRelated).isFalse()
+        }
 }

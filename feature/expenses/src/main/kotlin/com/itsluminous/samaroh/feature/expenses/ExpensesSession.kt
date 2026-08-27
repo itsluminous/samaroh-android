@@ -35,6 +35,10 @@ class ExpensesSession
         val businessIdFlow: Flow<String> =
             activeBusinessProvider.activeBusiness.map { it?.id ?: FIXTURE_BUSINESS_ID }
 
+        /** Active business display name — the add/edit-party "Associated with {business}?" pill title. */
+        val businessName: Flow<String> =
+            activeBusinessProvider.activeBusiness.map { it?.name.orEmpty() }
+
         suspend fun businessId(): String = businessIdFlow.first()
 
         /** The acting user id for `created_by`; owner (then fixture) fallback while signed out. */
