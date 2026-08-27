@@ -2,7 +2,9 @@
 agp = "8.7.3"
 kotlin = "2.1.0"
 ksp = "2.1.0-1.0.29"
-composeBom = "2025.01.00"
+composeBom = "2025.06.01"
+# The material-icons artifacts stopped shipping in the BOM after Compose 1.7; pin the last release.
+composeMaterialIcons = "1.7.8"
 activityCompose = "1.9.3"
 appcompat = "1.7.0"
 navigationCompose = "2.8.5"
@@ -48,7 +50,7 @@ compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "composeMaterialIcons" }
 
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 
@@ -74,6 +76,7 @@ androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-p
 androidx-startup-runtime = { group = "androidx.startup", name = "startup-runtime", version.ref = "startup" }
 
 supabase-postgrest = { group = "io.github.jan-tennert.supabase", name = "postgrest-kt", version.ref = "supabase" }
+supabase-storage = { group = "io.github.jan-tennert.supabase", name = "storage-kt", version.ref = "supabase" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "androidxHilt" }
