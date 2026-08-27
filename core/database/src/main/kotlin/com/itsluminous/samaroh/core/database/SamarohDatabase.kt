@@ -63,7 +63,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -141,6 +141,19 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE parties ADD COLUMN business_related INTEGER NOT NULL DEFAULT 1",
+                    )
+                }
+            }
+
+        /**
+         * v4 → v5 (ADR-030): nullable `bookings.color` palette key mirroring shared
+         * migration 005 — NULL keeps the default themed calendar look.
+         */
+        val MIGRATION_4_5: Migration =
+            object : Migration(4, 5) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE bookings ADD COLUMN color TEXT",
                     )
                 }
             }

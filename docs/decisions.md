@@ -785,3 +785,54 @@ which need the same permission gate.
 resets to today's anchor on process death (per-device UI state only). `isSyncing` is
 process-local by design — a run on another device shows up via pulled data, not the
 spinner.
+
+## ADR-030 — Booking colour: `bookings.color` palette key end-to-end (2026-08-27)
+
+**Status:** accepted.
+
+**Context.** Owners want to colour-code bookings (Google-Calendar-style) so the month
+grid tells events apart at a glance. This touches the frozen contracts (model, Room,
+sync wire) plus the shared schema (migration 005) and palette
+(`shared/booking-colors.json`, 16 curated swatches with an AA-checked `on_hex` each).
+
+**Decision.**
+1. **Contract (additive).** `Booking.color: String?` (`@SerialName("color")`, default
+   null) — a palette KEY (e.g. `peacock`), never a raw hex, so palette tweaks restyle
+   history and unknown keys degrade to the default look. Room v4→v5
+   (`MIGRATION_4_5`: `ALTER TABLE bookings ADD COLUMN color TEXT`, exported schema
+   5.json); both entity⇄model mappers carry it. NULL = the default themed
+   (tertiary-container) look.
+2. **Sync wire.** No wire special-casing: `encodeDefaults = true` puts `color` in every
+   booking upsert payload, `WireConverter` passes non-money/non-enum keys through
+   untouched, pulls select `*` and decode via the defaulted model field.
+   **⚠️ ORDERING — server migration 005 FIRST** (same PGRST204 self-healing behaviour
+   as ADR-027's party flag): until the owner applies shared migration 005, PostgREST
+   rejects booking pushes (unknown column); the §8 push loop records a per-item error,
+   holds only those ops and retries next run. Pulls never break. The field is
+   deliberately NOT gated client-side — a gate would silently drop colours server-side.
+   Verified empirically on 2026-08-27: the live project still returns
+   `42703 column bookings.color does not exist` — 005 NOT yet applied.
+3. **Palette loading.** `shared/booking-colors.json` is copied into `feature:booking`'s
+   generated assets at build time (`copyBookingColors`, same single-source-of-truth
+   pattern as event-types.json). `BookingColorsProvider : BookingColorCatalog` parses
+   `{key, hex, on_hex, label_key}`; label keys resolve to generated string resources;
+   entries with unrecognized keys are dropped (forward compatibility).
+4. **Form.** Add + edit get a "Colour" row (`booking.form.color`): a Default swatch
+   (null — slash + outline, the standard "no colour" vocabulary) followed by the 16
+   swatches, 4 per row. Each swatch is a ≥48dp `Role.RadioButton` target whose
+   contentDescription is the localized colour name; the selected swatch carries a 3dp
+   primary ring plus a check mark tinted with the palette's `on_hex`.
+5. **Rendering.** Month cell FILL uses the booking's colour only when EXACTLY ONE live
+   booking covers the date AND it is firm (confirmed/completed — tentative never
+   colours; it keeps the amber outline + 👤 regardless). Multi-booking days keep the
+   default tertiary-container fill (no winner ambiguity). The date number on a coloured
+   cell uses the palette's `on_hex` (every pair ≥ 4.5:1 AA). Agenda rows (month agenda
+   + events view) show a small leading colour dot (decorative — text carries the
+   information); the booking card shows a 14dp dot announcing the localized colour name.
+   `CalendarMonthMapper.Day.fillColorKey` keeps the choice pure and unit-tested.
+
+**Consequences.** Web should mirror the single-booking-fill / multi-default rule for
+consistent cross-platform reading. Old app versions ignore the column entirely (Room
+copy untouched pre-migration; model decode drops unknown keys server-side is N/A since
+pulls map by model fields). A booking coloured with a FUTURE palette key renders the
+default look here instead of crashing.

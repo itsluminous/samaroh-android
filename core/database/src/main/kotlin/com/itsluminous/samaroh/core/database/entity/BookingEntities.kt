@@ -36,6 +36,8 @@ data class BookingEntity(
     val status: BookingStatus = BookingStatus.CONFIRMED,
     @ColumnInfo(name = "gcal_event_id") val gcalEventId: String? = null,
     @ColumnInfo(name = "invoice_number") val invoiceNumber: String? = null,
+    /** Palette key from `shared/booking-colors.json` (ADR-030); NULL = default themed look. */
+    val color: String? = null,
     @ColumnInfo(name = "created_by") val createdBy: String,
     @ColumnInfo(name = "updated_by") val updatedBy: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Instant,

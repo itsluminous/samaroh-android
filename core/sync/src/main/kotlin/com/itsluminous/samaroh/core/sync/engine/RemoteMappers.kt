@@ -89,6 +89,7 @@ internal fun Booking.toEntity() =
         status,
         gcalEventId,
         invoiceNumber,
+        color,
         createdBy,
         updatedBy,
         createdAt,

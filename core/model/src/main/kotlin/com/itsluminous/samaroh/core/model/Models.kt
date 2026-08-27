@@ -84,6 +84,11 @@ data class Booking(
     val status: BookingStatus = BookingStatus.CONFIRMED,
     @SerialName("gcal_event_id") val gcalEventId: String? = null,
     @SerialName("invoice_number") val invoiceNumber: String? = null,
+    /**
+     * Palette key from `shared/booking-colors.json` (ADR-030); NULL = default themed
+     * look. Defaulted so pre-005 server rows (no `color` column) decode unchanged.
+     */
+    @SerialName("color") val color: String? = null,
     @SerialName("created_by") val createdBy: String,
     @SerialName("updated_by") val updatedBy: String? = null,
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
