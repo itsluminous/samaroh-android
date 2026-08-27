@@ -171,6 +171,8 @@ class FakeInventoryOverviewRepository : InventoryOverviewRepository {
     override fun currentInventory(businessId: String): Flow<List<CurrentInventoryLine>> = linesFlow
 
     override suspend fun canDeleteMasterItem(id: String): Boolean = true
+
+    override suspend fun recordTransactionForValue(txn: com.itsluminous.samaroh.core.model.InventoryTransaction): Long = 0L
 }
 
 class FakeReportExporter : ReportExporter {

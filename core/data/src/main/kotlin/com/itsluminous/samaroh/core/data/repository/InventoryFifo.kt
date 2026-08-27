@@ -53,6 +53,14 @@ interface InventoryOverviewRepository {
      * transactions reference it (tombstoned ones included — they still exist upstream).
      */
     suspend fun canDeleteMasterItem(id: String): Boolean
+
+    /**
+     * Records a transaction exactly like [InventoryRepository.recordTransaction] and
+     * returns its total value in paise: quantity × unit price for an add, the FIFO cost
+     * of the consumed lots for a remove — the number the success snackbar surfaces
+     * (additive read-back, docs/decisions.md ADR-021).
+     */
+    suspend fun recordTransactionForValue(txn: InventoryTransaction): Long
 }
 
 /**
@@ -73,18 +81,24 @@ class FifoInventoryRepository
         private val json = Json { encodeDefaults = true }
 
         override suspend fun recordTransaction(txn: InventoryTransaction) {
+            recordTransactionForValue(txn)
+        }
+
+        override suspend fun recordTransactionForValue(txn: InventoryTransaction): Long {
             require(txn.quantity > 0) { "quantity must be positive" }
-            when (txn.transactionType) {
+            return when (txn.transactionType) {
                 // An add opens a fresh lot: its unconsumed remainder starts at the full quantity.
-                TxnType.ADD ->
-                    room.recordTransaction(
-                        txn.copy(quantity = roundQuantity(txn.quantity), remainingQuantity = roundQuantity(txn.quantity)),
-                    )
+                TxnType.ADD -> {
+                    val quantity = roundQuantity(txn.quantity)
+                    room.recordTransaction(txn.copy(quantity = quantity, remainingQuantity = quantity))
+                    (quantity * txn.unitPricePaise).roundToLong()
+                }
                 TxnType.REMOVE -> removeFifo(txn.copy(quantity = roundQuantity(txn.quantity)))
             }
         }
 
-        private suspend fun removeFifo(txn: InventoryTransaction) {
+        /** Consumes FIFO lots and returns the total cost (paise) of the removed stock. */
+        private suspend fun removeFifo(txn: InventoryTransaction): Long {
             val lots = txnDao.openAddLotsFifo(txn.businessId, txn.masterItemId)
             val available = lots.sumOf { it.remainingQuantity }
             require(txn.quantity <= available + QUANTITY_EPSILON) {
@@ -114,6 +128,7 @@ class FifoInventoryRepository
             // The remove row carries the FIFO weighted-average unit cost; it never has a remainder.
             val weightedUnitPricePaise = (totalCostPaise.toDouble() / txn.quantity).roundToLong()
             room.recordTransaction(txn.copy(unitPricePaise = weightedUnitPricePaise, remainingQuantity = 0.0))
+            return totalCostPaise
         }
 
         override fun currentInventory(businessId: String): Flow<List<CurrentInventoryLine>> =

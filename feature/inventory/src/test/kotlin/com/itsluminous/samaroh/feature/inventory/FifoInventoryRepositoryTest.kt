@@ -264,4 +264,30 @@ class FifoInventoryRepositoryTest {
             assertThat(repository.masterItems(businessId).first()).isEmpty()
             assertThat(repository.currentInventory(businessId).first()).isEmpty()
         }
+
+    @Test
+    fun `recordTransactionForValue returns quantity times unit price for an add`() =
+        runTest {
+            seedItem()
+
+            val value =
+                repository.recordTransactionForValue(
+                    addTxn(10.0, 100_50L, Instant.parse("2026-08-01T09:00:00Z")),
+                )
+
+            assertThat(value).isEqualTo(100_500L)
+        }
+
+    @Test
+    fun `recordTransactionForValue returns the FIFO cost of a remove across lots`() =
+        runTest {
+            seedItem()
+            repository.recordTransaction(addTxn(10.0, 100_00L, Instant.parse("2026-08-01T09:00:00Z")))
+            repository.recordTransaction(addTxn(5.0, 200_00L, Instant.parse("2026-08-10T09:00:00Z")))
+
+            // 10 from the ₹100 lot + 2 from the ₹200 lot = ₹1,400 = 140000 paise.
+            val cost = repository.recordTransactionForValue(removeTxn(12.0))
+
+            assertThat(cost).isEqualTo(140_000L)
+        }
 }

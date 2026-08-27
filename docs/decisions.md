@@ -432,3 +432,21 @@ Additive contract changes for the owner's UX-feedback round:
    `booking_form_show_source` (default true), `booking_form_show_times` (default true).
    Written by `feature:menu` (Settings → Booking form fields), read by
    `feature:booking`'s form.
+
+## ADR-021 — Additive `recordTransactionForValue` on `InventoryOverviewRepository` (2026-08-27, inventory parity)
+
+**Status:** accepted.
+
+The transaction success feedback (snackbar) must surface the FIFO cost of a remove —
+a value `FifoInventoryRepository.removeFifo` already computes but discarded. The frozen
+`InventoryRepository.recordTransaction` contract returns `Unit`, so instead of changing
+it, the W1-C-owned `InventoryOverviewRepository` (ADR-007) gains one additive method:
+
+```kotlin
+suspend fun recordTransactionForValue(txn: InventoryTransaction): Long
+```
+
+It records exactly like `recordTransaction` (which now delegates to it) and returns the
+transaction's total value in **Long paise** (ADR-002): quantity × unit price for adds,
+the consumed-lot FIFO cost for removes. No schema, sync, or frozen-interface change;
+existing callers of `recordTransaction` are unaffected.
