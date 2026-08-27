@@ -127,7 +127,7 @@ internal fun PaymentReminder.toEntity(localKind: ReminderKind) =
         deletedAt,
     )
 
-internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt)
+internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt, businessRelated)
 
 internal fun Expense.toEntity() =
     ExpenseEntity(
