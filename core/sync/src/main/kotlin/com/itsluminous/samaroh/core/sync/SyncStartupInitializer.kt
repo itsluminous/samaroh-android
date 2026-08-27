@@ -31,20 +31,29 @@ class SyncStartupInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         val appContext = context.applicationContext
         ProcessLifecycleOwner.get().lifecycle.addObserver(
-            object : DefaultLifecycleObserver {
-                override fun onStart(owner: LifecycleOwner) {
-                    runCatching {
-                        val scheduler =
-                            EntryPointAccessors
-                                .fromApplication(appContext, SyncTriggerEntryPoint::class.java)
-                                .syncScheduler()
-                        scheduler.ensurePeriodicSync()
-                        scheduler.requestImmediateSync()
-                    }
-                }
+            foregroundSyncObserver {
+                EntryPointAccessors
+                    .fromApplication(appContext, SyncTriggerEntryPoint::class.java)
+                    .syncScheduler()
             },
         )
     }
 
     override fun dependencies(): List<Class<out Initializer<*>>> = listOf(ProcessLifecycleInitializer::class.java)
 }
+
+/**
+ * The foreground-resume trigger, isolated for unit tests: EVERY ON_START (cold start and
+ * every background→foreground transition — ProcessLifecycleOwner emits ON_START on each)
+ * requests an expedited sync and re-ensures the periodic schedule. [resolveScheduler] is
+ * invoked lazily per event (after `Application.onCreate`, so the Hilt component exists);
+ * resolution failures (non-Hilt test hosts) are swallowed.
+ */
+internal fun foregroundSyncObserver(resolveScheduler: () -> SyncScheduler): DefaultLifecycleObserver =
+    object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) {
+            val scheduler = runCatching(resolveScheduler).getOrNull() ?: return
+            scheduler.ensurePeriodicSync()
+            scheduler.requestImmediateSync()
+        }
+    }

@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.sync
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -56,7 +57,14 @@ class SyncWorker(
             EntryPointAccessors
                 .fromApplication(applicationContext, SyncWorkerEntryPoint::class.java)
                 .syncEngine()
+        Log.i(TAG, "sync run started")
         val outcome = engine.runSync()
+        Log.i(
+            TAG,
+            "sync run finished: configured=${outcome.configured} pushed=${outcome.pushedCount} " +
+                "pulled=${outcome.pulledCount} conflicts=${outcome.conflictCount} " +
+                "itemErrors=${outcome.itemErrorCount} networkFailed=${outcome.networkFailed}",
+        )
         return if (outcome.networkFailed) Result.retry() else Result.success()
     }
 
@@ -85,6 +93,9 @@ class SyncWorker(
     companion object {
         const val UNIQUE_PERIODIC_NAME = "samaroh-sync-periodic"
         const val UNIQUE_IMMEDIATE_NAME = "samaroh-sync-now"
+
+        /** Logcat tag for sync-trigger/run diagnostics (grep `SamarohSync`). */
+        const val TAG = "SamarohSync"
     }
 }
 
@@ -98,6 +109,7 @@ class WorkManagerSyncScheduler
         private val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
         override fun requestImmediateSync() {
+            Log.i(SyncWorker.TAG, "expedited sync requested")
             WorkManager.getInstance(context).enqueueUniqueWork(
                 SyncWorker.UNIQUE_IMMEDIATE_NAME,
                 ExistingWorkPolicy.KEEP,
