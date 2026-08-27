@@ -563,3 +563,43 @@ pulled/settled via sync waited for the next daily 09:00 pass to be acted on.
 migration 2→3, `SyncCursorDao.cursor()` now returns the entity, `PostSyncHook` in
 `core:data`. Server rows already polluted by the bug are dismissed by
 `Planning/cleanup-stale-reminders.sql` (owner-run); devices also self-heal via 1+2.
+
+## ADR-025 — Interactive square photo cropper in `core:designsystem` (2026-08-27, upload-crop parity with web)
+
+**Problem.** The web app lets the user choose the crop when uploading a photo; Android
+silently center-square-cropped (inventory item photos, onboarding logo) or stored the raw
+picked file with no processing at all (settings business-profile logo). The owner
+requires user-controlled cropping on upload for item photos and the business logo —
+expense attachments are exempt (they are documents and must stay readable/uncropped).
+
+**Decision.**
+1. **Hand-rolled Compose cropper** in `core:designsystem`
+   (`component/cropper/SquareImageCropper.kt`): a full-screen dialog with a fixed square
+   viewport; the image is pinch-zoomed (about the gesture centroid) and panned via
+   `pointerInput { detectTransformGestures }` and drawn on a `Canvas`
+   (translate → scale → drawImage), with a border + rule-of-thirds grid. No third-party
+   crop library: the geometry is ~100 lines of pure Kotlin (`SquareCropMath`), fully
+   unit-tested, and avoids an unmaintained/heavyweight dependency.
+2. **Pure geometry** (`SquareCropMath`): zoom ∈ [1, 8] over a "fill" base scale, pan
+   clamped so the viewport never leaves the image, and `cropRegion` maps the viewport
+   back to source pixels (always in-bounds, side ≥ 1) — so the confirmed crop is exactly
+   what was on screen.
+3. **Source loading** (`loadCropSourceBitmap`): bounded two-pass decode (≤~1600px longest
+   side) plus EXIF upright rotation via the new `androidx.exifinterface:exifinterface`
+   dependency (AndroidX, Apache-2.0, pinned 1.4.1) — an interactive cropper cannot show a
+   sideways image, unlike the old blind center crop.
+4. **Wiring** (picker/camera → cropper → existing WebP ≤320px pipelines):
+   `feature:inventory` `ItemImageStore.compressItemImage` now takes the cropped `Bitmap`
+   (was `Uri`); onboarding's camera/gallery both feed the cropper before
+   `LogoProcessor.process(Bitmap)` (the `Uri` overload was removed); the settings
+   business-profile logo switches to the system photo picker and now ALSO compresses to
+   WebP ≤320px (it previously copied raw bytes — a fidelity fix folded into this change).
+5. **Strings**: new `common.cropper.*` keys live in the shared fragment
+   `strings/fragments/designsystem.{en,hi}.json` (designsystem is integrator-owned, so
+   the `common.*` namespace is correct).
+
+**Consequences.** Any future square-crop need (member avatars, event photos) reuses the
+same dialog. Expense attachments intentionally keep their existing uncropped
+`AttachmentCompressor` path. The stored-file formats and the sync/Storage mirroring
+contracts (ADR-023) are unchanged — the cropper only decides WHICH square goes into the
+existing ≤320px WebP files.

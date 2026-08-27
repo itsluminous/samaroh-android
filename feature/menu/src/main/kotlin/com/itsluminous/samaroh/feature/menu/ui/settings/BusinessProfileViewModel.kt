@@ -1,7 +1,8 @@
 package com.itsluminous.samaroh.feature.menu.ui.settings
 
 import android.content.Context
-import android.net.Uri
+import android.graphics.Bitmap
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
@@ -66,18 +67,39 @@ class BusinessProfileViewModel
             }
         }
 
-        /** Copies the picked image into app storage and stores its path as the logo. */
-        fun setLogo(uri: Uri) {
+        /**
+         * Stores the square bitmap confirmed in the interactive cropper as the business
+         * logo: scaled to ≤[MAX_LOGO_DIMENSION_PX], WebP-compressed into app storage
+         * (parity with the onboarding logo pipeline — the old code copied raw bytes).
+         */
+        fun setLogo(image: Bitmap) {
             val current = business.value ?: return
             viewModelScope.launch {
                 val path =
                     withContext(Dispatchers.IO) {
                         runCatching {
+                            val side = minOf(image.width, image.height)
+                            val squared =
+                                if (image.width == image.height) {
+                                    image
+                                } else {
+                                    Bitmap.createBitmap(image, (image.width - side) / 2, (image.height - side) / 2, side, side)
+                                }
+                            val scaled =
+                                if (side > MAX_LOGO_DIMENSION_PX) {
+                                    Bitmap.createScaledBitmap(squared, MAX_LOGO_DIMENSION_PX, MAX_LOGO_DIMENSION_PX, true)
+                                } else {
+                                    squared
+                                }
                             val dir = File(appContext.filesDir, LOGO_DIR).apply { mkdirs() }
-                            val target = File(dir, "logo-${current.id}")
-                            appContext.contentResolver.openInputStream(uri)?.use { input ->
-                                target.outputStream().use { output -> input.copyTo(output) }
-                            } ?: return@runCatching null
+                            // Timestamped name: a changed path invalidates path-keyed previews.
+                            val target = File(dir, "logo-${current.id}-${System.currentTimeMillis()}.webp")
+                            target.outputStream().use { out -> scaled.compress(webpFormat(), WEBP_QUALITY, out) }
+                            // Best-effort cleanup of the previously stored logo file.
+                            current.logoPath?.let { old ->
+                                val oldFile = File(old)
+                                if (oldFile.parentFile?.absolutePath == dir.absolutePath) oldFile.delete()
+                            }
                             target.absolutePath
                         }.getOrNull()
                     } ?: return@launch
@@ -86,7 +108,17 @@ class BusinessProfileViewModel
             }
         }
 
+        private fun webpFormat(): Bitmap.CompressFormat =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Bitmap.CompressFormat.WEBP_LOSSY
+            } else {
+                @Suppress("DEPRECATION")
+                Bitmap.CompressFormat.WEBP
+            }
+
         private companion object {
             const val LOGO_DIR = "business-logos"
+            const val MAX_LOGO_DIMENSION_PX = 320
+            const val WEBP_QUALITY = 85
         }
     }

@@ -2,8 +2,6 @@ package com.itsluminous.samaroh.feature.onboarding.logo
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -68,14 +66,5 @@ class LogoProcessor
                     scaled.compress(format, 85, stream)
                 }
                 file.absolutePath
-            }
-
-        /** Decodes a gallery [uri] and processes it; null when the content is unreadable. */
-        suspend fun process(uri: Uri): String? =
-            withContext(Dispatchers.IO) {
-                val bitmap =
-                    context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-                        ?: return@withContext null
-                process(bitmap)
             }
     }

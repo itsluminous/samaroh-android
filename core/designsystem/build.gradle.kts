@@ -35,6 +35,7 @@ dependencies {
     api(project(":core:i18n"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.exifinterface)
     api(platform(libs.compose.bom))
     api(libs.compose.ui)
     implementation(libs.compose.ui.graphics)

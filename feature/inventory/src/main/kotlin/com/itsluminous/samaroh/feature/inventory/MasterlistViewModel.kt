@@ -1,6 +1,6 @@
 package com.itsluminous.samaroh.feature.inventory
 
-import android.net.Uri
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
@@ -152,10 +152,11 @@ class MasterlistViewModel
             editorState.update { it?.copy(customUnit = value, error = null) }
         }
 
-        fun onImagePicked(uri: Uri) {
+        /** Stores the square bitmap confirmed in the interactive cropper (WebP ≤320px). */
+        fun onImageCropped(image: Bitmap) {
             val itemId = editorState.value?.editingItem?.id ?: UUID.randomUUID().toString()
             viewModelScope.launch {
-                val path = imageStore.compressItemImage(uri, itemId)
+                val path = imageStore.compressItemImage(image, itemId)
                 if (path != null) editorState.update { it?.copy(imagePath = path) }
             }
         }

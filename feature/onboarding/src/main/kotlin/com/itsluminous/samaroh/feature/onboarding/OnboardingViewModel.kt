@@ -1,7 +1,6 @@
 package com.itsluminous.samaroh.feature.onboarding
 
 import android.graphics.Bitmap
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.AuthConfig
@@ -303,18 +302,10 @@ class OnboardingViewModel
             _uiState.value = _uiState.value.copy(form = form, nameMissing = false, ownerNameMissing = false, createFailed = false)
         }
 
-        fun onLogoCaptured(bitmap: Bitmap?) {
-            if (bitmap == null) return
+        /** Stores the square bitmap confirmed in the interactive cropper (WebP ≤320px). */
+        fun onLogoCropped(bitmap: Bitmap) {
             viewModelScope.launch {
                 val path = logoProcessor.process(bitmap)
-                _uiState.value = _uiState.value.copy(form = _uiState.value.form.copy(logoPath = path))
-            }
-        }
-
-        fun onLogoPicked(uri: Uri?) {
-            if (uri == null) return
-            viewModelScope.launch {
-                val path = logoProcessor.process(uri) ?: return@launch
                 _uiState.value = _uiState.value.copy(form = _uiState.value.form.copy(logoPath = path))
             }
         }

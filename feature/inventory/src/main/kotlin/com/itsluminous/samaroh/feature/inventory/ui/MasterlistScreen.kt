@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.feature.inventory.ui
 
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -44,10 +45,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -57,6 +60,8 @@ import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
+import com.itsluminous.samaroh.core.designsystem.component.cropper.SquareImageCropperDialog
+import com.itsluminous.samaroh.core.designsystem.component.cropper.loadCropSourceBitmap
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.MasterItem
@@ -65,6 +70,7 @@ import com.itsluminous.samaroh.feature.inventory.MasterItemFormError
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
 import com.itsluminous.samaroh.feature.inventory.UnitOption
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
+import kotlinx.coroutines.launch
 
 /**
  * Masterlist screen (§4.3): master-item CRUD with photo (square-cropped, ≤320px WebP),
@@ -224,10 +230,25 @@ private fun MasterItemEditorDialog(
     state: MasterItemEditorState,
     viewModel: MasterlistViewModel,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Picker result → decoded source bitmap → interactive square cropper → ViewModel.
+    var cropSource by remember { mutableStateOf<Bitmap?>(null) }
     val pickImage =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
-            if (uri != null) viewModel.onImagePicked(uri)
+            if (uri != null) scope.launch { cropSource = loadCropSourceBitmap(context, uri) }
         }
+
+    cropSource?.let { source ->
+        SquareImageCropperDialog(
+            bitmap = source,
+            onConfirm = { cropped ->
+                viewModel.onImageCropped(cropped)
+                cropSource = null
+            },
+            onDismiss = { cropSource = null },
+        )
+    }
 
     AlertDialog(
         onDismissRequest = viewModel::dismissEditor,

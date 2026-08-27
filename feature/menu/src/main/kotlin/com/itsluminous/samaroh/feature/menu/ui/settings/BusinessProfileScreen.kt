@@ -1,6 +1,8 @@
 package com.itsluminous.samaroh.feature.menu.ui.settings
 
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
@@ -17,14 +19,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.designsystem.component.cropper.SquareImageCropperDialog
+import com.itsluminous.samaroh.core.designsystem.component.cropper.loadCropSourceBitmap
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
+import kotlinx.coroutines.launch
 
 /** Business profile editor (§4.4: name/type/address/logo/owner name, invoice prefix). */
 @Composable
@@ -35,10 +42,25 @@ fun BusinessProfileScreen(
     val business by viewModel.business.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Picker result → decoded source bitmap → interactive square cropper → ViewModel.
+    var cropSource by remember { mutableStateOf<Bitmap?>(null) }
     val logoPicker =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            uri?.let(viewModel::setLogo)
+        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null) scope.launch { cropSource = loadCropSourceBitmap(context, uri) }
         }
+
+    cropSource?.let { source ->
+        SquareImageCropperDialog(
+            bitmap = source,
+            onConfirm = { cropped ->
+                viewModel.setLogo(cropped)
+                cropSource = null
+            },
+            onDismiss = { cropSource = null },
+        )
+    }
 
     MenuScreenScaffold(
         titleRes = R.string.settings_business_title,
@@ -75,7 +97,7 @@ fun BusinessProfileScreen(
                 )
 
                 OutlinedButton(
-                    onClick = { logoPicker.launch("image/*") },
+                    onClick = { logoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 ) {
                     Text(stringResource(R.string.settings_business_change_logo))

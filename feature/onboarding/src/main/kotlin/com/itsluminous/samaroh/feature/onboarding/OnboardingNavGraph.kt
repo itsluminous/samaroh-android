@@ -87,8 +87,7 @@ internal fun OnboardingRoute(
             CreateBusinessScreen(
                 state = state,
                 onFormChange = viewModel::updateForm,
-                onLogoCaptured = viewModel::onLogoCaptured,
-                onLogoPicked = viewModel::onLogoPicked,
+                onLogoCropped = viewModel::onLogoCropped,
                 onSubmit = viewModel::submitCreateBusiness,
             )
         OnboardingStep.LINK_GOOGLE ->

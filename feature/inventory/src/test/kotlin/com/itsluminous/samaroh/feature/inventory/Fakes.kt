@@ -1,6 +1,5 @@
 package com.itsluminous.samaroh.feature.inventory
 
-import android.net.Uri
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
@@ -107,7 +106,7 @@ class FakeItemImageStore : ItemImageStore {
     val deletedItemIds = mutableListOf<String>()
 
     override suspend fun compressItemImage(
-        source: Uri,
+        source: android.graphics.Bitmap,
         itemId: String,
     ): String {
         requests += itemId

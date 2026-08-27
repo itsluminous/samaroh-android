@@ -31,16 +31,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.designsystem.component.cropper.SquareImageCropperDialog
+import com.itsluminous.samaroh.core.designsystem.component.cropper.loadCropSourceBitmap
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.onboarding.CreateBusinessForm
 import com.itsluminous.samaroh.feature.onboarding.OnboardingUiState
+import kotlinx.coroutines.launch
 
 /**
  * §4.0 step 5 — create-business form: name*, type (dropdown with free text), address,
@@ -53,16 +58,34 @@ import com.itsluminous.samaroh.feature.onboarding.OnboardingUiState
 internal fun CreateBusinessScreen(
     state: OnboardingUiState,
     onFormChange: (CreateBusinessForm) -> Unit,
-    onLogoCaptured: (android.graphics.Bitmap?) -> Unit,
-    onLogoPicked: (android.net.Uri?) -> Unit,
+    onLogoCropped: (android.graphics.Bitmap) -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val form = state.form
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Camera/gallery result → interactive square cropper → ViewModel (→ WebP ≤320px).
+    var cropSource by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val cameraLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { onLogoCaptured(it) }
+        rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+            if (bitmap != null) cropSource = bitmap
+        }
     val galleryLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { onLogoPicked(it) }
+        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null) scope.launch { cropSource = loadCropSourceBitmap(context, uri) }
+        }
+
+    cropSource?.let { source ->
+        SquareImageCropperDialog(
+            bitmap = source,
+            onConfirm = { cropped ->
+                onLogoCropped(cropped)
+                cropSource = null
+            },
+            onDismiss = { cropSource = null },
+        )
+    }
 
     // IME handling (§6 UX round): fields scroll; the submit button stays pinned.
     Column(modifier = modifier.fillMaxSize().imePadding()) {
