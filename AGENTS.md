@@ -120,7 +120,7 @@ Conventional Commits, imperative mood, subject ≤ 50 chars
   `git log` dump.
 - The About screen shows the app version from the package's `versionName`
   (`BuildConfig.VERSION_NAME`), which derives from the tag at release build time
-  (`v0.1.0` → `-PappVersionName=0.1.0`; local/debug builds show the `0.1.0` default).
+  (`v0.1.0` → `-PappVersionName=0.1.0`; local/debug builds show the default set in `app/build.gradle.kts`).
   **Verify Menu → About reflects the new version as part of every release.**
 
 ## Working conventions (learned)
