@@ -28,16 +28,21 @@ interface RemoteStore {
     )
 
     /**
-     * Incremental pull page: rows with `cursorColumn > after`, oldest first, at most [limit],
+     * Incremental pull page (keyset, ADR-024): rows strictly after the position
+     * `(after, afterId)` in `(cursorColumn, idColumn)` ascending order, at most [limit],
      * optionally scoped to one business and to an explicit column projection (ADR-003).
+     * A null [afterId] means "any id at [after]": rows AT the timestamp are included —
+     * that is both the legacy-cursor self-heal and the fresh-install EPOCH start.
      */
     suspend fun pull(
         table: String,
         businessId: String?,
         after: Instant,
+        afterId: String?,
         limit: Int,
         columns: String? = null,
         cursorColumn: String = "updated_at",
+        idColumn: String = "id",
     ): List<JsonObject>
 }
 

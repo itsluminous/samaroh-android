@@ -63,7 +63,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -114,6 +114,20 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE payment_reminders ADD COLUMN kind TEXT NOT NULL DEFAULT 'payment'",
+                    )
+                }
+            }
+
+        /**
+         * v2 → v3 (ADR-024): keyset tie-breaker `sync_cursors.last_pulled_id`. NULL on
+         * existing rows — the next pull re-fetches rows AT the stored timestamp, which
+         * recovers rows lost to the old timestamp-only cursor.
+         */
+        val MIGRATION_2_3: Migration =
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE sync_cursors ADD COLUMN last_pulled_id TEXT",
                     )
                 }
             }

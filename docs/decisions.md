@@ -519,3 +519,47 @@ meaningless to the web (the Wave-1 "photos stored locally, mirroring deferred" g
 prefix classifier, `ItemImageResolver` interface). No frozen repository interface, Room
 schema or wire format changed. Known small leak: replacing/removing a photo orphans the
 previous ~15 KB Storage object; acceptable for now.
+
+## ADR-024 — Keyset sync pull, reminder cleanup pass + post-sync hooks (2026-08-27, the "so many reminders" bug)
+
+**Problem.** The pull cursor was timestamp-only (`updated_at > cursor`, one 200-row page
+per step, stop when the newest timestamp equals the cursor). The 2026-08-26 booking
+import stamped ALL 805 bookings and 632 payments with ONE transaction `now()` — so every
+device pulled exactly 200 rows per table and could NEVER see the rest (strict `>`
+excludes ties forever). The 259 in-SQL settlement payments were among the lost rows, so
+the reminder engine computed `due > 0` for dozens of long-settled bookings and created
+pending reminders with past `remind_on` — the "so many reminders" card. Worse, each
+device created its OWN reminder row and pushed it (2 duplicates per booking, 124 rows on
+the server). Two more gaps: the daily reminder worker was only scheduled on Booking-tab
+entry (a fresh install that never opens the tab gets NO notifications), and reminders
+pulled/settled via sync waited for the next daily 09:00 pass to be acted on.
+
+**Decision.**
+1. **Keyset pagination** (`core:sync` + `core:database`): the pull cursor is now the pair
+   `(last_pulled_at, last_pulled_id)` (Room v3, additive `sync_cursors.last_pulled_id`).
+   The remote query fetches rows strictly after that position in `(cursorColumn, id)`
+   ascending order (`or=(ts.gt.X,and(ts.eq.X,id.gt.Y))` — verified against live
+   PostgREST). A null id (legacy/pre-migration cursor, or fresh EPOCH) pulls `>=` the
+   timestamp, so upgraded installs automatically re-fetch the ties they lost —
+   idempotent LWW applies make that safe.
+2. **Reminder cleanup pass** (`feature:booking`): `PaymentReminderPlanner.plan` keeps
+   exactly ONE pending reminder per booking (earliest wins; duplicates from concurrent
+   devices are dismissed), and the old "orphan" pass became `staleDismissals`, judged per
+   booking: a due pending reminder is dismissed when its booking is missing, cancelled,
+   soft-deleted, or has `due <= 0` — which also covers "total unknown (0)": such bookings
+   never remind. It runs over ALL due pending reminders (not just locally-ended
+   bookings), so reminders synced from another device clean up too.
+3. **Post-sync hooks** (`core:data` additive `PostSyncHook` contract, Hilt `@IntoSet`):
+   after a sync run whose pull applied rows, the engine invokes contributed hooks
+   (failures swallowed). `feature:booking` contributes `ReminderPostSyncHook`: re-ensure
+   the daily worker + run a full engine pass, so a fresh install's FIRST pull immediately
+   registers notifications/alarms and dismisses stale reminders.
+4. **Startup registration** (`feature:booking`): `BookingReminderStartupInitializer`
+   (androidx.startup + ProcessLifecycleOwner, same pattern as `SyncStartupInitializer`)
+   re-ensures the daily worker on every process ON_START. Notifications now also set
+   `setOnlyAlertOnce(true)` so post-sync re-posting updates silently.
+
+**Contract note.** Frozen-contract touches, all additive: `sync_cursors` column +
+migration 2→3, `SyncCursorDao.cursor()` now returns the entity, `PostSyncHook` in
+`core:data`. Server rows already polluted by the bug are dismissed by
+`Planning/cleanup-stale-reminders.sql` (owner-run); devices also self-heal via 1+2.

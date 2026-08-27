@@ -7,7 +7,6 @@ import androidx.room.Query
 import com.itsluminous.samaroh.core.database.entity.SyncConflictEntity
 import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
 import kotlinx.coroutines.flow.Flow
-import java.time.Instant
 
 /*
  * DAOs for the local-only sync bookkeeping tables — ADDITIVE W1-E change
@@ -16,11 +15,12 @@ import java.time.Instant
 
 @Dao
 interface SyncCursorDao {
-    @Query("SELECT last_pulled_at FROM sync_cursors WHERE business_id = :businessId AND table_name = :tableName")
+    /** Full keyset cursor `(last_pulled_at, last_pulled_id)` for one table+scope (ADR-024). */
+    @Query("SELECT * FROM sync_cursors WHERE business_id = :businessId AND table_name = :tableName")
     suspend fun cursor(
         businessId: String,
         tableName: String,
-    ): Instant?
+    ): SyncCursorEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(cursor: SyncCursorEntity)

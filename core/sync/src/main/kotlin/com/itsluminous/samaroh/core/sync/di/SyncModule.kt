@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.sync.di
 
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
+import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
@@ -22,6 +23,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.Multibinds
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Singleton
@@ -41,6 +43,9 @@ abstract class SyncModule {
 
     /** Bound by `core:google` (W1-F); while absent, attachment ops stay queued with a pending state. */
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
+
+    /** Feature modules contribute [PostSyncHook]s via `@IntoSet`; valid even when none do (ADR-024). */
+    @Multibinds abstract fun postSyncHooks(): Set<PostSyncHook>
 
     /** Mirrors local item photos to Supabase Storage before their row op pushes (ADR-023). */
     @Binds abstract fun bindItemImageMirror(impl: StorageItemImageMirror): ItemImageMirror

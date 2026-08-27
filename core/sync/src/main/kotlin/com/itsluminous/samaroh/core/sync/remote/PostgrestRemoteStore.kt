@@ -51,19 +51,35 @@ class PostgrestRemoteStore(
         table: String,
         businessId: String?,
         after: Instant,
+        afterId: String?,
         limit: Int,
         columns: String?,
         cursorColumn: String,
+        idColumn: String,
     ): List<JsonObject> =
         guard {
             postgrest
                 .from(table)
                 .select(columns = columns?.let { Columns.raw(it) } ?: Columns.ALL) {
                     filter {
-                        gt(cursorColumn, after.toString())
+                        if (afterId == null) {
+                            // Legacy/fresh cursor: include rows AT the timestamp so ties
+                            // lost by the old `>`-only cursor are recovered (ADR-024).
+                            gte(cursorColumn, after.toString())
+                        } else {
+                            // Keyset: strictly after (after, afterId) in (ts, id) order.
+                            or {
+                                gt(cursorColumn, after.toString())
+                                and {
+                                    eq(cursorColumn, after.toString())
+                                    gt(idColumn, afterId)
+                                }
+                            }
+                        }
                         if (businessId != null) eq("business_id", businessId)
                     }
                     order(cursorColumn, Order.ASCENDING)
+                    order(idColumn, Order.ASCENDING)
                     limit(limit.toLong())
                 }.decodeList<JsonObject>()
         }

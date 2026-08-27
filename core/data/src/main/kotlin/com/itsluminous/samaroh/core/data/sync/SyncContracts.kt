@@ -46,3 +46,16 @@ interface SyncScheduler {
     /** Ensures the periodic (~15 min, connectivity-constrained) sync is scheduled. */
     fun ensurePeriodicSync()
 }
+
+/**
+ * Reacts to a sync run that APPLIED pulled rows to Room (ADR-024). Feature modules
+ * contribute implementations via Hilt `@IntoSet`; the engine invokes each one after a
+ * successful pull so pulled data becomes actionable immediately — e.g. `feature:booking`
+ * re-plans reminder notifications/alarms and dismisses reminders whose booking arrived
+ * settled, instead of waiting for the next daily 09:00 pass. Hook failures are logged
+ * and never fail the sync run.
+ */
+interface PostSyncHook {
+    /** Called after a sync run whose pull applied at least one row. */
+    suspend fun onSyncApplied()
+}

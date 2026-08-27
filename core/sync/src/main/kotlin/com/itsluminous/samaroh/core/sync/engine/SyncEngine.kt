@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
+import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.database.dao.BusinessDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
@@ -73,6 +74,8 @@ class SyncEngine
         private val itemImageMirror: ItemImageMirror,
         private val conflictNotifier: ConflictNotifier,
         private val syncMetaStore: SyncMetaStore,
+        /** Feature-contributed reactions to applied pulls (ADR-024) — e.g. reminder re-planning. */
+        private val postSyncHooks: Set<@JvmSuppressWildcards PostSyncHook>,
         private val clock: Clock,
     ) {
         private val json = Json { ignoreUnknownKeys = true }
@@ -94,6 +97,10 @@ class SyncEngine
                     pulled = pullResult.first
                     conflicts = pullResult.second
                     syncMetaStore.recordSyncTime(clock.instant())
+                    if (pulled > 0) {
+                        // A hook failure must never fail the sync run (§8: per-item errors don't block).
+                        postSyncHooks.forEach { hook -> runCatching { hook.onSyncApplied() } }
+                    }
                 } catch (_: RemoteUnavailableException) {
                     networkFailed = true
                 }
@@ -284,30 +291,42 @@ class SyncEngine
         ): Pair<Int, Int> {
             var applied = 0
             var conflicts = 0
-            var cursor = cursorDao.cursor(scope, spec.name) ?: Instant.EPOCH
+            val stored = cursorDao.cursor(scope, spec.name)
+            var cursorAt = stored?.lastPulledAt ?: Instant.EPOCH
+            // Null id = legacy/fresh cursor: the pull then INCLUDES rows at cursorAt, so
+            // ties dropped by the old timestamp-only cursor are recovered (ADR-024).
+            var cursorId = stored?.lastPulledId
             while (true) {
                 val rows =
                     remote.pull(
                         table = spec.name,
                         businessId = scope.takeIf { spec.businessScoped },
-                        after = cursor,
+                        after = cursorAt,
+                        afterId = cursorId,
                         limit = PULL_PAGE_SIZE,
                         columns = spec.selectColumns,
                         cursorColumn = spec.cursorColumn,
+                        idColumn = spec.idColumn,
                     )
                 if (rows.isEmpty()) break
-                var newest = cursor
+                var lastAt = cursorAt
+                var lastId = cursorId
                 for (raw in rows) {
                     val row = WireConverter.toLocal(spec.name, raw)
                     val remoteUpdated = WireConverter.parseTimestamp(row.getValue(spec.cursorColumn).jsonPrimitive.content)
-                    if (remoteUpdated > newest) newest = remoteUpdated
+                    // Rows arrive ordered by (cursorColumn, id) — the last one is the new keyset position.
+                    lastAt = remoteUpdated
+                    lastId = row.getValue(spec.idColumn).jsonPrimitive.content
                     val outcome = applyWithLww(spec, row, remoteUpdated)
                     if (outcome.first) applied++
                     if (outcome.second) conflicts++
                 }
-                cursorDao.upsert(SyncCursorEntity(scope, spec.name, newest))
-                if (rows.size < PULL_PAGE_SIZE || newest == cursor) break
-                cursor = newest
+                // Defensive: a page that fails to advance the position would loop forever.
+                if (lastAt == cursorAt && lastId == cursorId) break
+                cursorDao.upsert(SyncCursorEntity(scope, spec.name, lastAt, lastId))
+                if (rows.size < PULL_PAGE_SIZE) break
+                cursorAt = lastAt
+                cursorId = lastId
             }
             return applied to conflicts
         }

@@ -11,10 +11,12 @@ import java.time.Instant
  */
 
 /**
- * Incremental pull cursor: the newest `updated_at` already applied for one table within
- * one business scope. The pull pipeline fetches `updated_at > last_pulled_at` per row
- * (§8 step 2). Business-agnostic tables (for example `businesses` itself) use the
- * [GLOBAL_SCOPE] sentinel.
+ * Incremental pull cursor: the KEYSET position `(last_pulled_at, last_pulled_id)` of the
+ * newest row already applied for one table within one business scope. The pull pipeline
+ * fetches rows strictly after that position in `(cursor_column, id)` order (§8 step 2,
+ * ADR-024) — a timestamp alone loses rows when many share one `updated_at` (bulk imports
+ * stamp every row with the transaction time). Business-agnostic tables (for example
+ * `businesses` itself) use the [GLOBAL_SCOPE] sentinel.
  */
 @Entity(
     tableName = "sync_cursors",
@@ -24,6 +26,12 @@ data class SyncCursorEntity(
     @ColumnInfo(name = "business_id") val businessId: String,
     @ColumnInfo(name = "table_name") val tableName: String,
     @ColumnInfo(name = "last_pulled_at") val lastPulledAt: Instant,
+    /**
+     * Id of the last pulled row at [lastPulledAt] — the keyset tie-breaker (ADR-024).
+     * Null on pre-ADR-024 cursors: the next pull then re-fetches every row AT the stored
+     * timestamp (idempotent applies), which self-heals installs that lost tied rows.
+     */
+    @ColumnInfo(name = "last_pulled_id") val lastPulledId: String? = null,
 ) {
     companion object {
         /** Scope key for tables pulled without a per-business filter. */

@@ -71,7 +71,9 @@ class SyncEnginePullTest {
             assertThat(pulled).isNotNull()
             assertThat(pulled!!.totalAmountPaise).isEqualTo(123_456L)
             assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings"))
-                .isEqualTo(Instant.parse("2026-08-25T11:00:00Z"))
+                .isEqualTo(
+                    SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", Instant.parse("2026-08-25T11:00:00Z"), "b-2"),
+                )
         }
 
     @Test
@@ -353,7 +355,14 @@ class SyncEnginePullTest {
             assertThat(remote.pullCursorColumns["bookings"]).isEqualTo("updated_at")
             assertThat(db.expenseAttachmentDao().byId("att-1")).isNotNull()
             assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "expense_attachments"))
-                .isEqualTo(Instant.parse("2026-08-25T10:00:00Z"))
+                .isEqualTo(
+                    SyncCursorEntity(
+                        Fixtures.BUSINESS_ID,
+                        "expense_attachments",
+                        Instant.parse("2026-08-25T10:00:00Z"),
+                        "att-1",
+                    ),
+                )
         }
 
     // ---- one-run coverage: businesses discovered mid-run (§8 "calendar empty after sign-in" bug) ----
@@ -443,6 +452,112 @@ class SyncEnginePullTest {
 
             // One global `businesses` pull per pass — the run stops at the pass cap.
             assertThat(remote.pullCalls.count { it.first == "businesses" }).isEqualTo(3)
+        }
+
+    // ---- keyset pagination: identical updated_at across pages (ADR-024, the import bug) ----
+
+    @Test
+    fun `bulk import - rows sharing one updated_at paginate fully via the id tie-breaker`() =
+        runTest {
+            // The real failure: an 805-row import stamped every row with ONE transaction
+            // timestamp; the old `updated_at > cursor` pull got page 1 and then excluded
+            // the remaining ties forever. Keyset (updated_at, id) must fetch them all.
+            seedBusiness()
+            val importTs = "2026-08-20T05:00:00+00:00"
+            val page1 = (0 until 200).map { remoteBookingRow("b-%03d".format(it), updatedAt = importTs) }
+            val page2 = (200 until 300).map { remoteBookingRow("b-%03d".format(it), updatedAt = importTs) }
+            remote.servePage("bookings", page1)
+            remote.servePage("bookings", page2)
+
+            val outcome = syncEngine(db, remote, notifier).runSync()
+
+            assertThat(outcome.pulledCount).isAtLeast(300)
+            assertThat(db.bookingDao().byId("b-000")).isNotNull()
+            assertThat(db.bookingDao().byId("b-199")).isNotNull()
+            assertThat(db.bookingDao().byId("b-299")).isNotNull()
+            // Page 2 was requested strictly after the keyset position (importTs, "b-199").
+            val bookingAfterIds =
+                remote.pullCalls
+                    .zip(remote.pullAfterIds)
+                    .filter { it.first.first == "bookings" }
+                    .map { it.second }
+            assertThat(bookingAfterIds).containsExactly(null, "b-199").inOrder()
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings"))
+                .isEqualTo(
+                    SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", Instant.parse("2026-08-20T05:00:00Z"), "b-299"),
+                )
+        }
+
+    @Test
+    fun `legacy timestamp-only cursor self-heals - the pull re-includes rows AT the cursor`() =
+        runTest {
+            // Pre-ADR-024 installs stored only the timestamp: afterId must go out null
+            // (remote then uses >= and re-serves the ties), and the cursor gets its id.
+            seedBusiness()
+            val importTs = Instant.parse("2026-08-20T05:00:00Z")
+            db.syncCursorDao().upsert(SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", importTs, lastPulledId = null))
+            remote.servePage(
+                "bookings",
+                listOf(remoteBookingRow("b-tie", updatedAt = "2026-08-20T05:00:00+00:00")),
+            )
+
+            syncEngine(db, remote, notifier).runSync()
+
+            val bookingsPull = remote.pullCalls.zip(remote.pullAfterIds).first { it.first.first == "bookings" }
+            assertThat(bookingsPull.first.third).isEqualTo(importTs)
+            assertThat(bookingsPull.second).isNull()
+            assertThat(db.bookingDao().byId("b-tie")).isNotNull()
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings"))
+                .isEqualTo(SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", importTs, "b-tie"))
+        }
+
+    // ---- post-sync hooks (ADR-024): pulled data becomes actionable immediately ----
+
+    private class RecordingHook : com.itsluminous.samaroh.core.data.sync.PostSyncHook {
+        var invocations = 0
+
+        override suspend fun onSyncApplied() {
+            invocations++
+        }
+    }
+
+    @Test
+    fun `post-sync hooks run after a pull that applied rows`() =
+        runTest {
+            seedBusiness()
+            remote.servePage("bookings", listOf(remoteBookingRow("b-1", updatedAt = "2026-08-25T10:00:00+00:00")))
+            val hook = RecordingHook()
+
+            syncEngine(db, remote, notifier, postSyncHooks = setOf(hook)).runSync()
+
+            assertThat(hook.invocations).isEqualTo(1)
+        }
+
+    @Test
+    fun `post-sync hooks are skipped when the pull applied nothing`() =
+        runTest {
+            seedBusiness()
+            val hook = RecordingHook()
+
+            syncEngine(db, remote, notifier, postSyncHooks = setOf(hook)).runSync()
+
+            assertThat(hook.invocations).isEqualTo(0)
+        }
+
+    @Test
+    fun `a failing post-sync hook never fails the sync run`() =
+        runTest {
+            seedBusiness()
+            remote.servePage("bookings", listOf(remoteBookingRow("b-1", updatedAt = "2026-08-25T10:00:00+00:00")))
+            val failing =
+                object : com.itsluminous.samaroh.core.data.sync.PostSyncHook {
+                    override suspend fun onSyncApplied(): Unit = error("hook exploded")
+                }
+
+            val outcome = syncEngine(db, remote, notifier, postSyncHooks = setOf(failing)).runSync()
+
+            assertThat(outcome.networkFailed).isFalse()
+            assertThat(outcome.pulledCount).isEqualTo(1)
         }
 
     private fun remoteBusinessRow(

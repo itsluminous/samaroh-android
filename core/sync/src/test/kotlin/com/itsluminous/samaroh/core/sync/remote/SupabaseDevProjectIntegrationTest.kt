@@ -39,7 +39,7 @@ class SupabaseDevProjectIntegrationTest {
         runTest {
             val result =
                 runCatching {
-                    store!!.pull(table = "bookings", businessId = null, after = Instant.EPOCH, limit = 1)
+                    store!!.pull(table = "bookings", businessId = null, after = Instant.EPOCH, afterId = null, limit = 1)
                 }
             // Anonymous reads are either RLS-filtered (empty list) or rejected outright —
             // both prove the wire path and the error taxonomy; only a transport failure fails.

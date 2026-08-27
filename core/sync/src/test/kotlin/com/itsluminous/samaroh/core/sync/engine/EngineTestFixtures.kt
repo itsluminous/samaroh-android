@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
+import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.model.Booking
@@ -36,6 +37,9 @@ class FakeRemoteStore : RemoteStore {
     val upserts = mutableListOf<Pair<String, JsonObject>>()
     val tombstones = mutableListOf<Triple<String, String, String>>()
     val pullCalls = mutableListOf<Triple<String, String?, Instant>>()
+
+    /** Keyset id per pull call, parallel to [pullCalls] (ADR-024). */
+    val pullAfterIds = mutableListOf<String?>()
 
     /** Last cursor column requested per table (asserts the expense_attachments created_at cursor). */
     val pullCursorColumns = mutableMapOf<String, String>()
@@ -86,11 +90,14 @@ class FakeRemoteStore : RemoteStore {
         table: String,
         businessId: String?,
         after: Instant,
+        afterId: String?,
         limit: Int,
         columns: String?,
         cursorColumn: String,
+        idColumn: String,
     ): List<JsonObject> {
         pullCalls += Triple(table, businessId, after)
+        pullAfterIds += afterId
         pullCursorColumns[table] = cursorColumn
         onPull?.invoke(table, businessId)
         return pullPages[table]?.removeFirstOrNull() ?: emptyList()
@@ -160,6 +167,7 @@ fun syncEngine(
     metaStore: SyncMetaStore = InMemorySyncMetaStore(),
     uploader: AttachmentUploader? = null,
     imageMirror: ItemImageMirror = FakeItemImageMirror(),
+    postSyncHooks: Set<PostSyncHook> = emptySet(),
     clock: Clock = FIXED_CLOCK,
 ): SyncEngine =
     SyncEngine(
@@ -188,6 +196,7 @@ fun syncEngine(
         itemImageMirror = imageMirror,
         conflictNotifier = notifier,
         syncMetaStore = metaStore,
+        postSyncHooks = postSyncHooks,
         clock = clock,
     )
 
