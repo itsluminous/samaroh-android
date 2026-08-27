@@ -74,6 +74,19 @@ data class PartyExpenseRow(
     val spendPaise: Long,
 )
 
+/**
+ * Expense summary (§4.4 #6) monthly row: 'paid' ledger entries plus inventory
+ * purchases (`add` transactions valued at quantity × unit price), side by side —
+ * web-parity with `expenseSummaryByMonth`.
+ */
+data class ExpenseMonth(
+    val month: YearMonth,
+    val ledgerPaise: Long,
+    val inventoryPaise: Long,
+) {
+    val totalPaise: Long get() = ledgerPaise + inventoryPaise
+}
+
 /** Profit view (§4.4 #7): cash-basis income vs expenses for one month. */
 data class ProfitMonth(
     val month: YearMonth,

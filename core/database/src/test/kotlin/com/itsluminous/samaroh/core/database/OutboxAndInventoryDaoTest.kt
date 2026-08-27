@@ -127,6 +127,35 @@ class InventoryFifoQueryTest {
         }
 
     @Test
+    fun `addTransactionsBetween keeps live adds in the half-open window across items`() =
+        runTest {
+            val dao = db.inventoryTransactionDao()
+            val inWindow = inventoryTxnFixture(itemId, transactionDate = Instant.parse("2026-08-05T09:00:00Z"))
+            val otherItemInWindow = inventoryTxnFixture("item-2", transactionDate = Instant.parse("2026-08-10T09:00:00Z"))
+            val atExclusiveEnd = inventoryTxnFixture(itemId, transactionDate = Instant.parse("2026-09-01T00:00:00Z"))
+            val beforeWindow = inventoryTxnFixture(itemId, transactionDate = Instant.parse("2026-07-31T23:59:59Z"))
+            val removal =
+                inventoryTxnFixture(
+                    itemId,
+                    type = com.itsluminous.samaroh.core.model.TxnType.REMOVE,
+                    transactionDate = Instant.parse("2026-08-06T09:00:00Z"),
+                )
+            val tombstoned = inventoryTxnFixture(itemId, transactionDate = Instant.parse("2026-08-07T09:00:00Z"))
+            listOf(inWindow, otherItemInWindow, atExclusiveEnd, beforeWindow, removal, tombstoned).forEach { dao.upsert(it) }
+            dao.tombstone(tombstoned.id, Instant.parse("2026-08-08T09:00:00Z"))
+
+            val rows =
+                dao
+                    .addTransactionsBetween(
+                        TEST_BUSINESS_ID,
+                        fromInclusive = Instant.parse("2026-08-01T00:00:00Z"),
+                        toExclusive = Instant.parse("2026-09-01T00:00:00Z"),
+                    ).first()
+
+            assertThat(rows.map { it.id }).containsExactly(inWindow.id, otherItemInWindow.id).inOrder()
+        }
+
+    @Test
     fun `current stock is adds minus removes over live rows`() =
         runTest {
             val dao = db.inventoryTransactionDao()

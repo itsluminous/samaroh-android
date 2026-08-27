@@ -6,9 +6,13 @@ import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseDirection
+import com.itsluminous.samaroh.core.model.InventoryTransaction
+import com.itsluminous.samaroh.core.model.TxnType
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlin.math.roundToLong
 
 /*
  * Pure aggregation logic for the nine reports (§4.4). No Android, no IO, no clocks —
@@ -37,6 +41,30 @@ private fun List<BookingPayment>.paidByBooking(): Map<String, Long> =
     filter { it.deletedAt == null }
         .groupBy { it.bookingId }
         .mapValues { (_, payments) -> payments.sumOf { it.amountPaise } }
+
+/**
+ * Monthly inventory purchases: live `add` transactions valued at quantity × unit price
+ * (rounded to whole paise per transaction), bucketed by the [zone]-local month of their
+ * transaction time. Counted as spend in the money reports without creating expense
+ * ledger rows — web-parity with `inventoryPurchasesByMonth` (ADR-026).
+ */
+internal fun inventoryPurchasesByMonth(
+    purchases: List<InventoryTransaction>,
+    range: ReportDateRange,
+    zone: ZoneId,
+): Map<YearMonth, Long> {
+    val byMonth = mutableMapOf<YearMonth, Long>()
+    purchases
+        .filter { it.transactionType == TxnType.ADD && it.deletedAt == null }
+        .forEach { txn ->
+            val date = txn.transactionDate.atZone(zone).toLocalDate()
+            if (date in range.start..range.end) {
+                val month = YearMonth.from(date)
+                byMonth[month] = (byMonth[month] ?: 0L) + (txn.quantity * txn.unitPricePaise).roundToLong()
+            }
+        }
+    return byMonth
+}
 
 /** §4.4 #1 — collected vs outstanding per month, attributed to the booking's start month. */
 object RevenueSummaryCalculator {
@@ -172,14 +200,45 @@ object ExpenseSummaryCalculator {
         rows: List<PartyExpenseRow>,
         n: Int = 10,
     ): List<PartyExpenseRow> = rows.take(n)
+
+    /**
+     * Monthly summary: 'paid' ledger entries plus inventory purchases per month —
+     * every month of the range is present, zero when quiet (web-parity with
+     * `expenseSummaryByMonth`).
+     */
+    fun byMonth(
+        expenses: List<Expense>,
+        purchases: List<InventoryTransaction>,
+        range: ReportDateRange,
+        zone: ZoneId,
+    ): List<ExpenseMonth> {
+        val ledgerByMonth =
+            expenses
+                .filter { it.deletedAt == null && it.direction == ExpenseDirection.PAID && it.expenseDate in range.start..range.end }
+                .groupBy { YearMonth.from(it.expenseDate) }
+                .mapValues { (_, group) -> group.sumOf { it.amountPaise } }
+        val inventoryByMonth = inventoryPurchasesByMonth(purchases, range, zone)
+        return range.months().map { month ->
+            ExpenseMonth(
+                month = month,
+                ledgerPaise = ledgerByMonth[month] ?: 0L,
+                inventoryPaise = inventoryByMonth[month] ?: 0L,
+            )
+        }
+    }
 }
 
-/** §4.4 #7 — cash-basis profit: payments received minus net expenses, per month. */
+/**
+ * §4.4 #7 — cash-basis profit: payments received minus net expenses and inventory
+ * purchases, per month.
+ */
 object ProfitCalculator {
     fun calculate(
         payments: List<BookingPayment>,
         expenses: List<Expense>,
+        purchases: List<InventoryTransaction>,
         range: ReportDateRange,
+        zone: ZoneId,
     ): List<ProfitMonth> {
         val incomeByMonth =
             payments
@@ -193,11 +252,12 @@ object ProfitCalculator {
                 .mapValues { (_, group) ->
                     group.sumOf { if (it.direction == ExpenseDirection.PAID) it.amountPaise else -it.amountPaise }
                 }
+        val inventoryByMonth = inventoryPurchasesByMonth(purchases, range, zone)
         return range.months().map { month ->
             ProfitMonth(
                 month = month,
                 incomePaise = incomeByMonth[month] ?: 0L,
-                expensePaise = expenseByMonth[month] ?: 0L,
+                expensePaise = (expenseByMonth[month] ?: 0L) + (inventoryByMonth[month] ?: 0L),
             )
         }
     }

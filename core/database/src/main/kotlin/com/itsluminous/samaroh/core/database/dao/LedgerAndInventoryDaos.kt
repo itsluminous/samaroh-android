@@ -293,6 +293,25 @@ interface InventoryTransactionDao {
         masterItemId: String,
     ): List<InventoryTransactionEntity>
 
+    /**
+     * Live `add` transactions (stock purchases) of every item with
+     * `transaction_date` in [fromInclusive, toExclusive) — the inventory-purchases
+     * input of the money reports (ADR-026). Instants compare as epoch millis.
+     */
+    @Query(
+        """
+        SELECT * FROM inventory_transactions
+        WHERE business_id = :businessId AND transaction_type = 'add' AND deleted_at IS NULL
+          AND transaction_date >= :fromInclusive AND transaction_date < :toExclusive
+        ORDER BY transaction_date ASC
+        """,
+    )
+    fun addTransactionsBetween(
+        businessId: String,
+        fromInclusive: Instant,
+        toExclusive: Instant,
+    ): Flow<List<InventoryTransactionEntity>>
+
     /** Current stock = Σ(add qty) − Σ(remove qty) over live rows. */
     @Query(
         """

@@ -14,9 +14,11 @@ import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.Expense
+import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.core.model.PaymentReminder
+import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.feature.reports.export.ExportedReport
 import com.itsluminous.samaroh.feature.reports.export.ReportExportFormat
 import com.itsluminous.samaroh.feature.reports.export.ReportExporter
@@ -24,6 +26,7 @@ import com.itsluminous.samaroh.feature.reports.export.ReportTable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
 import java.time.LocalDate
 
 class FakeActiveBusinessProvider(
@@ -151,6 +154,7 @@ class FakeExpensesRepository : ExpensesRepository {
 class FakeReportsRepository : ReportsRepository {
     val paymentsFlow = MutableStateFlow<List<BookingPayment>>(emptyList())
     val expensesFlow = MutableStateFlow<List<Expense>>(emptyList())
+    val purchasesFlow = MutableStateFlow<List<InventoryTransaction>>(emptyList())
 
     override fun paymentsBetween(
         businessId: String,
@@ -163,6 +167,20 @@ class FakeReportsRepository : ReportsRepository {
         from: LocalDate,
         to: LocalDate,
     ): Flow<List<Expense>> = expensesFlow.map { list -> list.filter { it.expenseDate in from..to } }
+
+    override fun inventoryPurchasesBetween(
+        businessId: String,
+        fromInclusive: Instant,
+        toExclusive: Instant,
+    ): Flow<List<InventoryTransaction>> =
+        purchasesFlow.map { list ->
+            list.filter {
+                it.transactionType == TxnType.ADD &&
+                    it.deletedAt == null &&
+                    !it.transactionDate.isBefore(fromInclusive) &&
+                    it.transactionDate < toExclusive
+            }
+        }
 }
 
 class FakeInventoryOverviewRepository : InventoryOverviewRepository {

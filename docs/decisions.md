@@ -603,3 +603,45 @@ same dialog. Expense attachments intentionally keep their existing uncropped
 `AttachmentCompressor` path. The stored-file formats and the sync/Storage mirroring
 contracts (ADR-023) are unchanged — the cropper only decides WHICH square goes into the
 existing ≤320px WebP files.
+
+## ADR-026 — Inventory purchases count as spend in the money reports (2026-08-27, web parity)
+
+**Status:** accepted.
+
+**Context.** Stock bought through the Inventory tab (`add` transactions) is real money
+out, but it never creates an expense ledger row, so the Expense summary and Profit
+reports under-reported spend. samaroh-web shipped the fix (8dbdc17) with the shared
+string key `reports.expense.inventory_purchases_label` (shared 40970d1); Android must
+match.
+
+**Decision.** Inventory `add` transactions are valued at quantity × unit price and
+counted as spend in the money reports, bucketed by the month of `transaction_date` — NO
+expense ledger rows are created:
+
+1. `core:database` (additive `@Query`, Room stays at version 1):
+   `InventoryTransactionDao.addTransactionsBetween(businessId, fromInclusive,
+   toExclusive)` — live `add` rows of every item in a half-open Instant window
+   (mirrors web's `gte`/`lt next-day` bounds).
+2. `core:data` (additive method on the ADR-019 `ReportsRepository`, no other contract
+   or fake changes): `inventoryPurchasesBetween(businessId, fromInclusive, toExclusive)`
+   returning domain `InventoryTransaction`s; `RoomReportsRepository` gains the DAO.
+3. `feature:reports` calculators (pure, unit-tested): shared
+   `inventoryPurchasesByMonth(purchases, range, zone)` rounds quantity × unit-price to
+   whole paise PER TRANSACTION, then sums per month. New
+   `ExpenseSummaryCalculator.byMonth` returns per-month ledger ('paid' entries only,
+   web-parity with `expenseSummaryByMonth`) + inventory + total; `ProfitCalculator`
+   adds the month's purchases to its (net paid − received) expenses.
+4. Presentation: the Expense summary chart/table become monthly (Month | Expenses |
+   Inventory purchases | Total, stacked bars) and the spend-by-party breakdown moves to
+   a secondary on-screen table excluded from CSV/PDF — exactly the web layout. Profit
+   is unchanged visually; its expense column simply includes purchases.
+
+**Timezone.** `transaction_date` is an Instant; months are bucketed in the device zone
+(`Clock.zone` — the same zone the inventory UI uses to display transaction dates), and
+the query window is [range.start 00:00, range.end+1day 00:00) in that zone. Web buckets
+by the UTC date of the ISO timestamp; the two can differ around local midnight — accepted,
+since each client is consistent with its own displayed dates.
+
+**Consequences.** Expense summary totals and Profit nets now include stock purchases,
+matching web. The ledger column intentionally counts 'paid' entries only (web parity)
+while the per-party breakdown keeps netting paid − received, same as before.

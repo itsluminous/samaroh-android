@@ -10,6 +10,7 @@ import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.ReportsRepository
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
+import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.feature.reports.domain.AgingBucket
 import com.itsluminous.samaroh.feature.reports.domain.AgingEntry
 import com.itsluminous.samaroh.feature.reports.domain.BookingSourceBreakdownCalculator
@@ -19,6 +20,7 @@ import com.itsluminous.samaroh.feature.reports.domain.DateRanges
 import com.itsluminous.samaroh.feature.reports.domain.DuesAgingCalculator
 import com.itsluminous.samaroh.feature.reports.domain.EventTypeBreakdownCalculator
 import com.itsluminous.samaroh.feature.reports.domain.EventTypeRow
+import com.itsluminous.samaroh.feature.reports.domain.ExpenseMonth
 import com.itsluminous.samaroh.feature.reports.domain.ExpenseSummaryCalculator
 import com.itsluminous.samaroh.feature.reports.domain.InventoryValuationCalculator
 import com.itsluminous.samaroh.feature.reports.domain.OccupancyCalculator
@@ -90,9 +92,10 @@ sealed interface ReportData {
     }
 
     data class Expenses(
+        val months: List<ExpenseMonth>,
         val rows: List<PartyExpenseRow>,
     ) : ReportData {
-        override val isEmpty: Boolean get() = rows.isEmpty()
+        override val isEmpty: Boolean get() = months.all { it.totalPaise == 0L } && rows.isEmpty()
 
         val top10: List<PartyExpenseRow> get() = ExpenseSummaryCalculator.top(rows)
     }
@@ -263,18 +266,23 @@ class ReportDetailViewModel
                     combine(
                         reportsRepository.expensesBetween(businessId, range.start, range.end),
                         expensesRepository.partiesWithBalance(businessId),
-                    ) { expenses, parties ->
+                        inventoryPurchases(businessId, range),
+                    ) { expenses, parties, purchases ->
                         val names = parties.associate { it.party.id to it.party.name }
                         // The unknown-party fallback is substituted with the localized
                         // label at the presentation layer; the sentinel never renders.
-                        ReportData.Expenses(ExpenseSummaryCalculator.calculate(expenses, names, UNKNOWN_PARTY_SENTINEL))
+                        ReportData.Expenses(
+                            months = ExpenseSummaryCalculator.byMonth(expenses, purchases, range, clock.zone),
+                            rows = ExpenseSummaryCalculator.calculate(expenses, names, UNKNOWN_PARTY_SENTINEL),
+                        )
                     }
                 ReportType.PROFIT ->
                     combine(
                         reportsRepository.paymentsBetween(businessId, range.start, range.end),
                         reportsRepository.expensesBetween(businessId, range.start, range.end),
-                    ) { payments, expenses ->
-                        ReportData.Profit(ProfitCalculator.calculate(payments, expenses, range))
+                        inventoryPurchases(businessId, range),
+                    ) { payments, expenses, purchases ->
+                        ReportData.Profit(ProfitCalculator.calculate(payments, expenses, purchases, range, clock.zone))
                     }
                 ReportType.INVENTORY_VALUATION ->
                     inventoryOverviewRepository
@@ -285,6 +293,25 @@ class ReportDetailViewModel
                         ReportData.Collection(CollectionEfficiencyCalculator.calculate(bookings, payments))
                     }
             }
+
+        /**
+         * Inventory `add` transactions whose transaction time falls in [range] as
+         * device-zone-local days — the inventory-purchases spend input of the money
+         * reports (ADR-026). End bound is exclusive-next-day so the whole last day counts.
+         */
+        private fun inventoryPurchases(
+            businessId: String,
+            range: ReportDateRange,
+        ): Flow<List<InventoryTransaction>> =
+            reportsRepository.inventoryPurchasesBetween(
+                businessId = businessId,
+                fromInclusive = range.start.atStartOfDay(clock.zone).toInstant(),
+                toExclusive =
+                    range.end
+                        .plusDays(1)
+                        .atStartOfDay(clock.zone)
+                        .toInstant(),
+            )
 
         @OptIn(ExperimentalCoroutinesApi::class)
         private fun bookingsWithPayments(

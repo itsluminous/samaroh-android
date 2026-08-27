@@ -114,25 +114,26 @@ fun ReportChart(
                 valueFormatter = money,
                 modifier = modifier,
             )
-        is ReportData.Expenses -> {
-            val unknownParty = stringResource(R.string.reports_expense_unknown_party)
+        is ReportData.Expenses ->
             SamarohBarChart(
                 entries =
-                    data.top10.map {
-                        val name = displayPartyName(it.partyName, unknownParty)
+                    data.months.map {
                         ChartEntry(
-                            label = name.take(BAR_LABEL_MAX_CHARS),
-                            fullLabel = name,
-                            values = listOf(it.spendPaise),
+                            label = monthAxisLabel(it.month, locale),
+                            fullLabel = monthFullLabel(it.month, locale),
+                            values = listOf(it.ledgerPaise, it.inventoryPaise),
                         )
                     },
-                colors = listOf(moneyOut),
-                legends = listOf(stringResource(R.string.reports_legend_spend)),
+                colors = listOf(moneyOut, MaterialTheme.colorScheme.tertiary),
+                legends =
+                    listOf(
+                        stringResource(R.string.reports_legend_spend),
+                        stringResource(R.string.reports_expense_inventory_purchases_label),
+                    ),
                 axisFormatter = compactAmount,
                 valueFormatter = money,
                 modifier = modifier,
             )
-        }
         is ReportData.Profit ->
             SamarohLineChart(
                 entries =

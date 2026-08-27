@@ -148,6 +148,80 @@ class ReportDetailViewModelTest {
         }
 
     @Test
+    fun `expense summary months combine ledger spend with inventory purchases`() =
+        runTest(dispatcherRule.dispatcher) {
+            reportsRepository.expensesFlow.value =
+                listOf(Fixtures.expense(partyId = "caterer", amountPaise = 10_000_00L, expenseDate = LocalDate.of(2026, 8, 3)))
+            reportsRepository.purchasesFlow.value =
+                listOf(
+                    Fixtures.inventoryTxn(
+                        masterItemId = "rice",
+                        quantity = 10.0,
+                        unitPricePaise = 500_00L,
+                        transactionDate = Instant.parse("2026-08-10T09:00:00Z"),
+                    ),
+                )
+
+            viewModel(ReportType.EXPENSE_SUMMARY).uiState.test {
+                val state = awaitItemMatching { it.allowed && it.data != null }
+                val data = state.data as ReportData.Expenses
+                assertThat(data.months).hasSize(12)
+                val august = data.months.first { it.month == YearMonth.of(2026, 8) }
+                assertThat(august.ledgerPaise).isEqualTo(10_000_00L)
+                assertThat(august.inventoryPaise).isEqualTo(5_000_00L)
+                assertThat(august.totalPaise).isEqualTo(15_000_00L)
+                assertThat(data.rows.single().spendPaise).isEqualTo(10_000_00L)
+            }
+        }
+
+    @Test
+    fun `inventory-only spending still populates the expense summary`() =
+        runTest(dispatcherRule.dispatcher) {
+            reportsRepository.purchasesFlow.value =
+                listOf(
+                    Fixtures.inventoryTxn(
+                        masterItemId = "rice",
+                        quantity = 2.0,
+                        unitPricePaise = 100_00L,
+                        transactionDate = Instant.parse("2026-07-10T09:00:00Z"),
+                    ),
+                )
+
+            viewModel(ReportType.EXPENSE_SUMMARY).uiState.test {
+                val state = awaitItemMatching { it.allowed && it.data != null }
+                val data = state.data as ReportData.Expenses
+                assertThat(data.isEmpty).isFalse()
+                assertThat(data.months.first { it.month == YearMonth.of(2026, 7) }.inventoryPaise).isEqualTo(200_00L)
+                assertThat(data.rows).isEmpty()
+            }
+        }
+
+    @Test
+    fun `profit subtracts inventory purchases in the month they happened`() =
+        runTest(dispatcherRule.dispatcher) {
+            reportsRepository.paymentsFlow.value =
+                listOf(Fixtures.payment(bookingId = "b1", amountPaise = 1_00_000_00L, paidOn = LocalDate.of(2026, 8, 5)))
+            reportsRepository.purchasesFlow.value =
+                listOf(
+                    Fixtures.inventoryTxn(
+                        masterItemId = "rice",
+                        quantity = 4.0,
+                        unitPricePaise = 10_000_00L,
+                        transactionDate = Instant.parse("2026-08-12T09:00:00Z"),
+                    ),
+                )
+
+            viewModel(ReportType.PROFIT).uiState.test {
+                val state = awaitItemMatching { it.allowed && it.data != null }
+                val months = (state.data as ReportData.Profit).months
+                val august = months.first { it.month == YearMonth.of(2026, 8) }
+                assertThat(august.incomePaise).isEqualTo(1_00_000_00L)
+                assertThat(august.expensePaise).isEqualTo(40_000_00L)
+                assertThat(august.netPaise).isEqualTo(60_000_00L)
+            }
+        }
+
+    @Test
     fun `successful export surfaces a one-shot share request`() =
         runTest(dispatcherRule.dispatcher) {
             val vm = viewModel(ReportType.REVENUE)

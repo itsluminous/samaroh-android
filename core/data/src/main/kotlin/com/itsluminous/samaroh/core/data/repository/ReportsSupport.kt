@@ -2,10 +2,13 @@ package com.itsluminous.samaroh.core.data.repository
 
 import com.itsluminous.samaroh.core.database.dao.BookingPaymentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
+import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Expense
+import com.itsluminous.samaroh.core.model.InventoryTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,6 +39,17 @@ interface ReportsRepository {
         from: LocalDate,
         to: LocalDate,
     ): Flow<List<Expense>>
+
+    /**
+     * Live inventory `add` transactions (stock purchases) with a transaction time in
+     * [fromInclusive, toExclusive) — counted as spend in the money reports (quantity ×
+     * unit price); no expense ledger row exists for them (ADR-026).
+     */
+    fun inventoryPurchasesBetween(
+        businessId: String,
+        fromInclusive: Instant,
+        toExclusive: Instant,
+    ): Flow<List<InventoryTransaction>>
 }
 
 @Singleton
@@ -44,6 +58,7 @@ class RoomReportsRepository
     constructor(
         private val paymentDao: BookingPaymentDao,
         private val expenseDao: ExpenseDao,
+        private val inventoryTransactionDao: InventoryTransactionDao,
     ) : ReportsRepository {
         override fun paymentsBetween(
             businessId: String,
@@ -56,4 +71,13 @@ class RoomReportsRepository
             from: LocalDate,
             to: LocalDate,
         ): Flow<List<Expense>> = expenseDao.expensesBetween(businessId, from, to).map { list -> list.map { it.toModel() } }
+
+        override fun inventoryPurchasesBetween(
+            businessId: String,
+            fromInclusive: Instant,
+            toExclusive: Instant,
+        ): Flow<List<InventoryTransaction>> =
+            inventoryTransactionDao
+                .addTransactionsBetween(businessId, fromInclusive, toExclusive)
+                .map { list -> list.map { it.toModel() } }
     }

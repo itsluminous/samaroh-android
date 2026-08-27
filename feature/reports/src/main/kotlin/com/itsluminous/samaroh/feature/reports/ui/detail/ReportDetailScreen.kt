@@ -107,6 +107,15 @@ fun ReportDetailScreen(
                             ExportButtonsRow(onExport = { format -> viewModel.export(table, format) })
                             ReportTableGrid(table = table)
                         }
+                        val partiesTable = rememberExpensePartiesTable(state)
+                        if (partiesTable != null) {
+                            Text(
+                                text = partiesTable.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                            ReportTableGrid(table = partiesTable)
+                        }
                     }
                 }
             }

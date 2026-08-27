@@ -4,10 +4,13 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.ExpenseDirection
+import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.core.testing.Fixtures
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneOffset
 
 class OccupancyCalculatorTest {
     private val range = ReportDateRange(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 30))
@@ -145,7 +148,134 @@ class ExpenseSummaryCalculatorTest {
     }
 }
 
+class ExpenseSummaryByMonthTest {
+    private val zone = ZoneOffset.UTC
+    private val range = ReportDateRange(LocalDate.of(2026, 7, 1), LocalDate.of(2026, 8, 31))
+
+    @Test
+    fun `inventory purchases bucket by transaction month at quantity times unit price`() {
+        val purchases =
+            listOf(
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    quantity = 10.0,
+                    unitPricePaise = 50_00L,
+                    transactionDate = Instant.parse("2026-07-05T09:00:00Z"),
+                ),
+                Fixtures.inventoryTxn(
+                    masterItemId = "oil",
+                    quantity = 2.0,
+                    unitPricePaise = 150_00L,
+                    transactionDate = Instant.parse("2026-08-20T09:00:00Z"),
+                ),
+            )
+
+        val months = ExpenseSummaryCalculator.byMonth(emptyList(), purchases, range, zone)
+
+        assertThat(months.first { it.month == YearMonth.of(2026, 7) }.inventoryPaise).isEqualTo(500_00L)
+        assertThat(months.first { it.month == YearMonth.of(2026, 8) }.inventoryPaise).isEqualTo(300_00L)
+    }
+
+    @Test
+    fun `mixed ledger and inventory sum into the month total, received entries stay out of the ledger column`() {
+        val expenses =
+            listOf(
+                Fixtures.expense(partyId = "caterer", amountPaise = 10_000_00L, expenseDate = LocalDate.of(2026, 8, 3)),
+                Fixtures.expense(
+                    partyId = "caterer",
+                    amountPaise = 2_000_00L,
+                    expenseDate = LocalDate.of(2026, 8, 4),
+                    direction = ExpenseDirection.RECEIVED,
+                ),
+            )
+        val purchases =
+            listOf(
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    quantity = 4.0,
+                    unitPricePaise = 25_000_00L,
+                    transactionDate = Instant.parse("2026-08-10T09:00:00Z"),
+                ),
+            )
+
+        val august = ExpenseSummaryCalculator.byMonth(expenses, purchases, range, zone).first { it.month == YearMonth.of(2026, 8) }
+
+        assertThat(august.ledgerPaise).isEqualTo(10_000_00L)
+        assertThat(august.inventoryPaise).isEqualTo(1_00_000_00L)
+        assertThat(august.totalPaise).isEqualTo(1_10_000_00L)
+    }
+
+    @Test
+    fun `months without inventory purchases report zero but stay present`() {
+        val purchases =
+            listOf(
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    quantity = 1.0,
+                    unitPricePaise = 100_00L,
+                    transactionDate = Instant.parse("2026-08-01T09:00:00Z"),
+                ),
+            )
+
+        val months = ExpenseSummaryCalculator.byMonth(emptyList(), purchases, range, zone)
+
+        assertThat(months.map { it.month }).containsExactly(YearMonth.of(2026, 7), YearMonth.of(2026, 8)).inOrder()
+        assertThat(months.first { it.month == YearMonth.of(2026, 7) }.inventoryPaise).isEqualTo(0L)
+        assertThat(months.first { it.month == YearMonth.of(2026, 7) }.totalPaise).isEqualTo(0L)
+    }
+
+    @Test
+    fun `fractional quantities round to whole paise per transaction`() {
+        // 2.5 kg × ₹10.99 = 2747.5 paise → 2748; twice on one month sums the rounded values.
+        val purchases =
+            (1..2).map { index ->
+                Fixtures.inventoryTxn(
+                    masterItemId = "spice-$index",
+                    quantity = 2.5,
+                    unitPricePaise = 10_99L,
+                    transactionDate = Instant.parse("2026-07-0${index}T09:00:00Z"),
+                )
+            }
+
+        val july = ExpenseSummaryCalculator.byMonth(emptyList(), purchases, range, zone).first { it.month == YearMonth.of(2026, 7) }
+
+        assertThat(july.inventoryPaise).isEqualTo(2748L * 2)
+    }
+
+    @Test
+    fun `remove transactions, tombstoned rows and out-of-range purchases are ignored`() {
+        val purchases =
+            listOf(
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    type = TxnType.REMOVE,
+                    quantity = 5.0,
+                    unitPricePaise = 100_00L,
+                    transactionDate = Instant.parse("2026-07-05T09:00:00Z"),
+                ),
+                Fixtures
+                    .inventoryTxn(
+                        masterItemId = "rice",
+                        quantity = 5.0,
+                        unitPricePaise = 100_00L,
+                        transactionDate = Instant.parse("2026-07-06T09:00:00Z"),
+                    ).copy(deletedAt = Instant.parse("2026-07-07T09:00:00Z")),
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    quantity = 5.0,
+                    unitPricePaise = 100_00L,
+                    transactionDate = Instant.parse("2026-06-30T09:00:00Z"),
+                ),
+            )
+
+        val months = ExpenseSummaryCalculator.byMonth(emptyList(), purchases, range, zone)
+
+        assertThat(months.sumOf { it.inventoryPaise }).isEqualTo(0L)
+    }
+}
+
 class ProfitCalculatorTest {
+    private val zone = ZoneOffset.UTC
     private val range = ReportDateRange(LocalDate.of(2026, 7, 1), LocalDate.of(2026, 8, 31))
 
     @Test
@@ -166,7 +296,7 @@ class ProfitCalculatorTest {
                 ),
             )
 
-        val months = ProfitCalculator.calculate(payments, expenses, range)
+        val months = ProfitCalculator.calculate(payments, expenses, emptyList(), range, zone)
 
         val july = months.first { it.month == YearMonth.of(2026, 7) }
         assertThat(july.incomePaise).isEqualTo(1_00_000_00L)
@@ -178,11 +308,50 @@ class ProfitCalculatorTest {
     fun `months without activity report zeros and net can go negative`() {
         val expenses = listOf(Fixtures.expense(partyId = "p1", amountPaise = 10_000_00L, expenseDate = LocalDate.of(2026, 8, 5)))
 
-        val months = ProfitCalculator.calculate(emptyList(), expenses, range)
+        val months = ProfitCalculator.calculate(emptyList(), expenses, emptyList(), range, zone)
 
         val july = months.first { it.month == YearMonth.of(2026, 7) }
         val august = months.first { it.month == YearMonth.of(2026, 8) }
         assertThat(july.netPaise).isEqualTo(0L)
         assertThat(august.netPaise).isEqualTo(-10_000_00L)
+    }
+
+    @Test
+    fun `inventory purchases add to the month's expenses and reduce net`() {
+        val payments = listOf(Fixtures.payment(bookingId = "b1", amountPaise = 1_00_000_00L, paidOn = LocalDate.of(2026, 7, 10)))
+        val expenses = listOf(Fixtures.expense(partyId = "p1", amountPaise = 20_000_00L, expenseDate = LocalDate.of(2026, 7, 15)))
+        val purchases =
+            listOf(
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    quantity = 10.0,
+                    unitPricePaise = 1_000_00L,
+                    transactionDate = Instant.parse("2026-07-20T09:00:00Z"),
+                ),
+            )
+
+        val july = ProfitCalculator.calculate(payments, expenses, purchases, range, zone).first { it.month == YearMonth.of(2026, 7) }
+
+        assertThat(july.expensePaise).isEqualTo(30_000_00L)
+        assertThat(july.netPaise).isEqualTo(70_000_00L)
+    }
+
+    @Test
+    fun `inventory purchases land in their own transaction month only`() {
+        val purchases =
+            listOf(
+                Fixtures.inventoryTxn(
+                    masterItemId = "rice",
+                    quantity = 1.0,
+                    unitPricePaise = 5_000_00L,
+                    transactionDate = Instant.parse("2026-08-31T18:00:00Z"),
+                ),
+            )
+
+        val months = ProfitCalculator.calculate(emptyList(), emptyList(), purchases, range, zone)
+
+        assertThat(months.first { it.month == YearMonth.of(2026, 7) }.expensePaise).isEqualTo(0L)
+        assertThat(months.first { it.month == YearMonth.of(2026, 8) }.expensePaise).isEqualTo(5_000_00L)
+        assertThat(months.first { it.month == YearMonth.of(2026, 8) }.netPaise).isEqualTo(-5_000_00L)
     }
 }

@@ -125,20 +125,21 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                 rows = data.rows.map { listOf(sourceLabel(it.source), it.bookings.toString(), money(it.revenuePaise)) },
             )
         is ReportData.Expenses -> {
-            val unknownParty = stringResource(R.string.reports_expense_unknown_party)
+            val inventoryLabel = stringResource(R.string.reports_expense_inventory_purchases_label)
             ReportTable(
                 title = title,
                 subtitle = subtitle,
                 columns =
                     listOf(
-                        stringResource(R.string.reports_table_party),
-                        stringResource(R.string.reports_table_spend),
+                        stringResource(R.string.reports_table_month),
+                        stringResource(R.string.reports_table_expenses),
+                        inventoryLabel,
+                        stringResource(R.string.reports_table_total),
                     ),
                 rows =
-                    data.rows.map {
-                        listOf(displayPartyName(it.partyName, unknownParty), money(it.spendPaise))
+                    data.months.map {
+                        listOf(monthFullLabel(it.month, locale), money(it.ledgerPaise), money(it.inventoryPaise), money(it.totalPaise))
                     },
-                columnWeights = listOf(2f, 1f),
             )
         }
         is ReportData.Profit ->
@@ -209,6 +210,32 @@ internal fun displayPartyName(
     name: String,
     unknownLabel: String,
 ): String = if (name == ReportDetailViewModel.UNKNOWN_PARTY_SENTINEL) unknownLabel else name
+
+/**
+ * Secondary spend-by-party table of the Expense summary, rendered on screen below the
+ * monthly table but excluded from CSV/PDF export — web-parity with `extraTable`.
+ * Null for other reports or when there are no party rows.
+ */
+@Composable
+fun rememberExpensePartiesTable(state: ReportDetailUiState): ReportTable? {
+    val data = state.data as? ReportData.Expenses ?: return null
+    if (data.rows.isEmpty()) return null
+    val unknownParty = stringResource(R.string.reports_expense_unknown_party)
+    return ReportTable(
+        title = stringResource(R.string.reports_report_expense_summary_subtitle),
+        subtitle = "",
+        columns =
+            listOf(
+                stringResource(R.string.reports_table_party),
+                stringResource(R.string.reports_table_spend),
+            ),
+        rows =
+            data.top10.map {
+                listOf(displayPartyName(it.partyName, unknownParty), AmountFormatter.format(it.spendPaise))
+            },
+        columnWeights = listOf(2f, 1f),
+    )
+}
 
 /** Aging bucket labels in bucket order, localized — shared by the chart and the summary row. */
 @Composable
