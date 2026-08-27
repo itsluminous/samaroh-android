@@ -25,6 +25,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -32,10 +34,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -52,27 +56,34 @@ import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Current Inventory screen (§4.3): searchable per-item stock list with image
- * (tap-to-expand), quantity + unit, FIFO total value and last-updated date. The top-bar
- * icon toggles to the item (master) list; the FAB opens the record-transaction dialog.
+ * Current Inventory screen (§4.3): searchable per-item stock list (in-stock items only)
+ * with image (tap-to-expand), quantity + unit, FIFO total value and last-updated date.
+ * Tapping a row opens the per-item detail (transaction history). The top-bar icon
+ * toggles to the item (master) list; the FAB opens the record-transaction dialog.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CurrentInventoryScreen(
     onOpenMasterlist: () -> Unit,
+    onOpenItem: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: CurrentInventoryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var showTransactionDialog by remember { mutableStateOf(false) }
     var expandedImagePath by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.inventory_list_title), modifier = Modifier.semantics { heading() }) },
@@ -110,6 +121,13 @@ fun CurrentInventoryScreen(
                         title = stringResource(R.string.inventory_list_no_results),
                         message = stringResource(R.string.inventory_list_empty_message),
                     )
+                // Items exist but every one is at zero: distinct from the no-items state.
+                !uiState.loading && uiState.lines.isEmpty() && uiState.allZero ->
+                    EmptyState(
+                        icon = Icons.Filled.Inventory2,
+                        title = stringResource(R.string.inventory_list_all_zero_title),
+                        message = stringResource(R.string.inventory_list_all_zero_message),
+                    )
                 !uiState.loading && uiState.lines.isEmpty() ->
                     EmptyState(
                         icon = Icons.Filled.Inventory2,
@@ -125,6 +143,7 @@ fun CurrentInventoryScreen(
                         items(uiState.lines, key = { it.masterItemId }) { line ->
                             CurrentInventoryRowCard(
                                 line = line,
+                                onClick = { onOpenItem(line.masterItemId) },
                                 onImageTap = { path -> expandedImagePath = path },
                                 modifier = animatedListItem(),
                             )
@@ -135,7 +154,12 @@ fun CurrentInventoryScreen(
     }
 
     if (showTransactionDialog) {
-        RecordTransactionDialog(onDismiss = { showTransactionDialog = false })
+        RecordTransactionDialog(
+            onDismiss = { showTransactionDialog = false },
+            onSaved = { saved ->
+                scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved)) }
+            },
+        )
     }
 
     expandedImagePath?.let { path ->
@@ -157,10 +181,11 @@ fun CurrentInventoryScreen(
 @Composable
 private fun CurrentInventoryRowCard(
     line: CurrentInventoryLine,
+    onClick: () -> Unit,
     onImageTap: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier.fillMaxWidth()) {
+    Card(modifier = modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,

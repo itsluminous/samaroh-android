@@ -37,3 +37,10 @@ fun formatDate(instant: Instant): String =
         .ofLocalizedDate(FormatStyle.MEDIUM)
         .withZone(ZoneId.systemDefault())
         .format(instant)
+
+/** Locale-aware medium date + short time for transaction-history rows. */
+fun formatDateTime(instant: Instant): String =
+    DateTimeFormatter
+        .ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+        .withZone(ZoneId.systemDefault())
+        .format(instant)

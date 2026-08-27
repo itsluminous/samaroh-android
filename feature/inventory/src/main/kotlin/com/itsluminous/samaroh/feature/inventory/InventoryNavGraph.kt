@@ -7,12 +7,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.itsluminous.samaroh.feature.inventory.ui.CurrentInventoryScreen
+import com.itsluminous.samaroh.feature.inventory.ui.ItemDetailScreen
 import com.itsluminous.samaroh.feature.inventory.ui.MasterlistScreen
 
 /** Route of the Inventory tab's start destination. */
 const val INVENTORY_ROUTE = "inventory"
+
+/** Inner start destination hosting the stock/masterlist toggle. */
+private const val INVENTORY_HOME_ROUTE = "inventory/home"
+
+/** Inner per-item detail destination; takes the master-item id. */
+private const val ITEM_DETAIL_ROUTE = "inventory/item/{$ITEM_DETAIL_ID_ARG}"
+
+private fun itemDetailRoute(itemId: String) = "inventory/item/$itemId"
 
 /** The two Inventory screens, toggled via the contextual top-bar icon (§4.3). */
 private enum class InventoryScreen {
@@ -24,19 +37,39 @@ private enum class InventoryScreen {
  * Inventory feature graph (§4.3): the Current Inventory (stock) screen and the
  * Masterlist screen live under one destination and swap via the contextual top-bar
  * toggle — mirroring the reference navigation pattern without leaving the tab.
+ * Tapping a stock row pushes the per-item detail destination (transaction history).
  */
 fun NavGraphBuilder.inventoryGraph() {
     composable(INVENTORY_ROUTE) {
-        InventoryRoute()
+        InventoryHost()
     }
 }
 
 @Composable
-private fun InventoryRoute() {
+private fun InventoryHost() {
+    val navController = rememberNavController()
+    NavHost(navController = navController, startDestination = INVENTORY_HOME_ROUTE) {
+        composable(INVENTORY_HOME_ROUTE) {
+            InventoryRoute(onOpenItem = { itemId -> navController.navigate(itemDetailRoute(itemId)) })
+        }
+        composable(
+            route = ITEM_DETAIL_ROUTE,
+            arguments = listOf(navArgument(ITEM_DETAIL_ID_ARG) { type = NavType.StringType }),
+        ) {
+            ItemDetailScreen(onBack = { navController.popBackStack() })
+        }
+    }
+}
+
+@Composable
+private fun InventoryRoute(onOpenItem: (String) -> Unit) {
     var screen by rememberSaveable { mutableStateOf(InventoryScreen.STOCK) }
     when (screen) {
         InventoryScreen.STOCK ->
-            CurrentInventoryScreen(onOpenMasterlist = { screen = InventoryScreen.MASTERLIST })
+            CurrentInventoryScreen(
+                onOpenMasterlist = { screen = InventoryScreen.MASTERLIST },
+                onOpenItem = onOpenItem,
+            )
         InventoryScreen.MASTERLIST -> {
             // System back returns to the stock screen instead of leaving the tab.
             BackHandler { screen = InventoryScreen.STOCK }
