@@ -21,6 +21,7 @@ import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
 import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
 import com.itsluminous.samaroh.core.database.dao.SyncCursorDao
+import com.itsluminous.samaroh.core.database.dao.SyncDisplayDao
 import com.itsluminous.samaroh.core.database.entity.BookingEntity
 import com.itsluminous.samaroh.core.database.entity.BookingPaymentEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessEntity
@@ -98,6 +99,8 @@ abstract class SamarohDatabase : RoomDatabase() {
     abstract fun syncCursorDao(): SyncCursorDao
 
     abstract fun syncConflictDao(): SyncConflictDao
+
+    abstract fun syncDisplayDao(): SyncDisplayDao
 
     companion object {
         const val DATABASE_NAME = "samaroh.db"

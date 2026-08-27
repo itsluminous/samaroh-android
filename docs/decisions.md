@@ -450,3 +450,35 @@ It records exactly like `recordTransaction` (which now delegates to it) and retu
 transaction's total value in **Long paise** (ADR-002): quantity × unit price for adds,
 the consumed-lot FIFO cost for removes. No schema, sync, or frozen-interface change;
 existing callers of `recordTransaction` are unaffected.
+
+## ADR-022 — Human-readable Sync status entries (2026-08-27, sync-list UX)
+
+**Status:** accepted.
+
+Owner feedback: the pending-sync list showed raw entity/technical data. The Sync status
+screen must render each outbox row as a localized human line — operation verb + entity
+noun + human identifier, e.g. "Add booking — Sharma", "Update inventory item — Spoon",
+"Delete booking — 28 Jan 2027" — with the technical detail (table · op · id) available
+on tap/expand. Error rows get the same headline and keep their sanitized message.
+
+Additive changes to frozen contracts:
+
+1. `core:database` — `OutboxDao.pendingEntries(): Flow<List<OutboxEntity>>` (full queue,
+   push order) and a new read-only `SyncDisplayDao` with scalar per-id lookups
+   (booking customer name/start date, party/item/business/member names, attachment file
+   name, expense→party id, payment→booking id/amount, reminder→booking id, date-block
+   start date, txn→item id). The lookups deliberately skip the `deleted_at` filter: a
+   queued delete's row is already tombstoned locally, but its name is still the best
+   display identifier. No schema change — DAO only, DB version stays 2.
+2. `core:data` — `SyncStatus` gains `pendingItems: Flow<List<SyncPendingItem>>` (new
+   data class: outboxId, entityType, entityId, operation, payloadJson, queuedAt), and
+   `SyncItemError` gains `payloadJson: String = ""` (defaulted — existing constructions
+   unaffected). `RoomSyncStatus` is the only implementation.
+3. Mapping lives in `feature:menu` (`SyncEntryDisplayResolver`): payload JSON is parsed
+   generically (`ignoreUnknownKeys`), identifier resolution is payload-first → local Room
+   row → 8-char short id. Add vs Update for upserts is derived from the payload
+   timestamps: every repository creates rows with `created_at == updated_at` (single
+   shared `now`) and bumps only `updated_at` on edit, so equality ⇒ Add. Payloads without
+   `created_at` (business_settings, google_accounts) render as Update. Verb/noun words
+   are catalog keys composed via `settings.sync.op_phrase` ("{verb} {noun}" en,
+   "{noun} {verb}" hi — Hindi uses gender-neutral infinitives: "बुकिंग जोड़ना").

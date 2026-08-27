@@ -19,6 +19,7 @@ import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
 import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
 import com.itsluminous.samaroh.core.database.dao.SyncCursorDao
+import com.itsluminous.samaroh.core.database.dao.SyncDisplayDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -70,4 +71,6 @@ object DatabaseModule {
     @Provides fun provideSyncCursorDao(db: SamarohDatabase): SyncCursorDao = db.syncCursorDao()
 
     @Provides fun provideSyncConflictDao(db: SamarohDatabase): SyncConflictDao = db.syncConflictDao()
+
+    @Provides fun provideSyncDisplayDao(db: SamarohDatabase): SyncDisplayDao = db.syncDisplayDao()
 }

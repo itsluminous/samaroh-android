@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
 import com.itsluminous.samaroh.core.data.sync.SyncItemError
+import com.itsluminous.samaroh.core.data.sync.SyncPendingItem
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
@@ -29,6 +30,20 @@ class RoomSyncStatus
     ) : SyncStatus {
         override val pendingCount: Flow<Int> = outboxDao.pendingCount()
 
+        override val pendingItems: Flow<List<SyncPendingItem>> =
+            outboxDao.pendingEntries().map { entries ->
+                entries.map { entry ->
+                    SyncPendingItem(
+                        outboxId = entry.id,
+                        entityType = entry.entityType,
+                        entityId = entry.entityId,
+                        operation = OutboxOperation.fromWire(entry.operation),
+                        payloadJson = entry.payloadJson,
+                        queuedAt = entry.createdAt,
+                    )
+                }
+            }
+
         override val itemErrors: Flow<List<SyncItemError>> =
             outboxDao.erroredEntries().map { entries ->
                 entries.map { entry ->
@@ -39,6 +54,7 @@ class RoomSyncStatus
                         operation = OutboxOperation.fromWire(entry.operation),
                         message = SyncErrorSanitizer.sanitize(entry.lastError.orEmpty()),
                         attemptCount = entry.attemptCount,
+                        payloadJson = entry.payloadJson,
                     )
                 }
             }

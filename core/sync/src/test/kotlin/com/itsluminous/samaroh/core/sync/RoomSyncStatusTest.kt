@@ -74,6 +74,16 @@ class RoomSyncStatusTest {
             db.outboxDao().recordFailure(id, "row-level security violation")
 
             assertThat(status.pendingCount.first()).isEqualTo(2)
+            val pending = status.pendingItems.first()
+            assertThat(pending).hasSize(2)
+            with(pending.first()) {
+                assertThat(outboxId).isEqualTo(id)
+                assertThat(entityType).isEqualTo("bookings")
+                assertThat(operation).isEqualTo(OutboxOperation.UPSERT)
+                assertThat(payloadJson).isEqualTo("""{"id":"b-1"}""")
+                assertThat(queuedAt).isEqualTo(FIXED_NOW)
+            }
+            assertThat(pending[1].operation).isEqualTo(OutboxOperation.DELETE)
             val errors = status.itemErrors.first()
             assertThat(errors).hasSize(1)
             with(errors.single()) {
@@ -81,6 +91,7 @@ class RoomSyncStatusTest {
                 assertThat(operation).isEqualTo(OutboxOperation.UPSERT)
                 assertThat(message).contains("security")
                 assertThat(attemptCount).isEqualTo(1)
+                assertThat(payloadJson).isEqualTo("""{"id":"b-1"}""")
             }
         }
 

@@ -34,6 +34,22 @@ data class SyncItemError(
     val operation: OutboxOperation,
     val message: String,
     val attemptCount: Int,
+    /** Row snapshot queued with the op — lets the UI derive a human display line (ADR-022). */
+    val payloadJson: String = "",
+)
+
+/**
+ * One queued-but-unpushed outbox op, exposed for the Sync status pending list (ADR-022).
+ * The UI maps [entityType] + [operation] + [payloadJson] to a human-readable line
+ * ("Add booking — Sharma") instead of showing raw technical fields.
+ */
+data class SyncPendingItem(
+    val outboxId: Long,
+    val entityType: String,
+    val entityId: String,
+    val operation: OutboxOperation,
+    val payloadJson: String,
+    val queuedAt: Instant,
 )
 
 /** One persisted conflict-log entry (§8: conflicts are user-visible, never silent). */
@@ -57,6 +73,9 @@ data class SyncConflictEntry(
 interface SyncStatus {
     /** Number of local operations queued and waiting to push (the ☁️⚠️ badge count). */
     val pendingCount: Flow<Int>
+
+    /** Every queued op in push order, for the human-readable pending list (ADR-022). */
+    val pendingItems: Flow<List<SyncPendingItem>>
 
     /** Per-item push errors (RLS rejections etc.), surfaced in Settings → Sync status. */
     val itemErrors: Flow<List<SyncItemError>>

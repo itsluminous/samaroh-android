@@ -364,4 +364,8 @@ interface OutboxDao {
     /** Per-item sync errors (RLS rejections etc.) for the sync-status screen; retriable. */
     @Query("SELECT * FROM outbox WHERE last_error IS NOT NULL ORDER BY id ASC")
     fun erroredEntries(): Flow<List<OutboxEntity>>
+
+    /** Every queued op in push (FIFO) order — the Sync status pending list (ADR-022). */
+    @Query("SELECT * FROM outbox ORDER BY id ASC")
+    fun pendingEntries(): Flow<List<OutboxEntity>>
 }
