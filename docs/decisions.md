@@ -735,3 +735,53 @@ squashed to one character per line. Both fixes touch frozen contracts, hence thi
    permission preset chips and the business-related yes/no pill. NOT converted:
    `MasterlistScreen` duplicate suggestions (already a `LazyRow`), 2-option
    `SegmentedButton` toggles (fixed-width by design), and lone `AssistChip` badges.
+
+## ADR-029 — Events view windowing + `isSyncing` + inventory master-item gate (2026-08-27)
+
+**Status:** accepted.
+
+**Context.** Three same-day features touch frozen contracts additively: (1) the Booking
+calendar gains an "Events view" — the month grid swaps for a FULL agenda list of every
+booking, grouped by date and anchored at today, which must not eagerly load a
+multi-year booking history; (2) the app-bar cloud icon must visibly animate while a
+sync run executes, but `SyncStatus` exposed no "running right now" signal (only queue
+counts); (3) the item-detail screen gains the Masterlist's edit/delete affordances,
+which need the same permission gate.
+
+**Decision.**
+1. **Windowed events agenda.** ADDITIVE contract methods (frozen files):
+   - `core:database` `BookingDao.minStartDate/maxStartDate(businessId)` — `MIN`/`MAX`
+     over live rows (ISO-8601 TEXT compares chronologically).
+   - `core:data` `BookingRepository.bookingDateBounds(businessId): ClosedRange<LocalDate>?`
+     — earliest..latest live start date, null when the business has no bookings.
+   The agenda reuses the existing `bookingsBetween` overlap query over a window that
+   starts today-centred (−2/+4 months, `EventsAgenda.initialWindow`) and grows in
+   6-month steps when the LazyColumn nears an edge, CLAMPED to the date bounds — so
+   scrolling reaches every booking without ever querying empty decades or loading 800
+   rows up front. Keys (`d:<date>` / `b:<id>`) keep the viewport stable when older
+   items are prepended. The toggle lives in the calendar's existing overflow menu
+   (label flips Month view ⇄ Events view, `booking.calendar.*_view` keys) and persists
+   per device via the shared settings DataStore (`booking_calendar_events_view` —
+   device UI state, never synced). Tapping a row opens the SAME booking-card sheet;
+   the `detail` flow now falls back to `bookingRepository.booking(id)` for rows
+   outside the shown month.
+2. **`SyncStatus.isSyncing`** (ADDITIVE on the frozen `core:data` sync contract): true
+   while a sync run (push+pull) executes. Implementation: a `core:sync` `SyncRunState`
+   singleton the `SyncWorker` raises around `SyncEngine.runSync()` (try/finally so a
+   crash never leaves it stuck; WorkManager serializes the unique work so a boolean
+   suffices). The app-bar `SyncCloudIcon` spins the `CloudSync` glyph (1.2s linear
+   rotation) while `isSyncing`; with reduced motion on, a static badge dot appears
+   instead (§6 motion policy).
+3. **`InventorySession.canManageMasterItems`** (`feature:inventory`, ExpensesSession
+   pattern): owners always pass, else `inventory.manage_master_items` OR
+   `inventory.edit`; signed-out/offline stays owner-mode (true). Gates the Masterlist
+   FAB + row edit/delete AND the new item-detail overflow (Edit item / Delete item),
+   which reuses the extracted `MasterItemEditorDialog`/`MasterItemDeleteDialogs` —
+   identical dup validation, unit dropdown, photo crop and the
+   delete-blocked-if-transactions rule; a confirmed delete pops back from the detail
+   screen.
+
+**Consequences.** Web/sync are unaffected (no schema/wire change). The events window
+resets to today's anchor on process death (per-device UI state only). `isSyncing` is
+process-local by design — a run on another device shows up via pulled data, not the
+spinner.
