@@ -26,9 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 
-/** URL is data (not user-visible copy) — kept as a constant, shown verbatim. */
-private const val GITHUB_URL = "https://github.com/itsluminous/samaroh-android"
-
 /** About screen (§4.4): version, source link, Donate via UPI, licenses, made-with-love. */
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
@@ -50,13 +47,14 @@ fun AboutScreen(onBack: () -> Unit) {
         )
         HorizontalDivider()
         // Short label only — the URL is the destination, not the copy.
+        val sourceUrl = stringResource(R.string.menu_about_source_code_url)
         ListItem(
             headlineContent = { Text(stringResource(R.string.menu_about_source_code)) },
             trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
-            modifier = Modifier.clickable { uriHandler.openUri(GITHUB_URL) },
+            modifier = Modifier.clickable { uriHandler.openUri(sourceUrl) },
         )
         HorizontalDivider()
-        val donateChooserTitle = stringResource(R.string.menu_about_donate_upi)
+        val donateUri = stringResource(R.string.menu_about_donate_upi_uri)
         val donateNoApp = stringResource(R.string.menu_about_donate_no_upi_app)
         ListItem(
             headlineContent = { Text(stringResource(R.string.menu_about_donate_upi)) },
@@ -64,7 +62,7 @@ fun AboutScreen(onBack: () -> Unit) {
             trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
             modifier =
                 Modifier.clickable {
-                    if (!UpiDonate.open(context, donateChooserTitle)) {
+                    if (!UpiDonate.open(context, donateUri)) {
                         Toast.makeText(context, donateNoApp, Toast.LENGTH_SHORT).show()
                     }
                 },

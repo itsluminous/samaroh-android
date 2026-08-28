@@ -983,3 +983,44 @@ instead of stacking shell instances).
 **Consequences.** Web links shared over WhatsApp etc. open natively for app users; the
 locale segment never overrides the in-app language preference. New web sections need a
 parser case (defaulting to Booking until added).
+
+## ADR-034 — Non-translatable catalog entries; launch-first UPI donate (2026-08-28)
+
+**Context.** On real Android 11+ devices the About screen's Donate-via-UPI row showed
+the "no UPI app" toast despite many installed UPI apps. `UpiDonate` pre-checked
+`intent.resolveActivity(packageManager)` and bailed when it returned `null` — and
+package visibility filters PackageManager query results on real devices even with the
+app's manifest `<queries><intent>` declaration for the `upi` scheme (OEM builds filter
+aggressively; `MATCH_DEFAULT_ONLY` resolution is fragile with multiple handlers). The
+pre-check was the bug: `startActivity` itself is exempt from package-visibility
+restrictions, so the launch would have succeeded.
+
+**Decision (donate launch).** No PackageManager pre-check and no `createChooser`
+(a chooser always resolves, so it can never signal "no app"): fire the plain
+`ACTION_VIEW upi://pay…` intent and treat `ActivityNotFoundException` as the single
+authoritative no-UPI-app signal (localized toast). With several UPI apps installed the
+system shows its own disambiguation sheet. The manifest `<queries>` block is removed —
+nothing queries other packages anymore.
+
+**Decision (catalog contract).** The shared string-catalog entry shape gains an
+optional `"translatable": false` flag for data-like values (URIs, technical
+identifiers) that must never be localized:
+
+1. Such entries live ONLY in the canonical `en` catalog/fragment; key parity excludes
+   them, and an entry for one in `hi` (or any locale) is a hard validation error — a
+   silently-ignored translation would drift from the canonical value.
+2. `gen-android.mjs` emits them once, in default `values/strings.xml`, with
+   `translatable="false"` (plus `formatted="false"` when the value carries a literal
+   `%`, e.g. percent-encoding); every locale falls back to it.
+3. `gen-web.mjs` copies the `en` value into every locale's messages file.
+4. Plurals cannot be non-translatable.
+
+First entries: `menu.about.donate_upi_uri` (the full UPI deep link — payee VPA, payee
+name, percent-encoded note; previously Kotlin constants) and
+`menu.about.source_code_url`. `CatalogTestSupport`/`CatalogKeyParityTest` mirror the
+contract; fixture-driven pipeline tests live in the shared repo
+(`scripts/test-catalogs.mjs`).
+
+**Consequences.** The donate flow works wherever a UPI app is installed regardless of
+package-visibility behavior; URIs are single-sourced in the shared catalog for both
+platforms and can never be "translated" into broken links.

@@ -9,8 +9,9 @@ import java.io.File
  * Walks every catalog source — the base `catalog.<locale>.json` PLUS every
  * `<name>.<locale>.json` under `fragments` (exactly the set gen-android.mjs merges) —
  * and asserts that all locales expose the same merged key set (spec §5: no missing
- * translations, ever), that no key is defined twice across files (a codegen hard
- * error), and that keys follow the naming convention.
+ * translations, ever — entries marked `"translatable": false` are en-only data values
+ * exempt from parity and banned from translated locales), that no key is defined twice
+ * across files (a codegen hard error), and that keys follow the naming convention.
  */
 class CatalogKeyParityTest {
     @Test
@@ -40,12 +41,27 @@ class CatalogKeyParityTest {
     @Test
     fun `all locales have identical merged key sets`() {
         val canonicalKeys = CatalogTestSupport.mergedKeys("en")
-        assertThat(canonicalKeys).isNotEmpty()
+        // Non-translatable (data) entries are en-only by contract: excluded from parity,
+        // and their presence in a translated locale is an error (validated below).
+        val nonTranslatable = CatalogTestSupport.mergedNonTranslatableKeys("en")
+        val translatableKeys = canonicalKeys - nonTranslatable
+        assertThat(translatableKeys).isNotEmpty()
         for (locale in CatalogTestSupport.locales()) {
             if (locale == "en") continue
             val keys = CatalogTestSupport.mergedKeys(locale)
-            assertWithMessage("keys missing in locale '$locale'").that(keys).containsAtLeastElementsIn(canonicalKeys)
-            assertWithMessage("extra keys in locale '$locale'").that(canonicalKeys).containsAtLeastElementsIn(keys)
+            assertWithMessage("keys missing in locale '$locale'").that(keys).containsAtLeastElementsIn(translatableKeys)
+            assertWithMessage("extra keys in locale '$locale'").that(translatableKeys).containsAtLeastElementsIn(keys)
+        }
+    }
+
+    @Test
+    fun `non-translatable keys exist only in the canonical locale`() {
+        val nonTranslatable = CatalogTestSupport.mergedNonTranslatableKeys("en")
+        for (locale in CatalogTestSupport.locales()) {
+            if (locale == "en") continue
+            val keys = CatalogTestSupport.mergedKeys(locale)
+            val leaked = nonTranslatable.filter { it in keys }
+            assertWithMessage("non-translatable (en-only) keys must have no entry in '$locale'").that(leaked).isEmpty()
         }
     }
 

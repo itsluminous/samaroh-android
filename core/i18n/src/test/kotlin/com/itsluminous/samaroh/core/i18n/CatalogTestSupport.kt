@@ -49,14 +49,52 @@ internal object CatalogTestSupport {
         return keys
     }
 
+    /**
+     * The merged set of non-translatable keys of [locale] — entries marked
+     * `"translatable": false`. They live only in the canonical (en) catalog; parity
+     * deliberately excludes them (see gen-android.mjs / validate-catalogs.mjs).
+     */
+    fun mergedNonTranslatableKeys(locale: String): Set<String> {
+        val keys = linkedSetOf<String>()
+        for (file in catalogFilesFor(locale)) keys.addAll(nonTranslatableKeys(file))
+        return keys
+    }
+
     /** Extracts top-level JSON object keys without a JSON library (values never contain unescaped quote-brace pairs at depth 1). */
     fun topLevelKeys(file: File): Set<String> {
         val keys = linkedSetOf<String>()
+        scanEntries(file) { key, _ -> keys.add(key) }
+        return keys
+    }
+
+    /** Top-level keys of [file] whose entry object carries `"translatable": false`. */
+    fun nonTranslatableKeys(file: File): Set<String> {
+        val keys = linkedSetOf<String>()
+        scanEntries(file) { key, nonTranslatable -> if (nonTranslatable) keys.add(key) }
+        return keys
+    }
+
+    /**
+     * Walks the file's top-level entries, reporting each key and whether its entry object
+     * marks `"translatable": false`. Same depth-tracking scan as before — no JSON library.
+     */
+    private fun scanEntries(
+        file: File,
+        onEntry: (key: String, nonTranslatable: Boolean) -> Unit,
+    ) {
         val text = file.readText()
         var depth = 0
         var i = 0
+        var currentKey: String? = null
+        var currentNonTranslatable = false
+
+        fun flush() {
+            currentKey?.let { onEntry(it, currentNonTranslatable) }
+            currentKey = null
+            currentNonTranslatable = false
+        }
         while (i < text.length) {
-            when (val c = text[i]) {
+            when (text[i]) {
                 '{' -> depth++
                 '}' -> depth--
                 '"' -> {
@@ -64,17 +102,27 @@ internal object CatalogTestSupport {
                     var j = start
                     while (j < text.length && (text[j] != '"' || text[j - 1] == '\\')) j++
                     val token = text.substring(start, j)
-                    // A depth-1 string followed (after whitespace) by ':' is a key.
+                    // A string followed (after whitespace) by ':' is a key at its depth.
                     var k = j + 1
                     while (k < text.length && text[k].isWhitespace()) k++
-                    if (depth == 1 && k < text.length && text[k] == ':') keys.add(token)
+                    val isKey = k < text.length && text[k] == ':'
+                    if (isKey && depth == 1) {
+                        // A new top-level entry begins; report the previous one.
+                        flush()
+                        currentKey = token
+                    }
+                    if (isKey && depth == 2 && token == "translatable") {
+                        var v = k + 1
+                        while (v < text.length && text[v].isWhitespace()) v++
+                        if (text.startsWith("false", v)) currentNonTranslatable = true
+                    }
                     i = j
-                    if (c == '"' && j >= text.length) return keys
+                    if (j >= text.length) break
                 }
             }
             i++
         }
-        return keys
+        flush()
     }
 
     /** Mirrors gen-android.mjs: catalog key `common.action.save` → resource name `common_action_save`. */
