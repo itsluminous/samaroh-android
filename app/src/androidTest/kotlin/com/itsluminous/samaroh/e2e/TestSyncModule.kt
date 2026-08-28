@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.core.sync.RoomSyncStatus
 import com.itsluminous.samaroh.core.sync.SyncMetaStore
 import com.itsluminous.samaroh.core.sync.WorkManagerSyncScheduler
 import com.itsluminous.samaroh.core.sync.di.SyncModule
+import com.itsluminous.samaroh.core.sync.engine.ItemImageMirror
 import com.itsluminous.samaroh.core.sync.remote.RemoteStoreProvider
 import dagger.Binds
 import dagger.BindsOptionalOf
@@ -46,5 +47,21 @@ abstract class TestSyncModule {
         @Provides
         @Singleton
         fun provideRemoteStoreProvider(): RemoteStoreProvider = RemoteStoreProvider { null }
+
+        /**
+         * Hermetic no-op mirror (the prod graph binds the Storage-backed one): a
+         * Retriable result keeps the op queued — matching the suite's "outbox entries
+         * stay pending" contract — and nothing ever reaches remote storage.
+         */
+        @Provides
+        @Singleton
+        fun provideItemImageMirror(): ItemImageMirror =
+            object : ItemImageMirror {
+                override suspend fun mirror(
+                    businessId: String,
+                    itemId: String,
+                    localPath: String,
+                ): ItemImageMirror.Result = ItemImageMirror.Result.Retriable("test-unconfigured")
+            }
     }
 }

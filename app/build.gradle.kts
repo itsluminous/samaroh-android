@@ -173,6 +173,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core.ktx)
     androidTestImplementation(libs.androidx.test.espresso.intents)
     androidTestImplementation(libs.hilt.android.testing)
+    // TestAuthModule mirrors AuthModule's SupabaseClient? binding (pinned null).
+    androidTestImplementation(libs.supabase.auth)
     kspAndroidTest(libs.hilt.compiler)
     androidTestImplementation(libs.truth)
     androidTestImplementation(project(":core:testing"))
