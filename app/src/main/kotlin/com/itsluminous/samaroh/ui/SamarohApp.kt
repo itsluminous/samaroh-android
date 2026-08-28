@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -281,7 +282,8 @@ private fun SyncCloudIcon(
     val badgeCount = if (indicator.errorCount > 0) indicator.errorCount else indicator.pendingCount
     // Tapping the icon while items are pending/errored opens the Sync-status list (§4.5).
     val onTap: (() -> Unit)? = if (badgeCount > 0) onOpenSyncStatus else null
-    // Active-run feedback (§4.5): the CloudSync icon spins while a run executes; with
+    // Active-run feedback (§4.5): while a run executes the icon swaps to the plain
+    // circular-arrows Sync glyph and spins (rotating a cloud looks odd); with
     // reduced motion on, a static badge dot marks the run instead of the rotation.
     val reducedMotion = rememberReducedMotion()
     val spinning = indicator.syncing && !reducedMotion
@@ -312,7 +314,7 @@ private fun SyncCloudIcon(
         when {
             indicator.syncing ->
                 ExplainableIcon(
-                    icon = Icons.Filled.CloudSync,
+                    icon = Icons.Filled.Sync,
                     explanationRes = R.string.sync_notification_syncing,
                     onClick = onTap,
                     modifier = Modifier.graphicsLayer { rotationZ = rotation },
