@@ -1,5 +1,8 @@
 # Samaroh — Android
 
+[![CI](https://github.com/itsluminous/samaroh-android/actions/workflows/ci.yml/badge.svg)](https://github.com/itsluminous/samaroh-android/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/itsluminous/samaroh-android?sort=semver)](https://github.com/itsluminous/samaroh-android/releases/latest)
+
 Samaroh (समारोह) is an offline-first business management app for small venue businesses —
 marriage halls, banquet halls, community halls, guest houses. One beautiful, multilingual
 app for bookings, expenses and inventory.
