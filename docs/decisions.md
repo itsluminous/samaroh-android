@@ -1024,3 +1024,52 @@ contract; fixture-driven pipeline tests live in the shared repo
 **Consequences.** The donate flow works wherever a UPI app is installed regardless of
 package-visibility behavior; URIs are single-sourced in the shared catalog for both
 platforms and can never be "translated" into broken links.
+
+## ADR-035 — Icon-free PDF invoices (2026-08-28)
+
+**Context.** The PDF event block printed `{icon} {EventType}` (e.g. `💒 Wedding`).
+Emoji glyphs render inconsistently across PDF fonts and viewers — often as tofu or
+mismatched monochrome glyphs — so the owner asked for icon-free PDF output.
+
+**Decision.** The PDF renderer prints only the localized event-type label; the event
+icon emoji no longer appears anywhere in the PDF. The shared layout contract
+(`shared/invoice/layout-spec.md` §3 + Localization) now states "no event icons/emoji in
+PDF output" for BOTH renderers (Android + web). The icon is UNCHANGED everywhere else:
+app UI (calendar cells, booking cards, formatted titles), Google Calendar event titles,
+and the plain-text receipt (plain text renders emoji fine; it goes through a share
+intent, not a PDF font). `PdfInvoiceRendererContentTest` pins the contract by recording
+`drawText` calls (LEGACY-graphics shadow) and asserting no surrogate pairs in en + hi;
+`InvoiceTextBuilderTest` pins that the text receipt still carries the icon.
+
+**Consequences.** Regenerated invoices for existing bookings lose the emoji (cosmetic
+only; the invoice number is unchanged). The web renderer must apply the same spec change.
+
+## ADR-036 — Outbox enqueue triggers a debounced sync (2026-08-28)
+
+**Context.** Sync ran only on: connectivity-gated WorkManager requests, the 15-minute
+periodic job, app launch/foreground resume, sign-in, and explicit "Sync now" /
+per-feature `requestImmediateSync()` calls (only `feature:booking` and a few other spots
+wired those). An edit made mid-session in any other feature sat in the outbox — the
+cloud badge showed pending items until the user backgrounded the app, tapped Sync now,
+or the periodic job fired. Owner question: "why don't changes sync right away?"
+
+**Decision.** Additive `SyncScheduler.requestSyncOnLocalChange()` (default: delegates to
+`requestImmediateSync()`, so fakes/simple impls stay valid). `RoomOutboxWriter.enqueue`
+calls it after EVERY outbox insert, so all features get push-within-seconds for free —
+no per-ViewModel wiring. The WorkManager implementation is a trailing debounce: unique
+one-shot work (`samaroh-sync-on-change`) with a 3 s initial delay and
+`ExistingWorkPolicy.REPLACE` — a burst of edits collapses into ONE run ~3 s after the
+last write; a write landing while a change-sync is RUNNING replaces (cancels +
+reschedules) it, so nothing is silently dropped (the engine is cancellation-safe:
+idempotent remote upserts, outbox rows removed only after a successful push). No
+`setExpedited` — WorkManager forbids expedited work with an initial delay, and a plain
+request runs promptly while the app is foregrounded (it is: the user just edited). The
+CONNECTED constraint means offline edits simply stay queued, exactly as before.
+
+**Loop safety.** A sync run can never re-trigger itself: the engine applies pulled rows
+via DAO upserts (`LocalApplier`) and drains/rewrites the queue via `OutboxDao` directly —
+neither path goes through `OutboxWriter`, the only place the trigger lives.
+
+**Consequences.** Existing `requestImmediateSync()` call sites in ViewModels are now
+redundant but harmless (KEEP on a separate unique chain) and are left in place. The
+15-minute periodic job remains the safety net for pull-side freshness.
