@@ -1073,3 +1073,30 @@ neither path goes through `OutboxWriter`, the only place the trigger lives.
 **Consequences.** Existing `requestImmediateSync()` call sites in ViewModels are now
 redundant but harmless (KEEP on a separate unique chain) and are left in place. The
 15-minute periodic job remains the safety net for pull-side freshness.
+
+## ADR-037 — Explicit invite accept for existing accounts (2026-08-28)
+
+**Context.** The §3 invite flow only auto-activated memberships via a trigger on
+`auth.users` INSERT (new signups). For a user whose auth account PRE-DATED the invite,
+nothing ever linked `user_id`, and the consolidated RLS baseline (002) let a user read
+`business_members` only where `user_id = auth.uid()` and update rows only as the owner —
+so the invitee could neither SEE nor ACCEPT their own invitation; the join screen listed
+nothing and the accept button was a pure client-side navigation that never activated the
+membership (every `has_perm` check then failed and the business stayed invisible).
+
+**Decision.** Shared migration 004 (server): a `BEFORE INSERT` trigger on
+`business_members` links `user_id` when the invited email already has an auth account
+(status stays `invited` — acceptance is an explicit user action on the join screen,
+spec §4.0 step 4), invited-self SELECT policies (membership row + business name), a
+self-activation UPDATE policy plus a guard trigger pinning the only permitted non-owner
+change to `invited → active` on the caller's own row (owner-set fields immutable), and a
+backfill for pre-existing invited rows. Client (additive contract change):
+`MembershipRefresher.activateInvite(memberId)` performs the server-side activation and
+applies the result to Room; `OnboardingViewModel.acceptInvite` only proceeds to
+LINK_GOOGLE on confirmed activation and surfaces `onboarding.join.accept_failed`
+otherwise. Signup auto-activation (spec §3) is unchanged — `activateInvite` treats an
+already-active-for-me row as success, so the two paths cannot race into an error.
+
+**Consequences.** Joining a business requires connectivity (acceptance is meaningless
+offline — RLS gates all business data anyway). Existing-account invitees get an explicit
+accept step; brand-new signups continue to skip it via server auto-activation.

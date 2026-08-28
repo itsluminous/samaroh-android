@@ -102,6 +102,14 @@ internal fun JoinScreen(
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(bottom = 16.dp),
         )
+        if (state.acceptFailed) {
+            Text(
+                text = stringResource(R.string.onboarding_join_accept_failed),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+        }
         if (state.invites.isEmpty()) {
             Column(modifier = Modifier.weight(1f)) {
                 EmptyState(
@@ -134,6 +142,7 @@ internal fun JoinScreen(
                         )
                         Button(
                             onClick = { onAccept(invite) },
+                            enabled = !state.isBusy,
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp).defaultMinSize(minHeight = 48.dp),
                         ) {
                             Text(stringResource(R.string.onboarding_join_accept))

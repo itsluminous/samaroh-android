@@ -74,6 +74,8 @@ data class OnboardingUiState(
     val googleSignInConfigured: Boolean = true,
     val authError: AuthFailureKind? = null,
     val invites: List<InviteSummary> = emptyList(),
+    /** True when the last invite-accept attempt failed (offline or server refused). */
+    val acceptFailed: Boolean = false,
     val form: CreateBusinessForm = CreateBusinessForm(),
     val nameMissing: Boolean = false,
     val ownerNameMissing: Boolean = false,
@@ -288,14 +290,38 @@ class OnboardingViewModel
         /** "Check again" on the join screen — re-pulls memberships from the server. */
         fun refreshInvites() {
             viewModelScope.launch {
-                _uiState.value = _uiState.value.copy(isBusy = true)
+                _uiState.value = _uiState.value.copy(isBusy = true, acceptFailed = false)
                 val invites = detectInvites()
                 _uiState.value = _uiState.value.copy(isBusy = false, invites = invites)
             }
         }
 
+        /**
+         * Accepts an invitation: activates the membership SERVER-side first (the
+         * self-activation policy scopes it to the caller's own pending row — ADR-037);
+         * only a confirmed activation enters the business, because RLS would otherwise
+         * keep every business table invisible and the app would look empty.
+         */
         fun acceptInvite(invite: InviteSummary) {
-            _uiState.value = _uiState.value.copy(activeBusinessId = invite.businessId, step = OnboardingStep.LINK_GOOGLE)
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(isBusy = true, acceptFailed = false)
+                val activated = membershipRefresher.activateInvite(invite.memberId)
+                if (!activated) {
+                    _uiState.value = _uiState.value.copy(isBusy = false, acceptFailed = true)
+                    return@launch
+                }
+                // Membership is active: the business row (and its data) just became
+                // visible under RLS — pull it now and kick the engine so the calendar
+                // is populated when the user lands on it.
+                refreshMemberships()
+                syncScheduler.requestImmediateSync()
+                _uiState.value =
+                    _uiState.value.copy(
+                        isBusy = false,
+                        activeBusinessId = invite.businessId,
+                        step = OnboardingStep.LINK_GOOGLE,
+                    )
+            }
         }
 
         // ---- Create business (step 5) ----

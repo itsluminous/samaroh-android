@@ -34,12 +34,23 @@ sealed interface MembershipRefreshResult {
 
 /**
  * Client half of the invite-acceptance flow (§3): the server trigger auto-activates a
- * membership when a user signs in with the invited email; the client just re-pulls its
- * membership rows (plus their businesses) so the onboarding fork and [PermissionGuard]
- * see them immediately — without waiting for the periodic sync engine.
+ * membership when a user signs UP with the invited email; for auth accounts that
+ * already existed the invite stays `invited` and the user accepts it explicitly on the
+ * join screen via [activateInvite] (ADR-037). [refresh] re-pulls membership rows (plus
+ * their businesses) so the onboarding fork and [PermissionGuard] see them immediately —
+ * without waiting for the periodic sync engine.
  */
 interface MembershipRefresher {
     suspend fun refresh(): MembershipRefreshResult
+
+    /**
+     * Accepts a pending invitation: flips the caller's own `business_members` row to
+     * `active` server-side (allowed by the self-activation RLS policy, migration 004)
+     * and applies the result to Room. Idempotent: a row that is ALREADY active for this
+     * user (auto-activated by a server trigger, or a concurrent accept) counts as
+     * success. Returns false offline, signed out, or when the server refuses.
+     */
+    suspend fun activateInvite(memberId: String): Boolean
 }
 
 /**
@@ -69,6 +80,43 @@ class SupabaseMembershipRefresher
                 MembershipRefreshResult.Refreshed(members.map { it.toModel() })
             } catch (e: Exception) {
                 MembershipRefreshResult.Failed(e)
+            }
+        }
+
+        override suspend fun activateInvite(memberId: String): Boolean {
+            val supabase = client ?: return false
+            val session = sessionHolder.session.first() ?: return false
+            return try {
+                val activated =
+                    supabase
+                        .from("business_members")
+                        .update(
+                            {
+                                set("user_id", session.userId)
+                                set("status", "active")
+                            },
+                        ) {
+                            select()
+                            filter {
+                                eq("id", memberId)
+                                eq("status", "invited")
+                            }
+                        }.decodeList<BusinessMemberWireRow>()
+                val row =
+                    activated.firstOrNull()
+                        // 0 rows updated: either a server trigger already activated it (a
+                        // race with signup auto-activation) or RLS refused. Re-read and
+                        // accept the already-active-for-me case as success.
+                        ?: supabase
+                            .from("business_members")
+                            .select { filter { eq("id", memberId) } }
+                            .decodeList<BusinessMemberWireRow>()
+                            .firstOrNull { it.status == "active" && it.userId == session.userId }
+                        ?: return false
+                memberDao.upsert(row.toEntity())
+                true
+            } catch (e: Exception) {
+                false
             }
         }
     }

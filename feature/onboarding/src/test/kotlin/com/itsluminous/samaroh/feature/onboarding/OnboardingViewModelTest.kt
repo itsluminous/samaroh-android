@@ -193,7 +193,7 @@ class OnboardingViewModelTest {
         }
 
     @Test
-    fun `accepting an invite selects the business and moves to link-google`() =
+    fun `accepting an invite activates it server-side and moves to link-google`() =
         runTest {
             fakeSessionHolder.flow.value = session
             fakeRefresher.result =
@@ -205,12 +205,40 @@ class OnboardingViewModelTest {
             vm.chooseJoin()
             assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.JOIN)
 
+            val invite =
+                vm.uiState.value.invites
+                    .first()
+            vm.acceptInvite(invite)
+            assertThat(fakeRefresher.activatedMemberIds).containsExactly(invite.memberId)
+            assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.LINK_GOOGLE)
+            assertThat(vm.uiState.value.activeBusinessId).isEqualTo("biz-9")
+            assertThat(vm.uiState.value.acceptFailed).isFalse()
+        }
+
+    @Test
+    fun `a refused activation keeps the join screen and surfaces the error`() =
+        runTest {
+            fakeSessionHolder.flow.value = session
+            fakeRefresher.result =
+                MembershipRefreshResult.Refreshed(
+                    listOf(invitedMember("biz-9").copy(status = MemberStatus.INVITED, userId = null)),
+                )
+            fakeRefresher.activateResult = false
+            val vm = viewModel()
+            vm.submitEmailAuth("user@example.com", "secret123")
+            vm.chooseJoin()
+
             vm.acceptInvite(
                 vm.uiState.value.invites
                     .first(),
             )
-            assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.LINK_GOOGLE)
-            assertThat(vm.uiState.value.activeBusinessId).isEqualTo("biz-9")
+            assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.JOIN)
+            assertThat(vm.uiState.value.acceptFailed).isTrue()
+            assertThat(vm.uiState.value.activeBusinessId).isNull()
+
+            // "Check again" clears the error.
+            vm.refreshInvites()
+            assertThat(vm.uiState.value.acceptFailed).isFalse()
         }
 
     // ---- §8 sync-on-sign-in: the session becoming active must trigger an expedited run ----
@@ -468,8 +496,15 @@ private class FakeSessionHolder : SessionHolder {
 
 private class FakeMembershipRefresher : MembershipRefresher {
     var result: MembershipRefreshResult = MembershipRefreshResult.Refreshed(emptyList())
+    var activateResult: Boolean = true
+    val activatedMemberIds = mutableListOf<String>()
 
     override suspend fun refresh(): MembershipRefreshResult = result
+
+    override suspend fun activateInvite(memberId: String): Boolean {
+        activatedMemberIds += memberId
+        return activateResult
+    }
 }
 
 private class FakeSyncScheduler : SyncScheduler {
