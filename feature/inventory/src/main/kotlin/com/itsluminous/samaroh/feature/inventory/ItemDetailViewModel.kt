@@ -53,8 +53,14 @@ class ItemDetailViewModel
         activeBusinessProvider: ActiveBusinessProvider,
         inventoryRepository: InventoryRepository,
         overviewRepository: InventoryOverviewRepository,
+        session: InventorySession,
     ) : ViewModel() {
         val itemId: String = checkNotNull(savedStateHandle[ITEM_DETAIL_ID_ARG])
+
+        /** `inventory.create` gate (§4.3): hides the header's Add/Remove buttons. */
+        val canRecordTransactions: StateFlow<Boolean> =
+            session.canRecordTransactions
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
         private val visibleCount = MutableStateFlow(ITEM_DETAIL_PAGE_SIZE)
 

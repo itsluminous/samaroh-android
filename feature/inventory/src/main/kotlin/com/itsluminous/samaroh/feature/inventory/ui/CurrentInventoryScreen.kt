@@ -97,11 +97,15 @@ fun CurrentInventoryScreen(
             )
         },
         floatingActionButton = {
-            SamarohFab(onClick = { showTransactionDialog = true }) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.inventory_fab_record_transaction),
-                )
+            // §3 gate: members without inventory.create never see the FAB (hidden, not greyed).
+            val canRecord by viewModel.canRecordTransactions.collectAsState()
+            if (canRecord) {
+                SamarohFab(onClick = { showTransactionDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = stringResource(R.string.inventory_fab_record_transaction),
+                    )
+                }
             }
         },
     ) { padding ->

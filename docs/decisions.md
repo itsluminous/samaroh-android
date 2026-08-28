@@ -1100,3 +1100,30 @@ already-active-for-me row as success, so the two paths cannot race into an error
 **Consequences.** Joining a business requires connectivity (acceptance is meaningless
 offline — RLS gates all business data anyway). Existing-account invitees get an explicit
 accept step; brand-new signups continue to skip it via server auto-activation.
+
+## ADR-038 — Permission-gated bottom nav + hidden write affordances (2026-08-28)
+
+**What.** Two-layer UI enforcement of the §3 permission object (owner requirement:
+members must not *see* affordances they cannot use — hide, never grey):
+
+1. **Tab level.** `app`'s `NavPermissions.visibleTabRoutes(isOwner, permissions)` maps
+   `booking.view`/`expenses.view`/`inventory.view` to bottom-nav tabs; the Menu tab is
+   unconditional. `MainViewModel.visibleTabs` recomputes reactively from
+   `PermissionGuard` (null until the first emission — the shell waits, avoiding a
+   flash of tabs that then vanish; signed-out/no-business keeps the owner-mode
+   default of all tabs). The start destination is the *first visible* tab (Booking
+   unless hidden), and a `LaunchedEffect` redirects to the first visible tab whenever
+   a sync recompute revokes the module the user is currently on.
+2. **Affordance level (additive session gates).** `InventorySession.canRecordTransactions`
+   (`inventory.create`) hides the stock screen's record-transaction FAB and the item
+   detail's Add/Remove buttons. `ExpensesSession.canCreateEntries` (`expenses.create`)
+   hides the ledger's You gave/You got buttons; `canDeleteEntries` (`expenses.delete`)
+   splits the entry menu so Edit needs `expenses.edit` and Delete needs
+   `expenses.delete` independently. Booking's pending-confirmations card is hidden
+   without `booking.record_payment`, the tentative follow-up card without
+   `booking.edit` (its Cancel action additionally needs `booking.delete`).
+
+**Why.** RLS already blocks the writes server-side, but viewers were shown dead or
+error-producing buttons, and members without a module's `view` permission still got
+the tab (empty/erroring). Postgres RLS remains the authoritative layer; this is §3
+layer 2 only.

@@ -137,7 +137,75 @@ class PartyLedgerViewModelTest {
     fun `edit-delete gate defaults to allowed until PermissionGuard integration`() =
         runTest {
             viewModel().state.test {
-                assertThat(awaitItem().canEditEntries).isTrue()
+                val first = awaitItem()
+                assertThat(first.canEditEntries).isTrue()
+                assertThat(first.canCreateEntries).isTrue()
+                assertThat(first.canDeleteEntries).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `entry gates follow expenses permissions for non-owners`() =
+        runTest {
+            val viewModel =
+                PartyLedgerViewModel(
+                    savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
+                    expensesRepository = expensesRepository,
+                    ledgerRepository = ledgerRepository,
+                    session =
+                        fakeExpensesSession(
+                            userId = "member-1",
+                            isOwner = false,
+                            permissions =
+                                com.itsluminous.samaroh.core.model.MemberPermissions(
+                                    expenses =
+                                        com.itsluminous.samaroh.core.model.ExpensesPermissions(
+                                            view = true,
+                                            create = true,
+                                        ),
+                                ),
+                        ),
+                    clock = java.time.Clock.fixed(Fixtures.NOW, java.time.ZoneOffset.UTC),
+                )
+            viewModel.state.test {
+                val loaded = awaitItemMatching { it.loaded }
+                // create shows the You gave/You got buttons; edit/delete stay hidden.
+                assertThat(loaded.canCreateEntries).isTrue()
+                assertThat(loaded.canEditEntries).isFalse()
+                assertThat(loaded.canDeleteEntries).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `view-only member gets no entry write gates`() =
+        runTest {
+            val viewModel =
+                PartyLedgerViewModel(
+                    savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
+                    expensesRepository = expensesRepository,
+                    ledgerRepository = ledgerRepository,
+                    session =
+                        fakeExpensesSession(
+                            userId = "member-1",
+                            isOwner = false,
+                            permissions =
+                                com.itsluminous.samaroh.core.model.MemberPermissions(
+                                    expenses =
+                                        com.itsluminous.samaroh.core.model
+                                            .ExpensesPermissions(view = true),
+                                ),
+                        ),
+                    clock = java.time.Clock.fixed(Fixtures.NOW, java.time.ZoneOffset.UTC),
+                )
+            viewModel.state.test {
+                val loaded = awaitItemMatching { it.loaded }
+                assertThat(loaded.canCreateEntries).isFalse()
+                assertThat(loaded.canEditEntries).isFalse()
+                assertThat(loaded.canDeleteEntries).isFalse()
+                assertThat(loaded.canEditParty).isFalse()
+                assertThat(loaded.canDeleteParty).isFalse()
                 cancelAndIgnoreRemainingEvents()
             }
         }

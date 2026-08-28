@@ -42,6 +42,10 @@ data class PartyLedgerState(
     val netBalancePaise: Long = 0,
     /** Drives the PermissionGate around edit/delete (`expenses.edit`, owner-mode default). */
     val canEditEntries: Boolean = true,
+    /** `expenses.create` gate: shows the You gave / You got buttons. */
+    val canCreateEntries: Boolean = true,
+    /** Entry-delete gate: `expenses.delete`. */
+    val canDeleteEntries: Boolean = true,
     /** Party-edit gate (ADR-028): `expenses.edit` OR `expenses.manage_parties`. */
     val canEditParty: Boolean = true,
     /** Party-delete gate (ADR-028): `expenses.delete`. */
@@ -93,13 +97,17 @@ class PartyLedgerViewModel
         private val _events = MutableSharedFlow<PartyLedgerEvent>(extraBufferCapacity = 1)
         val events: SharedFlow<PartyLedgerEvent> = _events.asSharedFlow()
 
-        /** The three permission gates as one flow (keeps the state combine at 5 sources). */
+        /** All permission gates as one flow (keeps the state combine at 5 sources). */
         private val gates =
             combine(
                 session.canEditEntries,
+                session.canCreateEntries,
+                session.canDeleteEntries,
                 session.canManageParties,
                 session.canDeleteParties,
-            ) { canEdit, canManage, canDelete -> Triple(canEdit, canManage, canDelete) }
+            ) { canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty ->
+                Gates(canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty)
+            }
 
         val state: StateFlow<PartyLedgerState> =
             combine(
@@ -108,20 +116,31 @@ class PartyLedgerViewModel
                 ledgerRepository.attachmentsForParty(partyId),
                 gates,
                 session.businessName,
-            ) { party, entries, attachments, (canEdit, canManage, canDelete), businessName ->
+            ) { party, entries, attachments, gate, businessName ->
                 val rows = RunningBalanceCalculator.withRunningBalance(entries)
                 PartyLedgerState(
                     party = party,
                     rows = rows,
                     attachmentsByExpense = attachments.groupBy { it.attachment.expenseId },
                     netBalancePaise = rows.firstOrNull()?.balanceAfterPaise ?: 0,
-                    canEditEntries = canEdit,
-                    canEditParty = canManage,
-                    canDeleteParty = canDelete,
+                    canEditEntries = gate.editEntries,
+                    canCreateEntries = gate.createEntries,
+                    canDeleteEntries = gate.deleteEntries,
+                    canEditParty = gate.manageParties,
+                    canDeleteParty = gate.deleteParties,
                     businessName = businessName,
                     loaded = true,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PartyLedgerState())
+
+        /** The five §3 gates the ledger screen renders from. */
+        private data class Gates(
+            val editEntries: Boolean,
+            val createEntries: Boolean,
+            val deleteEntries: Boolean,
+            val manageParties: Boolean,
+            val deleteParties: Boolean,
+        )
 
         /** Tombstone delete (§4.2); the row disappears locally and the delete syncs as a tombstone. */
         fun deleteEntry(expenseId: String) {

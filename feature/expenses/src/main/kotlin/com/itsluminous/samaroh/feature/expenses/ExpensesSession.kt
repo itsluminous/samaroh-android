@@ -54,6 +54,12 @@ class ExpensesSession
          */
         val canEditEntries: Flow<Boolean> = permissionGate { it.expenses.edit }
 
+        /** `expenses.create` gate (§4.2): the ledger's You gave / You got buttons. */
+        val canCreateEntries: Flow<Boolean> = permissionGate { it.expenses.create }
+
+        /** Entry delete gate (§4.2): `expenses.delete` — same action as party deletes. */
+        val canDeleteEntries: Flow<Boolean> = permissionGate { it.expenses.delete }
+
         /** Party edit gate (ADR-028): `expenses.edit` OR `expenses.manage_parties`. */
         val canManageParties: Flow<Boolean> = permissionGate { it.expenses.edit || it.expenses.manageParties }
 

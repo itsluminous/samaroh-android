@@ -106,21 +106,43 @@ fun SamarohApp(
     val navController = rememberNavController()
     val isOnline by rememberIsOnline()
     val onboardingComplete by viewModel.onboardingComplete.collectAsStateWithLifecycle()
+    val visibleTabsState by viewModel.visibleTabs.collectAsStateWithLifecycle()
     val syncIndicator by viewModel.syncIndicator.collectAsStateWithLifecycle()
     val activityContext = LocalContext.current
 
     // Wait for the DataStore read before choosing the start destination (no flicker).
     val onboarded = onboardingComplete ?: return
+    // Tab-level §3 gate: wait for the first permission recompute too — rendering all
+    // four tabs and then dropping one would flash a tab the member cannot view.
+    val visibleTabs = visibleTabsState ?: return
     // Saveable so activity recreation (locale/theme change) keeps the SAME nav graph —
     // a changed startDestination breaks NavController state restoration. The completion
     // navigation (not a graph swap) moves the user on; a process restart re-reads the flag.
-    val startDestination = rememberSaveable { if (onboarded) BOOKING_ROUTE else ONBOARDING_ROUTE }
+    // Booking hidden (no booking.view) → fall back to the first visible tab.
+    val startDestination = rememberSaveable { if (onboarded) visibleTabs.first() else ONBOARDING_ROUTE }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val inOnboarding =
         currentDestination?.hierarchy?.any { it.route == ONBOARDING_ROUTE }
             ?: (startDestination == ONBOARDING_ROUTE)
+
+    // Tab-level §3 gate, reactive leg: when a sync recompute revokes the module the user
+    // is currently ON (or the saved start tab is no longer viewable), move to the first
+    // visible tab. Non-tab destinations (Reports, Sync status) are left alone.
+    val currentTab =
+        currentDestination
+            ?.hierarchy
+            ?.mapNotNull { it.route }
+            ?.firstOrNull { it in NavPermissions.allTabRoutes }
+    LaunchedEffect(visibleTabs, currentTab) {
+        if (currentTab != null && currentTab !in visibleTabs) {
+            navController.navigate(visibleTabs.first()) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+            }
+        }
+    }
 
     // Reminder-notification deep link: land on the Booking tab (§4.1); the booking graph
     // opens the specific card via [pendingBookingId] below.
@@ -187,7 +209,9 @@ fun SamarohApp(
         bottomBar = {
             if (!inOnboarding) {
                 NavigationBar {
-                    topLevelDestinations.forEach { destination ->
+                    // §3 tab-level gate: only the member's visible tabs render (hidden,
+                    // not greyed); the list recomputes live when sync changes permissions.
+                    topLevelDestinations.filter { it.route in visibleTabs }.forEach { destination ->
                         val label = stringResource(destination.labelRes)
                         NavigationBarItem(
                             selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true,
@@ -259,7 +283,8 @@ fun SamarohApp(
                 onboardingGraph(
                     onOnboardingComplete = {
                         viewModel.completeOnboarding()
-                        navController.navigate(BOOKING_ROUTE) {
+                        // First visible tab (§3): Booking unless the member lacks booking.view.
+                        navController.navigate(visibleTabs.first()) {
                             popUpTo(ONBOARDING_ROUTE) { inclusive = true }
                         }
                     },

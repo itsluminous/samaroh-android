@@ -173,23 +173,26 @@ fun PartyLedgerScreen(
             )
         },
         bottomBar = {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Button(
-                    onClick = { onAddEntry(ExpenseDirection.PAID) },
-                    colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyOut),
-                    modifier = Modifier.weight(1f).height(56.dp),
+            // §3 gate: members without expenses.create never see the entry buttons.
+            if (state.canCreateEntries) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(stringResource(R.string.expenses_ledger_you_gave_button), style = MaterialTheme.typography.titleMedium)
-                }
-                Button(
-                    onClick = { onAddEntry(ExpenseDirection.RECEIVED) },
-                    colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyIn),
-                    modifier = Modifier.weight(1f).height(56.dp),
-                ) {
-                    Text(stringResource(R.string.expenses_ledger_you_got_button), style = MaterialTheme.typography.titleMedium)
+                    Button(
+                        onClick = { onAddEntry(ExpenseDirection.PAID) },
+                        colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyOut),
+                        modifier = Modifier.weight(1f).height(56.dp),
+                    ) {
+                        Text(stringResource(R.string.expenses_ledger_you_gave_button), style = MaterialTheme.typography.titleMedium)
+                    }
+                    Button(
+                        onClick = { onAddEntry(ExpenseDirection.RECEIVED) },
+                        colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyIn),
+                        modifier = Modifier.weight(1f).height(56.dp),
+                    ) {
+                        Text(stringResource(R.string.expenses_ledger_you_got_button), style = MaterialTheme.typography.titleMedium)
+                    }
                 }
             }
         },
@@ -209,6 +212,7 @@ fun PartyLedgerScreen(
                             row = row,
                             attachments = state.attachmentsByExpense[row.expense.id].orEmpty(),
                             canEdit = state.canEditEntries,
+                            canDelete = state.canDeleteEntries,
                             onEdit = { onEditEntry(row.expense.direction, row.expense.id) },
                             onDelete = { confirmDeleteId = row.expense.id },
                             modifier = animatedListItem(),
@@ -364,6 +368,7 @@ private fun LedgerEntryRow(
     row: LedgerRow,
     attachments: List<AttachmentWithLocalState>,
     canEdit: Boolean,
+    canDelete: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -406,8 +411,8 @@ private fun LedgerEntryRow(
                 tone = if (expense.direction == ExpenseDirection.PAID) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
                 style = MaterialTheme.typography.titleMedium,
             )
-            PermissionGate(allowed = canEdit) {
-                EntryMenu(onEdit = onEdit, onDelete = onDelete)
+            PermissionGate(allowed = canEdit || canDelete) {
+                EntryMenu(showEdit = canEdit, showDelete = canDelete, onEdit = onEdit, onDelete = onDelete)
             }
         }
     }
@@ -415,6 +420,8 @@ private fun LedgerEntryRow(
 
 @Composable
 private fun EntryMenu(
+    showEdit: Boolean,
+    showDelete: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -427,20 +434,24 @@ private fun EntryMenu(
             onClick = { expanded = true },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.common_action_edit)) },
-                onClick = {
-                    expanded = false
-                    onEdit()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.common_action_delete)) },
-                onClick = {
-                    expanded = false
-                    onDelete()
-                },
-            )
+            if (showEdit) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.common_action_edit)) },
+                    onClick = {
+                        expanded = false
+                        onEdit()
+                    },
+                )
+            }
+            if (showDelete) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.common_action_delete)) },
+                    onClick = {
+                        expanded = false
+                        onDelete()
+                    },
+                )
+            }
         }
     }
 }

@@ -8,14 +8,19 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -53,6 +58,8 @@ class MainViewModel
         @SettingsDataStore private val settings: DataStore<Preferences>,
         syncStatus: SyncStatus,
         activeBusinessProvider: ActiveBusinessProvider,
+        currentUserProvider: CurrentUserProvider,
+        permissionGuard: PermissionGuard,
         private val googleAccountLinker: GoogleAccountLinker,
     ) : ViewModel() {
         /** Null while the DataStore read is in flight — the shell waits before routing. */
@@ -60,6 +67,32 @@ class MainViewModel
             settings.data
                 .map { prefs -> prefs[KEY_ONBOARDING_COMPLETE] ?: false }
                 .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        /**
+         * Bottom-nav tabs visible to the current member (§3 tab-level gate): modules
+         * without `view` disappear from the bar; Menu always stays. Null until the first
+         * recompute (the shell waits — no flash of tabs that then vanish). Signed-out or
+         * pre-onboarding keeps the owner-mode default (all tabs). Reactive: a permission
+         * change pulled by sync recomputes the list and drops/restores tabs live.
+         */
+        @OptIn(ExperimentalCoroutinesApi::class)
+        val visibleTabs: StateFlow<List<String>?> =
+            combine(
+                currentUserProvider.currentUserId,
+                activeBusinessProvider.activeBusiness,
+            ) { userId, business -> userId to business }
+                .flatMapLatest { (userId, business) ->
+                    when {
+                        userId == null || business == null -> flowOf(NavPermissions.allTabRoutes)
+                        else ->
+                            combine(
+                                permissionGuard.permissions(business.id),
+                                permissionGuard.isOwner(business.id),
+                            ) { permissions, isOwner ->
+                                NavPermissions.visibleTabRoutes(isOwner, permissions)
+                            }
+                    }
+                }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
         /**
          * Active business name for the top app bar; null before onboarding creates one

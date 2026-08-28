@@ -38,9 +38,15 @@ class CurrentInventoryViewModel
     constructor(
         activeBusinessProvider: ActiveBusinessProvider,
         overviewRepository: InventoryOverviewRepository,
+        session: InventorySession,
     ) : ViewModel() {
         private val query = MutableStateFlow("")
         val searchQuery: StateFlow<String> = query.asStateFlow()
+
+        /** `inventory.create` gate (§4.3): hides the record-transaction FAB entirely. */
+        val canRecordTransactions: StateFlow<Boolean> =
+            session.canRecordTransactions
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
         /** App-wide active-business session seam (docs/decisions.md ADR-017). */
         private val activeBusinessId: Flow<String?> =

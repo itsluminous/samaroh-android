@@ -168,12 +168,14 @@ fun ItemDetailScreen(
         ) {
             item(key = "header") {
                 if (item != null) {
+                    val canRecord by viewModel.canRecordTransactions.collectAsState()
                     ItemDetailHeader(
                         name = item.name,
                         unit = item.unit,
                         imagePath = item.imagePath,
                         currentQuantity = uiState.currentQuantity,
                         totalValuePaise = uiState.totalValuePaise,
+                        showTransactionButtons = canRecord,
                         onImageTap = { path -> expandedImagePath = path },
                         onAdd = { dialogType = TxnType.ADD },
                         onRemove = { dialogType = TxnType.REMOVE },
@@ -284,6 +286,7 @@ private fun ItemDetailHeader(
     imagePath: String?,
     currentQuantity: Double,
     totalValuePaise: Long,
+    showTransactionButtons: Boolean,
     onImageTap: (String) -> Unit,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
@@ -334,14 +337,17 @@ private fun ItemDetailHeader(
             }
             // Scrollable single line: weighted halves squash "Add"/"Remove" into
             // character-per-line slivers on narrow screens (pills never wrap).
-            ChipRow {
-                Button(onClick = onAdd) {
-                    Icon(imageVector = Icons.Filled.Add, contentDescription = null)
-                    Text(stringResource(R.string.inventory_txn_type_add))
-                }
-                OutlinedButton(onClick = onRemove) {
-                    Icon(imageVector = Icons.Filled.Remove, contentDescription = null)
-                    Text(stringResource(R.string.inventory_txn_type_remove))
+            // §3 gate: hidden entirely without inventory.create.
+            if (showTransactionButtons) {
+                ChipRow {
+                    Button(onClick = onAdd) {
+                        Icon(imageVector = Icons.Filled.Add, contentDescription = null)
+                        Text(stringResource(R.string.inventory_txn_type_add))
+                    }
+                    OutlinedButton(onClick = onRemove) {
+                        Icon(imageVector = Icons.Filled.Remove, contentDescription = null)
+                        Text(stringResource(R.string.inventory_txn_type_remove))
+                    }
                 }
             }
         }

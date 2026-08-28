@@ -36,6 +36,13 @@ class InventorySession
         val canManageMasterItems: Flow<Boolean> =
             permissionGate { it.inventory.manageMasterItems || it.inventory.edit }
 
+        /**
+         * Transaction-recording gate (§4.3): `inventory.create`. Drives the stock
+         * screen's record-transaction FAB and the item detail's Add/Remove buttons.
+         */
+        val canRecordTransactions: Flow<Boolean> =
+            permissionGate { it.inventory.create }
+
         /** Owners always pass [allowed]; signed-out/offline keeps the owner-mode default (true). */
         private fun permissionGate(allowed: (MemberPermissions) -> Boolean): Flow<Boolean> =
             combine(

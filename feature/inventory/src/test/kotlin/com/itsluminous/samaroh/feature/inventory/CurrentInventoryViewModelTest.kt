@@ -41,7 +41,7 @@ class CurrentInventoryViewModelTest {
                 line("item-plate", "Steel Plate", quantity = 7.0, valuePaise = 700_00L),
                 line("item-chair", "Plastic Chair"),
             )
-        viewModel = CurrentInventoryViewModel(FakeActiveBusinessProvider(Fixtures.business()), inventory)
+        viewModel = CurrentInventoryViewModel(FakeActiveBusinessProvider(Fixtures.business()), inventory, ownerModeInventorySession())
     }
 
     @Test

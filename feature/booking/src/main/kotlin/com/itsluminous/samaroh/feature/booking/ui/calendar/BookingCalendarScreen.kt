@@ -256,7 +256,9 @@ fun BookingCalendarScreen(
                 }
 
                 // ★ In-app pending-confirmations card — the reliable reminder path (§4.1).
-                if (state.pendingConfirmations.isNotEmpty()) {
+                // §3 gate: every action here records a payment, so the card is hidden
+                // entirely without booking.record_payment.
+                if (state.pendingConfirmations.isNotEmpty() && canRecordPayment) {
                     SamarohCard {
                         Text(
                             text = stringResource(R.string.booking_reminder_pending_card_title),
@@ -294,7 +296,9 @@ fun BookingCalendarScreen(
                 }
 
                 // ★ Tentative follow-ups due today (ADR-020): Confirm / Cancel / Snooze.
-                if (state.pendingFollowUps.isNotEmpty()) {
+                // §3 gate: confirm/snooze mutate the booking (booking.edit); the cancel
+                // action additionally needs booking.delete (cancel = tombstone).
+                if (state.pendingFollowUps.isNotEmpty() && canEdit) {
                     SamarohCard {
                         Text(
                             text = stringResource(R.string.booking_reminder_follow_up_title),
@@ -316,8 +320,10 @@ fun BookingCalendarScreen(
                                 TextButton(onClick = { viewModel.confirmTentativeBooking(followUp) }) {
                                     Text(stringResource(R.string.booking_reminder_action_confirm_booking))
                                 }
-                                TextButton(onClick = { viewModel.cancelTentativeBooking(followUp) }) {
-                                    Text(stringResource(R.string.booking_card_action_cancel_booking))
+                                if (canDelete) {
+                                    TextButton(onClick = { viewModel.cancelTentativeBooking(followUp) }) {
+                                        Text(stringResource(R.string.booking_card_action_cancel_booking))
+                                    }
                                 }
                                 TextButton(onClick = { viewModel.snoozeFollowUp(followUp) }) {
                                     Text(stringResource(R.string.booking_reminder_action_snooze))

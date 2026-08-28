@@ -59,4 +59,47 @@ class InventorySessionTest {
             guard.permissionsFlow.value = MemberPermissions(inventory = InventoryPermissions(view = true))
             assertThat(session("user-1", guard).canManageMasterItems.first()).isFalse()
         }
+
+    // ---- canRecordTransactions (`inventory.create`, §4.3 FAB + Add/Remove) ----
+
+    @Test
+    fun `record transactions - signed out keeps the owner-mode default`() =
+        runTest {
+            val session = session(userId = null, guard = FakePermissionGuard())
+            assertThat(session.canRecordTransactions.first()).isTrue()
+        }
+
+    @Test
+    fun `record transactions - owner passes with no explicit permissions`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.ownerFlow.value = true
+            assertThat(session("user-1", guard).canRecordTransactions.first()).isTrue()
+        }
+
+    @Test
+    fun `record transactions - member with inventory create passes`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.permissionsFlow.value =
+                MemberPermissions(inventory = InventoryPermissions(view = true, create = true))
+            assertThat(session("user-1", guard).canRecordTransactions.first()).isTrue()
+        }
+
+    @Test
+    fun `record transactions - viewer member is denied`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.permissionsFlow.value = MemberPermissions(inventory = InventoryPermissions(view = true))
+            assertThat(session("user-1", guard).canRecordTransactions.first()).isFalse()
+        }
+
+    @Test
+    fun `record transactions - edit alone does not grant create`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.permissionsFlow.value =
+                MemberPermissions(inventory = InventoryPermissions(view = true, edit = true))
+            assertThat(session("user-1", guard).canRecordTransactions.first()).isFalse()
+        }
 }

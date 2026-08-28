@@ -43,6 +43,7 @@ class ItemDetailViewModelTest {
                 activeBusinessProvider = FakeActiveBusinessProvider(),
                 inventoryRepository = inventory,
                 overviewRepository = inventory,
+                session = ownerModeInventorySession(),
             )
     }
 
