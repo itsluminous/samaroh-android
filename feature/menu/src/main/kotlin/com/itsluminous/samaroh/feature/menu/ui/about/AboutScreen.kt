@@ -40,14 +40,19 @@ fun AboutScreen(onBack: () -> Unit) {
             }.getOrNull().orEmpty()
         }
 
+    // Short label only — the URL is the destination, not the copy.
+    val sourceUrl = stringResource(R.string.menu_about_source_code_url)
+
     MenuScreenScaffold(titleRes = R.string.menu_about_title, onBack = onBack) {
+        // Version row opens THIS build's release notes — the URL derives from
+        // versionName (tag v<versionName>), so every release links itself automatically.
         ListItem(
             headlineContent = { Text(stringResource(R.string.common_app_name), style = MaterialTheme.typography.titleLarge) },
             supportingContent = { Text(stringResource(R.string.menu_about_version, versionName)) },
+            trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+            modifier = Modifier.clickable { uriHandler.openUri(releaseNotesUrl(sourceUrl, versionName)) },
         )
         HorizontalDivider()
-        // Short label only — the URL is the destination, not the copy.
-        val sourceUrl = stringResource(R.string.menu_about_source_code_url)
         ListItem(
             headlineContent = { Text(stringResource(R.string.menu_about_source_code)) },
             trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },

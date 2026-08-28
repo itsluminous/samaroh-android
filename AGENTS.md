@@ -118,9 +118,15 @@ Conventional Commits, imperative mood, subject ≤ 50 chars
 - **Release notes are REQUIRED on the GitHub Release**: write a curated summary of the
   changes since the last tag (user-facing wording, grouped by area) — never a raw
   `git log` dump.
-- The About screen shows the app version from the package's `versionName`
-  (`BuildConfig.VERSION_NAME`), which derives from the tag at release build time
-  (`v0.1.0` → `-PappVersionName=0.1.0`; local/debug builds show the default set in `app/build.gradle.kts`).
+- **About screen is FULLY AUTOMATIC — a release needs NO About-screen edits.** The
+  version text comes from the package's `versionName` (`BuildConfig.VERSION_NAME`),
+  which derives from the tag at release build time (`v0.1.0` → `-PappVersionName=0.1.0`;
+  local/debug builds show the default set in `app/build.gradle.kts`). Tapping the
+  version row opens this build's release notes at
+  `<source repo URL>/releases/tag/v<versionName>` — the URL is derived at runtime
+  (`ReleaseNotesUrl.kt`), so the tag → About text → release-notes link chain has zero
+  manual steps. The only per-release edit in this repo is bumping the DEFAULT
+  `versionName` in `app/build.gradle.kts` so debug builds stay in step.
   **Verify Menu → About reflects the new version as part of every release.**
 
 ## Working conventions (learned)
