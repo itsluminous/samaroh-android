@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.feature.menu.ui.about.AboutScreen
 import com.itsluminous.samaroh.feature.menu.ui.home.MenuHomeScreen
 import com.itsluminous.samaroh.feature.menu.ui.members.MembersScreen
 import com.itsluminous.samaroh.feature.menu.ui.settings.BusinessProfileScreen
+import com.itsluminous.samaroh.feature.menu.ui.settings.EventTypesScreen
 import com.itsluminous.samaroh.feature.menu.ui.settings.LanguagePickerScreen
 import com.itsluminous.samaroh.feature.menu.ui.settings.ReminderSettingsScreen
 import com.itsluminous.samaroh.feature.menu.ui.settings.SettingsScreen
@@ -50,6 +51,7 @@ private object MenuRoutes {
     const val REMINDERS = "menu_settings_reminders"
     const val SYNC_STATUS = "menu_settings_sync"
     const val BUSINESS_PROFILE = "menu_settings_business"
+    const val EVENT_TYPES = "menu_settings_event_types"
     const val MEMBERS = "menu_members"
     const val ABOUT = "menu_about"
 }
@@ -73,6 +75,7 @@ private fun MenuTabHost(onOpenReports: () -> Unit) {
                 onOpenReminderSettings = { navController.navigate(MenuRoutes.REMINDERS) },
                 onOpenSyncStatus = { navController.navigate(MenuRoutes.SYNC_STATUS) },
                 onOpenBusinessProfile = { navController.navigate(MenuRoutes.BUSINESS_PROFILE) },
+                onOpenEventTypes = { navController.navigate(MenuRoutes.EVENT_TYPES) },
             )
         }
         composable(MenuRoutes.LANGUAGE) {
@@ -86,6 +89,9 @@ private fun MenuTabHost(onOpenReports: () -> Unit) {
         }
         composable(MenuRoutes.BUSINESS_PROFILE) {
             BusinessProfileScreen(onBack = { navController.popBackStack() })
+        }
+        composable(MenuRoutes.EVENT_TYPES) {
+            EventTypesScreen(onBack = { navController.popBackStack() })
         }
         composable(MenuRoutes.MEMBERS) {
             MembersScreen(onBack = { navController.popBackStack() })

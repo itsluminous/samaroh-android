@@ -57,6 +57,7 @@ fun SettingsScreen(
     onOpenReminderSettings: () -> Unit,
     onOpenSyncStatus: () -> Unit,
     onOpenBusinessProfile: () -> Unit,
+    onOpenEventTypes: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -275,6 +276,15 @@ fun SettingsScreen(
             supportingContent = { state.businessName?.let { Text(it) } },
             modifier = Modifier.clickable(onClick = onOpenBusinessProfile),
         )
+
+        // Event-type presets (ADR-032) — owner / settings.manage_business only.
+        if (state.canManageEventTypes) {
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_event_types_title)) },
+                modifier = Modifier.clickable(onClick = onOpenEventTypes),
+            )
+        }
     }
 
     if (showRemoveEventsDialog) {

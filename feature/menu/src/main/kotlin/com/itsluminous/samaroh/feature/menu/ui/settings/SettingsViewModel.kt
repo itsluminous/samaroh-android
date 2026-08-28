@@ -46,6 +46,8 @@ data class SettingsUiState(
     val gcalSyncEnabled: Boolean = false,
     /** Backups are owner-only — the whole section hides otherwise (§4.4). */
     val isOwner: Boolean = false,
+    /** Owner or `settings.manage_business` — gates the Event types row (ADR-032). */
+    val canManageEventTypes: Boolean = false,
     val backupFrequency: BackupFrequency = BackupFrequency.WEEKLY,
     val lastBackupAt: Instant? = null,
 )
@@ -86,6 +88,7 @@ class SettingsViewModel
                                 device = device,
                                 linkState = link,
                                 canToggleGcalSync = isOwner || permissions.settings.gcalSync,
+                                canManageEventTypes = isOwner || permissions.settings.manageBusiness,
                                 gcalSyncEnabled = settings?.gcalSyncEnabled == true,
                                 isOwner = isOwner,
                                 backupFrequency = BackupFrequency.fromWire(settings?.backupFrequency ?: BackupFrequency.WEEKLY.wire),
