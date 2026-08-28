@@ -2,8 +2,6 @@ package com.itsluminous.samaroh.feature.booking.di
 
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorsProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypesProvider
 import com.itsluminous.samaroh.feature.booking.domain.SessionBookingActorProvider
@@ -31,10 +29,6 @@ abstract class BookingFeatureModule {
     /** Built-in event types come from the shared submodule's event-types.json (§4.1). */
     @Binds
     abstract fun bindEventTypeCatalog(impl: EventTypesProvider): EventTypeCatalog
-
-    /** Booking colour palette from the shared submodule's booking-colors.json (ADR-030). */
-    @Binds
-    abstract fun bindBookingColorCatalog(impl: BookingColorsProvider): BookingColorCatalog
 
     /** Booking-form optional-field visibility from the shared settings DataStore (ADR-020). */
     @Binds

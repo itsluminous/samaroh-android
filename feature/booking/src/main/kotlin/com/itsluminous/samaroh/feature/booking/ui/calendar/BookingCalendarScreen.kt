@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
@@ -62,8 +63,8 @@ import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.displayIcon
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
@@ -98,6 +99,7 @@ fun BookingCalendarScreen(
     val iconWatermarkAlpha by viewModel.iconWatermarkAlpha.collectAsState()
     val eventsView by viewModel.eventsView.collectAsState()
     val eventsAgenda by viewModel.eventsAgenda.collectAsState()
+    val presets by viewModel.presets.collectAsState()
 
     var monthPicker by remember { mutableStateOf(false) }
     var blockDialog by remember { mutableStateOf(false) }
@@ -182,6 +184,7 @@ fun BookingCalendarScreen(
                     agenda = eventsAgenda,
                     eventTypes = eventTypes,
                     bookingColors = bookingColors,
+                    presets = presets,
                     today = state.today,
                     onOpenBooking = viewModel::openBooking,
                     onLoadOlder = viewModel::loadOlderEvents,
@@ -406,7 +409,7 @@ fun BookingCalendarScreen(
                                     .padding(vertical = 8.dp),
                         ) {
                             // Booking colour dot (ADR-030, fallback chain ADR-031) — decorative; text carries the info.
-                            BookingColorFallback.effectiveColor(booking, bookingColors, eventTypes)?.fill?.let { dotColor ->
+                            BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.fill?.let { dotColor ->
                                 BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -499,6 +502,7 @@ fun BookingCalendarScreen(
         BookingCardSheet(
             detail = current,
             eventTypes = eventTypes,
+            presets = presets,
             bookingColors = bookingColors,
             creatorName = actor?.displayName ?: state.business?.ownerName.orEmpty(),
             canEdit = canEdit,
@@ -586,6 +590,7 @@ private fun EventsAgendaList(
     agenda: BookingCalendarViewModel.EventsAgendaState,
     eventTypes: EventTypeCatalog,
     bookingColors: BookingColorCatalog,
+    presets: List<EventType>,
     today: LocalDate,
     onOpenBooking: (String) -> Unit,
     onLoadOlder: () -> Unit,
@@ -652,7 +657,7 @@ private fun EventsAgendaList(
                             .padding(vertical = 8.dp),
                 ) {
                     // Booking colour dot (ADR-030, fallback chain ADR-031) — decorative; text carries the info.
-                    BookingColorFallback.effectiveColor(booking, bookingColors, eventTypes)?.fill?.let { dotColor ->
+                    BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.fill?.let { dotColor ->
                         BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {

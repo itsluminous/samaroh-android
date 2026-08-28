@@ -2,22 +2,24 @@ package com.itsluminous.samaroh.feature.booking.ui.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.invoice.InvoiceGenerator
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
@@ -128,6 +130,7 @@ class BookingCalendarViewModel
         private val actorProvider: BookingActorProvider,
         private val invoiceGenerator: InvoiceGenerator,
         private val syncScheduler: SyncScheduler,
+        eventTypeRepository: EventTypeRepository,
         val eventTypesProvider: EventTypeCatalog,
         /** Booking colour palette (ADR-030), exposed like [eventTypesProvider] for the UI. */
         val bookingColorsProvider: BookingColorCatalog,
@@ -165,6 +168,16 @@ class BookingCalendarViewModel
         private val actorFlow: Flow<BookingActor?> =
             businessFlow.map { business -> business?.let { actorProvider.actorFor(it) } }
 
+        /**
+         * The business's live event-type presets (ADR-032) — the type-default colour
+         * source of the fallback chain (agenda dots, booking card, month cell fill).
+         */
+        val presets: StateFlow<List<EventType>> =
+            businessFlow
+                .flatMapLatest { business ->
+                    if (business == null) flowOf(emptyList()) else eventTypeRepository.presets(business.id)
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
         private data class MonthData(
             val bookings: List<Booking>,
             val blocks: List<DateBlock>,
@@ -195,13 +208,13 @@ class BookingCalendarViewModel
                 }
 
         val uiState: StateFlow<BookingCalendarUiState> =
-            combine(businessFlow, actorFlow, monthData) { business, actor, data ->
+            combine(businessFlow, actorFlow, monthData, presets) { business, actor, data, presetRows ->
                 val today = LocalDate.now(clock)
                 if (business == null || data == null) {
                     BookingCalendarUiState(loaded = true, business = business, month = month.value, today = today, actor = actor)
                 } else {
                     val (shownMonth, monthData) = data
-                    buildState(business, actor, shownMonth, today, monthData)
+                    buildState(business, actor, shownMonth, today, monthData, presetRows)
                 }
             }.stateIn(
                 viewModelScope,
@@ -291,6 +304,7 @@ class BookingCalendarViewModel
             shownMonth: YearMonth,
             today: LocalDate,
             data: MonthData,
+            presetRows: List<EventType>,
         ): BookingCalendarUiState {
             val live = data.bookings.filter { it.status != BookingStatus.CANCELLED && it.deletedAt == null }
             val paymentsByBooking = data.payments.groupBy { it.bookingId }
@@ -326,12 +340,12 @@ class BookingCalendarViewModel
                 today = today,
                 grid =
                     CalendarMonthMapper.map(shownMonth, today, data.bookings, data.blocks) { booking ->
-                        // Fallback chain (ADR-031): explicit colour → type default → themed.
+                        // Fallback chain (ADR-031/032): explicit colour → preset default → themed.
                         BookingColorFallback.effectiveKey(
                             booking.color,
                             booking.eventType,
                             bookingColorsProvider,
-                            eventTypesProvider,
+                            presetRows,
                         )
                     },
                 bookings = data.bookings,

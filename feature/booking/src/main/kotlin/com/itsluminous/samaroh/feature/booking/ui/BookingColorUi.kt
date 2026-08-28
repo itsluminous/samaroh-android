@@ -8,17 +8,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.itsluminous.samaroh.feature.booking.domain.BookingColor
+import com.itsluminous.samaroh.core.data.color.BookingColor
+import com.itsluminous.samaroh.core.designsystem.component.parseHexColor
 
 // Booking colour presentation helpers (ADR-030).
-
-/** `#RRGGBB` → opaque Compose [Color]; null on malformed input (renders the default look). */
-fun parseHexColor(hex: String): Color? {
-    val digits = hex.removePrefix("#")
-    if (digits.length != 6) return null
-    val rgb = digits.toLongOrNull(16) ?: return null
-    return Color(0xFF000000L or rgb)
-}
 
 /** Swatch/fill colour of a palette entry. */
 val BookingColor.fill: Color? get() = parseHexColor(hex)

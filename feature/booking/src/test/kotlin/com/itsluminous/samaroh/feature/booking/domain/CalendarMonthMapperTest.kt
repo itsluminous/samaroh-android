@@ -6,7 +6,7 @@ import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.TENTATIVE_ICON
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
-import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import org.junit.Test
 import java.time.LocalDate
 import java.time.YearMonth
@@ -274,13 +274,13 @@ class CalendarMonthMapperTest {
 
     // ---- fallback chain through the mapper (ADR-031) ----
 
-    /** The production resolver: explicit → type default → null, over the test fakes. */
+    /** The production resolver: explicit → preset default → null, over the test fakes. */
     private val fallbackResolver: (com.itsluminous.samaroh.core.model.Booking) -> String? = { booking ->
         BookingColorFallback.effectiveKey(
             booking.color,
             booking.eventType,
             FakeBookingColorCatalog(),
-            FakeEventTypeCatalog(),
+            seededPresetFixtures(),
         )
     }
 

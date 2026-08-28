@@ -56,6 +56,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
+import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchEntry
+import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchPicker
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingSource
@@ -63,6 +65,8 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import com.itsluminous.samaroh.feature.booking.ui.calendar.DateField
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
+import com.itsluminous.samaroh.feature.booking.ui.fill
+import com.itsluminous.samaroh.feature.booking.ui.onFill
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -150,17 +154,24 @@ fun BookingFormScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Event type dropdown (built-ins from shared/event-types.json + Custom).
+                // Event type dropdown (ADR-032): the business's live presets from Room
+                // in sort order, plus the always-available free-text Custom entry.
                 // ExposedDropdownMenuBox anchors the menu to the field and opens on a tap
                 // anywhere in it, not just the arrow.
                 var typeMenu by remember { mutableStateOf(false) }
+                val customEntryLabel = "✨ ${stringResource(R.string.booking_event_type_custom)}"
                 ExposedDropdownMenuBox(
                     expanded = typeMenu,
                     onExpandedChange = { typeMenu = it },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedTextField(
-                        value = state.eventType?.let { "${it.emoji} ${stringResource(it.labelRes)}" }.orEmpty(),
+                        value =
+                            when (val choice = state.eventTypeChoice) {
+                                is EventTypeChoice.Preset -> "${choice.preset.icon} ${choice.preset.label}"
+                                is EventTypeChoice.Custom -> customEntryLabel
+                                null -> ""
+                            },
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(stringResource(R.string.booking_form_event_type)) },
@@ -171,18 +182,25 @@ fun BookingFormScreen(
                                 .fillMaxWidth(),
                     )
                     ExposedDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        state.eventTypes.forEach { type ->
+                        state.pickerPresets.forEach { preset ->
                             DropdownMenuItem(
-                                text = { Text("${type.emoji} ${stringResource(type.labelRes)}") },
+                                text = { Text("${preset.icon} ${preset.label}") },
                                 onClick = {
-                                    viewModel.setEventType(type)
+                                    viewModel.setEventType(EventTypeChoice.Preset(preset))
                                     typeMenu = false
                                 },
                             )
                         }
+                        DropdownMenuItem(
+                            text = { Text(customEntryLabel) },
+                            onClick = {
+                                viewModel.setEventType(EventTypeChoice.Custom)
+                                typeMenu = false
+                            },
+                        )
                     }
                 }
-                if (state.eventType?.isCustom == true) {
+                if (state.eventTypeChoice is EventTypeChoice.Custom) {
                     OutlinedTextField(
                         value = state.customLabel,
                         onValueChange = viewModel::setCustomLabel,
@@ -363,11 +381,18 @@ fun BookingFormScreen(
                 // explicit colour is chosen, the current type's default swatch shows the
                 // EFFECTIVE colour (ADR-031); custom types have none (themed default).
                 Text(text = stringResource(R.string.booking_form_color), style = MaterialTheme.typography.labelLarge)
-                BookingColorPicker(
-                    colors = viewModel.bookingColorsProvider.colors,
+                ColorSwatchPicker(
+                    entries =
+                        viewModel.bookingColorsProvider.colors.mapNotNull { color ->
+                            val fill = color.fill ?: return@mapNotNull null
+                            val onFill = color.onFill ?: return@mapNotNull null
+                            ColorSwatchEntry(color.key, fill, onFill, stringResource(color.labelRes))
+                        },
                     selectedKey = state.colorKey,
+                    defaultSwatchName = stringResource(R.string.booking_color_default),
                     onSelect = viewModel::setColor,
-                    typeDefaultKey = state.eventType?.let { viewModel.eventTypesProvider.defaultColorKeyFor(it.key) },
+                    effectiveDefaultKey = state.typeDefaultColorKey,
+                    effectiveDefaultLabel = stringResource(R.string.booking_color_follows_type),
                 )
 
                 OutlinedTextField(

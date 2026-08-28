@@ -3,27 +3,30 @@ package com.itsluminous.samaroh.feature.booking.ui.form
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
-import com.itsluminous.samaroh.feature.booking.domain.EventType
-import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
+import com.itsluminous.samaroh.feature.booking.domain.EventTypePresets
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Clock
@@ -54,11 +57,24 @@ sealed interface FormBlocker {
     data object DuplicateInvoiceNumber : FormBlocker
 }
 
+/**
+ * The form's event-type selection (ADR-032): a DB-backed preset of the business, or the
+ * always-available free-text Custom entry (label + emoji fields).
+ */
+sealed interface EventTypeChoice {
+    data class Preset(
+        val preset: EventType,
+    ) : EventTypeChoice
+
+    data object Custom : EventTypeChoice
+}
+
 data class BookingFormState(
     val loaded: Boolean = false,
     val editingId: String? = null,
-    val eventTypes: List<EventType> = emptyList(),
-    val eventType: EventType? = null,
+    /** The business's live presets in sort order (ADR-032). */
+    val presets: List<EventType> = emptyList(),
+    val eventTypeChoice: EventTypeChoice? = null,
     val customLabel: String = "",
     val customEmoji: String = "✨",
     val status: BookingStatus = BookingStatus.CONFIRMED,
@@ -105,6 +121,29 @@ data class BookingFormState(
             } else {
                 followUpDays
             }
+
+    /**
+     * Presets offered by the dropdown (ADR-032): a preset named "Custom" (any casing —
+     * migration 006 / client seeding creates one) is REPRESENTED by the built-in
+     * free-text Custom entry instead, so the picker never shows two Custom rows.
+     */
+    val pickerPresets: List<EventType>
+        get() = presets.filterNot { EventTypePresets.normalize(it.label) == BuiltInEventType.CUSTOM_KEY }
+
+    /** The label + icon a save would record right now (snapshot semantics, ADR-032). */
+    val effectiveEventType: Pair<String, String>
+        get() =
+            when (val choice = eventTypeChoice) {
+                is EventTypeChoice.Preset -> choice.preset.label to choice.preset.icon
+                else -> customLabel.ifBlank { BuiltInEventType.CUSTOM_KEY } to customEmoji.ifBlank { "✨" }
+            }
+
+    /**
+     * The current selection's type-default colour key (ADR-031 via presets, ADR-032) —
+     * drives the picker's secondary "follows event type" ring.
+     */
+    val typeDefaultColorKey: String?
+        get() = EventTypePresets.defaultColorKeyFor(presets, effectiveEventType.first)
 }
 
 /** "1,200.50" → 120050 paise. Invalid input parses as 0 (field-level UX, not an error). */
@@ -128,8 +167,7 @@ class BookingFormViewModel
         private val bookingRepository: BookingRepository,
         private val businessRepository: BusinessRepository,
         private val actorProvider: BookingActorProvider,
-        /** Event types, exposed for the picker's effective type-default (ADR-031). */
-        val eventTypesProvider: EventTypeCatalog,
+        private val eventTypeRepository: EventTypeRepository,
         /** Booking colour palette (ADR-030), exposed for the form's picker row. */
         val bookingColorsProvider: BookingColorCatalog,
         private val syncScheduler: SyncScheduler,
@@ -160,50 +198,83 @@ class BookingFormViewModel
                 }
             }
             viewModelScope.launch {
-                val types = eventTypesProvider.eventTypes
                 val business = businessRepository.businesses().first().firstOrNull { it.deletedAt == null }
                 actor = business?.let { actorProvider.actorFor(it) }
                 val existing = editBookingId?.let { bookingRepository.booking(it) }
                 editing = existing
-                _state.update { state ->
-                    if (existing == null) {
-                        state.copy(
-                            loaded = true,
-                            eventTypes = types,
-                            eventType =
-                                types.firstOrNull { it.key == "wedding" } ?: types.firstOrNull(),
-                        )
-                    } else {
-                        val builtIn = types.firstOrNull { it.key == existing.eventType && !it.isCustom }
-                        state.copy(
-                            loaded = true,
-                            editingId = existing.id,
-                            eventTypes = types,
-                            eventType = builtIn ?: types.firstOrNull { it.isCustom },
-                            customLabel = if (builtIn == null) existing.eventType else "",
-                            customEmoji = existing.eventIcon,
-                            status = existing.status,
-                            customerName = existing.customerName,
-                            customerPhone = existing.customerPhone.orEmpty(),
-                            startDate = existing.startDate,
-                            endDate = existing.endDate,
-                            startTime = existing.startTime,
-                            endTime = existing.endTime,
-                            totalAmountText = paiseToRupeeText(existing.totalAmountPaise),
-                            securityDepositText = paiseToRupeeText(existing.securityDepositPaise),
-                            source = existing.source,
-                            notes = existing.notes.orEmpty(),
-                            colorKey = existing.color,
-                            frozenInvoiceNumber = existing.invoiceNumber,
-                        )
+                // Live presets (ADR-032): the FIRST emission also initializes the
+                // selection; later emissions (a preset added/renamed mid-session) only
+                // refresh the list — the current selection snapshot stays.
+                var initialized = false
+                val presetFlow =
+                    if (business == null) flowOf(emptyList()) else eventTypeRepository.presets(business.id)
+                presetFlow.collect { types ->
+                    if (initialized) {
+                        _state.update { it.copy(presets = types) }
+                        return@collect
+                    }
+                    initialized = true
+                    _state.update { state ->
+                        if (existing == null) {
+                            state.copy(
+                                loaded = true,
+                                presets = types,
+                                eventTypeChoice = defaultChoice(types),
+                            )
+                        } else {
+                            val match = matchingPreset(types, existing.eventType)
+                            state.copy(
+                                loaded = true,
+                                editingId = existing.id,
+                                presets = types,
+                                eventTypeChoice = match?.let { EventTypeChoice.Preset(it) } ?: EventTypeChoice.Custom,
+                                customLabel =
+                                    if (match == null && existing.eventType != BuiltInEventType.CUSTOM_KEY) existing.eventType else "",
+                                customEmoji = existing.eventIcon,
+                                status = existing.status,
+                                customerName = existing.customerName,
+                                customerPhone = existing.customerPhone.orEmpty(),
+                                startDate = existing.startDate,
+                                endDate = existing.endDate,
+                                startTime = existing.startTime,
+                                endTime = existing.endTime,
+                                totalAmountText = paiseToRupeeText(existing.totalAmountPaise),
+                                securityDepositText = paiseToRupeeText(existing.securityDepositPaise),
+                                source = existing.source,
+                                notes = existing.notes.orEmpty(),
+                                colorKey = existing.color,
+                                frozenInvoiceNumber = existing.invoiceNumber,
+                            )
+                        }
                     }
                 }
             }
         }
 
+        /** New-booking default: the Wedding preset if present, else the first preset, else Custom. */
+        private fun defaultChoice(types: List<EventType>): EventTypeChoice {
+            val picker = types.filterNot { EventTypePresets.normalize(it.label) == BuiltInEventType.CUSTOM_KEY }
+            val wedding = picker.firstOrNull { EventTypePresets.normalize(it.label) == "wedding" }
+            return (wedding ?: picker.firstOrNull())?.let { EventTypeChoice.Preset(it) } ?: EventTypeChoice.Custom
+        }
+
+        /**
+         * The preset a stored `event_type` corresponds to, by NORMALIZED label — legacy
+         * built-in keys (`room_booking`) match their seeded preset (`Room Booking`).
+         * A "Custom"-named preset never matches: those bookings edit as free text.
+         */
+        private fun matchingPreset(
+            types: List<EventType>,
+            eventType: String,
+        ): EventType? {
+            val wanted = EventTypePresets.normalize(eventType)
+            if (wanted == BuiltInEventType.CUSTOM_KEY) return null
+            return types.firstOrNull { EventTypePresets.normalize(it.label) == wanted }
+        }
+
         // ---- field updates ----
 
-        fun setEventType(type: EventType) = _state.update { it.copy(eventType = type) }
+        fun setEventType(choice: EventTypeChoice) = _state.update { it.copy(eventTypeChoice = choice) }
 
         fun setCustomLabel(value: String) = _state.update { it.copy(customLabel = value) }
 
@@ -350,10 +421,9 @@ class BookingFormViewModel
             if (!allowed) return
 
             val now = clock.instant()
-            val type = form.eventType
-            val isCustom = type == null || type.isCustom
-            val eventTypeValue = if (isCustom) form.customLabel.ifBlank { EventType.CUSTOM_KEY } else type.key
-            val eventIcon = if (isCustom) form.customEmoji.ifBlank { "✨" } else type.emoji
+            // Snapshot semantics (ADR-032): the preset's CURRENT label + icon are
+            // recorded on the booking; later preset edits never rewrite it.
+            val (eventTypeValue, eventIcon) = form.effectiveEventType
 
             val base = editing
             val booking =

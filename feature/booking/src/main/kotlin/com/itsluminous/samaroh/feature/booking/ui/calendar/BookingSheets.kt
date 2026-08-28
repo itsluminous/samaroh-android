@@ -44,15 +44,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.displayIcon
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
@@ -77,6 +78,7 @@ import java.time.ZoneOffset
 internal fun BookingCardSheet(
     detail: BookingDetail,
     eventTypes: EventTypeCatalog,
+    presets: List<EventType>,
     bookingColors: BookingColorCatalog,
     creatorName: String,
     canEdit: Boolean,
@@ -104,7 +106,7 @@ internal fun BookingCardSheet(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Booking colour (ADR-030): dot announcing its localized colour name;
                 // resolved via the fallback chain (ADR-031: explicit → type default).
-                BookingColorFallback.effectiveColor(booking, bookingColors, eventTypes)?.let { paletteColor ->
+                BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.let { paletteColor ->
                     paletteColor.fill?.let { dotColor ->
                         val colorName = stringResource(paletteColor.labelRes)
                         BookingColorDot(

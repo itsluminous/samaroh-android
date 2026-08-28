@@ -10,41 +10,34 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** One built-in event type from `shared/event-types.json` (§4.1). */
-data class EventType(
-    /** Stored in `bookings.event_type` (or a free-text label for Custom). */
+/**
+ * One BUILT-IN event type from `shared/event-types.json` (§4.1). Since ADR-032 the
+ * picker reads user-managed presets from Room instead; this catalog remains ONLY to
+ * localize the recorded `bookings.event_type` of pre-006 bookings that stored a
+ * built-in KEY (`wedding` → "Wedding"/"शादी"). Type-default colours moved to the
+ * preset rows (the file's `color` is now just the seed template's value).
+ */
+data class BuiltInEventType(
+    /** The key stored in `bookings.event_type` by pre-006 app versions. */
     val key: String,
-    /** Default `bookings.event_icon`; emoji are never localized. */
+    /** The key's canonical emoji; emoji are never localized. */
     val emoji: String,
     /** Localized display name, resolved from the generated string catalog. */
     @StringRes val labelRes: Int,
-    /**
-     * The type's DEFAULT calendar colour — a `shared/booking-colors.json` key
-     * (ADR-031). Parsed verbatim from the shared file; the fallback chain applies it
-     * only to built-in non-custom types (see [EventTypeCatalog.defaultColorKeyFor]).
-     */
-    val defaultColorKey: String? = null,
 ) {
     val isCustom: Boolean get() = key == CUSTOM_KEY
 
     companion object {
+        /** The literal value a blank custom label stores in `bookings.event_type`. */
         const val CUSTOM_KEY = "custom"
     }
 }
 
 /** Source of the built-in event types; interface so tests can fake it without assets. */
 interface EventTypeCatalog {
-    val eventTypes: List<EventType>
+    val eventTypes: List<BuiltInEventType>
 
-    fun byKey(key: String): EventType? = eventTypes.firstOrNull { it.key == key }
-
-    /**
-     * The stored `event_type`'s default calendar colour key for the fallback chain
-     * (ADR-031): built-in non-custom types return their `shared/event-types.json`
-     * colour; the `custom` type and free-text labels return null — an explicitly
-     * uncoloured custom booking keeps the standard themed look.
-     */
-    fun defaultColorKeyFor(eventTypeKey: String): String? = byKey(eventTypeKey)?.takeIf { !it.isCustom }?.defaultColorKey
+    fun byKey(key: String): BuiltInEventType? = eventTypes.firstOrNull { it.key == key }
 
     /** Localized label for a stored `event_type` value; custom labels pass through. */
     fun labelFor(
@@ -77,13 +70,11 @@ class EventTypesProvider
             val key: String,
             val emoji: String,
             @SerialName("label_key") val labelKey: String,
-            /** The type's default `booking-colors.json` key (ADR-031); absent = none. */
-            val color: String? = null,
         )
 
         private val json = Json { ignoreUnknownKeys = true }
 
-        override val eventTypes: List<EventType> by lazy {
+        override val eventTypes: List<BuiltInEventType> by lazy {
             val raw =
                 context.assets
                     .open("event-types.json")
@@ -92,7 +83,7 @@ class EventTypesProvider
             json
                 .decodeFromString(EventTypesFile.serializer(), raw)
                 .eventTypes
-                .map { EventType(it.key, it.emoji, labelResFor(it.key), it.color) }
+                .map { BuiltInEventType(it.key, it.emoji, labelResFor(it.key)) }
         }
 
         private fun labelResFor(key: String): Int =

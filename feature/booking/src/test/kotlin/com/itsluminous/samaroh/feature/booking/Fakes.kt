@@ -1,8 +1,11 @@
 package com.itsluminous.samaroh.feature.booking
 
+import com.itsluminous.samaroh.core.data.color.BookingColor
+import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.invoice.InvoiceGenerator
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
@@ -13,13 +16,13 @@ import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
+import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
-import com.itsluminous.samaroh.feature.booking.domain.BookingColor
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
-import com.itsluminous.samaroh.feature.booking.domain.EventType
+import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.calendar.DataStoreBookingCalendarPrefs
@@ -277,17 +280,13 @@ class RecordingSyncScheduler : SyncScheduler {
     }
 }
 
-/** Static event types mirroring shared/event-types.json, without asset loading. */
+/** Static built-in event types mirroring shared/event-types.json, without asset loading. */
 class FakeEventTypeCatalog : EventTypeCatalog {
-    override val eventTypes: List<EventType> =
+    override val eventTypes: List<BuiltInEventType> =
         listOf(
-            EventType(key = "wedding", emoji = "\uD83D\uDC92", labelRes = 101, defaultColorKey = "tomato"),
-            // "banana" is deliberately ABSENT from [FakeBookingColorCatalog]: exercises
-            // the unknown-type-default fall-through to the themed look (ADR-031).
-            EventType(key = "birthday", emoji = "\uD83C\uDF82", labelRes = 102, defaultColorKey = "banana"),
-            // The shared file assigns "grape" to custom, but the fallback chain must
-            // still ignore it — custom/free-text bookings stay themed (ADR-031).
-            EventType(key = EventType.CUSTOM_KEY, emoji = "\u2728", labelRes = 103, defaultColorKey = "grape"),
+            BuiltInEventType(key = "wedding", emoji = "\uD83D\uDC92", labelRes = 101),
+            BuiltInEventType(key = "birthday", emoji = "\uD83C\uDF82", labelRes = 102),
+            BuiltInEventType(key = BuiltInEventType.CUSTOM_KEY, emoji = "\u2728", labelRes = 103),
         )
 }
 
@@ -297,5 +296,91 @@ class FakeBookingColorCatalog : BookingColorCatalog {
         listOf(
             BookingColor(key = "tomato", hex = "#C62828", onHex = "#FFFFFF", labelRes = 201),
             BookingColor(key = "sky", hex = "#4FC3F7", onHex = "#212121", labelRes = 202),
+            BookingColor(key = "grape", hex = "#8E24AA", onHex = "#FFFFFF", labelRes = 203),
         )
+}
+
+/** Builder for `event_types` preset rows (ADR-032). */
+fun presetFixture(
+    label: String,
+    icon: String = "\u2728",
+    color: String? = null,
+    sortOrder: Int = 0,
+    businessId: String = Fixtures.BUSINESS_ID,
+    id: String = "preset-$label",
+    deletedAt: java.time.Instant? = null,
+): EventType =
+    EventType(
+        id = id,
+        businessId = businessId,
+        label = label,
+        icon = icon,
+        color = color,
+        sortOrder = sortOrder,
+        createdAt = java.time.Instant.parse("2026-01-01T00:00:00Z"),
+        updatedAt = java.time.Instant.parse("2026-01-01T00:00:00Z"),
+        deletedAt = deletedAt,
+    )
+
+/**
+ * The preset rows migration 006 / client seeding produce for the fake business:
+ * Wedding → tomato (in the fake palette), Birthday → banana (NOT in the fake palette,
+ * exercising the fall-through), Custom → grape.
+ */
+fun seededPresetFixtures(businessId: String = Fixtures.BUSINESS_ID): List<EventType> =
+    listOf(
+        presetFixture("Wedding", "\uD83D\uDC92", color = "tomato", sortOrder = 0, businessId = businessId),
+        presetFixture("Room Booking", "\uD83C\uDFE8", color = "sky", sortOrder = 1, businessId = businessId),
+        presetFixture("Birthday", "\uD83C\uDF82", color = "banana", sortOrder = 2, businessId = businessId),
+        presetFixture("Custom", "\u2728", color = "grape", sortOrder = 3, businessId = businessId),
+    )
+
+/** In-memory [EventTypeRepository] driving the preset-backed picker and colours (ADR-032). */
+class FakeEventTypeRepository(
+    initial: List<EventType> = emptyList(),
+) : EventTypeRepository {
+    val presetsFlow = kotlinx.coroutines.flow.MutableStateFlow(initial)
+    var seededBusinessIds = mutableListOf<String>()
+
+    override fun presets(businessId: String): kotlinx.coroutines.flow.Flow<List<EventType>> =
+        kotlinx.coroutines.flow.flow {
+            presetsFlow.collect { list ->
+                emit(
+                    list
+                        .filter { it.businessId == businessId && it.deletedAt == null }
+                        .sortedWith(compareBy({ it.sortOrder }, { it.label.lowercase() })),
+                )
+            }
+        }
+
+    override suspend fun presetsOnce(businessId: String) =
+        presetsFlow.value.filter { it.businessId == businessId && it.deletedAt == null }.sortedBy { it.sortOrder }
+
+    override suspend fun preset(id: String) = presetsFlow.value.firstOrNull { it.id == id }
+
+    override suspend fun savePreset(preset: EventType) {
+        presetsFlow.value = presetsFlow.value.filterNot { it.id == preset.id } + preset
+    }
+
+    override suspend fun deletePreset(id: String) {
+        presetsFlow.value =
+            presetsFlow.value.map {
+                if (it.id == id) it.copy(deletedAt = java.time.Instant.parse("2026-02-01T00:00:00Z")) else it
+            }
+    }
+
+    override suspend fun labelInUse(
+        businessId: String,
+        label: String,
+        excludingId: String?,
+    ) = presetsFlow.value.any {
+        it.businessId == businessId &&
+            it.deletedAt == null &&
+            it.id != excludingId &&
+            it.label.equals(label.trim(), ignoreCase = true)
+    }
+
+    override suspend fun seedDefaults(businessId: String) {
+        seededBusinessIds += businessId
+    }
 }

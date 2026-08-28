@@ -31,6 +31,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.itsluminous.samaroh.MainActivity
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryRepository
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
@@ -79,6 +80,8 @@ abstract class LocalizedE2eTest(
     @Inject lateinit var businessRepository: BusinessRepository
 
     @Inject lateinit var bookingRepository: BookingRepository
+
+    @Inject lateinit var eventTypeRepository: EventTypeRepository
 
     @Inject lateinit var expensesRepository: ExpensesRepository
 
@@ -139,6 +142,8 @@ abstract class LocalizedE2eTest(
         settings.edit { it[booleanPreferencesKey("onboarding_complete")] = true }
         val business = Fixtures.business(name = name)
         businessRepository.saveBusiness(business)
+        // Mirror production business creation (ADR-032): presets seed at creation.
+        eventTypeRepository.seedDefaults(business.id)
         return business
     }
 

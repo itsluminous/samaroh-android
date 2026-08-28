@@ -14,10 +14,11 @@ import com.itsluminous.samaroh.feature.booking.FakeActorProvider
 import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
-import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeFormFieldPrefs
 import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
+import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -38,6 +39,7 @@ class BookingFormViewModelTest {
 
     private val repository = FakeBookingRepository()
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
+    private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
     private val syncScheduler = RecordingSyncScheduler()
     private val actorProvider = FakeActorProvider()
     private val fieldPrefs = FakeFormFieldPrefs()
@@ -50,7 +52,7 @@ class BookingFormViewModelTest {
         bookingRepository = repository,
         businessRepository = businessRepository,
         actorProvider = actorProvider,
-        eventTypesProvider = FakeEventTypeCatalog(),
+        eventTypeRepository = eventTypeRepository,
         bookingColorsProvider = FakeBookingColorCatalog(),
         syncScheduler = syncScheduler,
         fieldPrefs = fieldPrefs,

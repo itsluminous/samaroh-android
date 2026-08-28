@@ -14,7 +14,7 @@ import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
-import com.itsluminous.samaroh.feature.booking.domain.EventType
+import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,7 +52,7 @@ class ReminderPostSyncHookTest {
     private val storeScope = CoroutineScope(dispatcher + Job())
     private val emptyCatalog =
         object : EventTypeCatalog {
-            override val eventTypes: List<EventType> = emptyList()
+            override val eventTypes: List<BuiltInEventType> = emptyList()
         }
 
     private val bookingRepository = FakeBookingRepository()

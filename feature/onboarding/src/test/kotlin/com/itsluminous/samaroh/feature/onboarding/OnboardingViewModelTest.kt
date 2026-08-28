@@ -13,16 +13,19 @@ import com.itsluminous.samaroh.core.auth.MembershipRefresher
 import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.BusinessSettings
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.onboarding.logo.LogoProcessor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -45,6 +48,7 @@ class OnboardingViewModelTest {
     private val fakeSessionHolder = FakeSessionHolder()
     private val fakeRefresher = FakeMembershipRefresher()
     private val fakeBusinessRepo = FakeBusinessRepository()
+    private val fakeEventTypeRepo = FakeEventTypeRepository()
     private val fakeMemberRepo = FakeMemberRepository()
     private val fakeSyncScheduler = FakeSyncScheduler()
     private val fakeLocale = FakeLocaleApplier()
@@ -65,6 +69,7 @@ class OnboardingViewModelTest {
             membershipRefresher = fakeRefresher,
             businessRepository = fakeBusinessRepo,
             memberRepository = fakeMemberRepo,
+            eventTypeRepository = fakeEventTypeRepo,
             syncScheduler = fakeSyncScheduler,
             localeApplier = fakeLocale,
             logoProcessor = LogoProcessor(ApplicationProvider.getApplicationContext()),
@@ -477,6 +482,30 @@ private class FakeSyncScheduler : SyncScheduler {
 
     override fun ensurePeriodicSync() {
         periodicEnsures++
+    }
+}
+
+private class FakeEventTypeRepository : EventTypeRepository {
+    val seededBusinessIds = mutableListOf<String>()
+
+    override fun presets(businessId: String): Flow<List<EventType>> = flowOf(emptyList())
+
+    override suspend fun presetsOnce(businessId: String): List<EventType> = emptyList()
+
+    override suspend fun preset(id: String): EventType? = null
+
+    override suspend fun savePreset(preset: EventType) = Unit
+
+    override suspend fun deletePreset(id: String) = Unit
+
+    override suspend fun labelInUse(
+        businessId: String,
+        label: String,
+        excludingId: String?,
+    ): Boolean = false
+
+    override suspend fun seedDefaults(businessId: String) {
+        seededBusinessIds += businessId
     }
 }
 

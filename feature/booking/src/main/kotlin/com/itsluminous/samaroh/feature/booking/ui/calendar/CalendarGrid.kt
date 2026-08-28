@@ -25,11 +25,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingStatus
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorCatalog
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.ui.fill
 import com.itsluminous.samaroh.feature.booking.ui.formatFullDate

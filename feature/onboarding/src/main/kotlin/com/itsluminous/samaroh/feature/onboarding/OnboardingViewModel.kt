@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.auth.MembershipRefresher
 import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Business
@@ -90,6 +91,7 @@ class OnboardingViewModel
         private val membershipRefresher: MembershipRefresher,
         private val businessRepository: BusinessRepository,
         private val memberRepository: MemberRepository,
+        private val eventTypeRepository: EventTypeRepository,
         private val syncScheduler: SyncScheduler,
         private val localeApplier: LocaleApplier,
         private val logoProcessor: LogoProcessor,
@@ -356,6 +358,9 @@ class OnboardingViewModel
                         )
                     businessRepository.saveBusiness(business)
                     memberRepository.saveMember(ownerMember)
+                    // Client-side preset seeding for NEW businesses (ADR-032): server
+                    // migration 006 only seeded businesses that existed when it ran.
+                    eventTypeRepository.seedDefaults(businessId)
                     _uiState.value =
                         _uiState.value.copy(isBusy = false, activeBusinessId = businessId, step = OnboardingStep.LINK_GOOGLE)
                 } catch (e: Exception) {
