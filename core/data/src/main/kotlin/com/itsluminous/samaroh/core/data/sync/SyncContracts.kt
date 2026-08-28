@@ -45,6 +45,17 @@ interface SyncScheduler {
 
     /** Ensures the periodic (~15 min, connectivity-constrained) sync is scheduled. */
     fun ensurePeriodicSync()
+
+    /**
+     * Debounced one-shot sync for local outbox writes (ADR-036, additive contract
+     * extension): [OutboxWriter.enqueue] calls this on EVERY queued mutation, so online
+     * edits push within seconds instead of waiting for the next foreground/periodic
+     * trigger. The implementation collapses bursts of edits into ONE run a few seconds
+     * after the last write; offline the request simply waits on the CONNECTED
+     * constraint. Default delegates to [requestImmediateSync] so simple/fake
+     * implementations stay valid.
+     */
+    fun requestSyncOnLocalChange() = requestImmediateSync()
 }
 
 /**
