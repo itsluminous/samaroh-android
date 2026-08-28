@@ -26,14 +26,29 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Samaroh">
 
+        <!-- singleTask: warm App-Link/notification launches reuse the single shell
+             instance via onNewIntent instead of stacking duplicates (ADR-033). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Samaroh.Splash"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Android App Links (ADR-033): open web URLs in the app. autoVerify
+                 requires https://samaroh-web.vercel.app/.well-known/assetlinks.json to
+                 list this package's signing cert; until the web deploy lands, verify
+                 manually per docs/decisions.md ADR-033. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="samaroh-web.vercel.app"
+                    android:scheme="https" />
             </intent-filter>
         </activity>
 

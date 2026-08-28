@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.menu
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -37,10 +38,22 @@ fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
  * business profile), Members (owner only), About. Sub-navigation is self-contained in a
  * nested NavHost so the app shell keeps calling `menuGraph()` unchanged; [onOpenReports]
  * is wired by the app once `feature:reports` lands (W2-A).
+ *
+ * @param openSettings lands on the Settings screen (web App-Link `/menu/settings…`,
+ *   ADR-033); consumed via [onSettingsDeepLinkConsumed].
+ * @param onSettingsDeepLinkConsumed clears the pending settings target once handled.
  */
-fun NavGraphBuilder.menuGraph(onOpenReports: () -> Unit = {}) {
+fun NavGraphBuilder.menuGraph(
+    onOpenReports: () -> Unit = {},
+    openSettings: Boolean = false,
+    onSettingsDeepLinkConsumed: () -> Unit = {},
+) {
     composable(MENU_ROUTE) {
-        MenuTabHost(onOpenReports = onOpenReports)
+        MenuTabHost(
+            onOpenReports = onOpenReports,
+            openSettings = openSettings,
+            onSettingsDeepLinkConsumed = onSettingsDeepLinkConsumed,
+        )
     }
 }
 
@@ -57,8 +70,19 @@ private object MenuRoutes {
 }
 
 @Composable
-private fun MenuTabHost(onOpenReports: () -> Unit) {
+private fun MenuTabHost(
+    onOpenReports: () -> Unit,
+    openSettings: Boolean,
+    onSettingsDeepLinkConsumed: () -> Unit,
+) {
     val navController = rememberNavController()
+    // App-Link settings target (ADR-033): push Settings over Home once, then consume.
+    LaunchedEffect(openSettings) {
+        if (openSettings) {
+            navController.navigate(MenuRoutes.SETTINGS) { launchSingleTop = true }
+            onSettingsDeepLinkConsumed()
+        }
+    }
     NavHost(navController = navController, startDestination = MenuRoutes.HOME) {
         composable(MenuRoutes.HOME) {
             MenuHomeScreen(

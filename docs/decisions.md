@@ -952,3 +952,34 @@ relabels only FUTURE bookings (recorded ones are historical facts). An offline p
 business that never syncs has no preset rows — the form still works via the Custom
 entry, and the manage screen can build a set from scratch. Web must apply the same
 normalized-label colour contract for consistent cross-platform reading.
+
+## ADR-033 — Android App Links for samaroh-web URLs (2026-08-28)
+
+**Decision.** `https://samaroh-web.vercel.app/…` URLs open in the app via an
+`android:autoVerify` VIEW/DEFAULT/BROWSABLE intent-filter on `MainActivity`
+(now `launchMode="singleTask"` so warm links arrive through `onNewIntent`
+instead of stacking shell instances).
+
+1. **Parser.** `app/applink/AppLink.parse(path)` (pure Kotlin, unit-tested) maps the
+   web path to a sealed `AppLink`: the `/{locale}` prefix (`en|hi`) is stripped; then
+   `/booking` → Booking tab (calendar), `/expenses[/{partyId}]` → Expenses tab
+   (ledger when the id exists locally), `/inventory[/masterlist]` → Inventory tab
+   (masterlist toggle), `/menu` → Menu, `/menu/settings…` → Settings,
+   `/menu/reports` → Reports; unknown/root/malformed → Booking.
+2. **Routing.** Reuses the reminder-notification deep-link plumbing: MainActivity holds
+   a `pendingAppLink` Compose state (cold start `onCreate`, warm `onNewIntent`);
+   `SamarohApp` navigates to the tab with the bottom-bar pattern and hands sub-targets
+   to the feature graphs via ADDITIVE default parameters (`expensesGraph(partyIdToOpen)`,
+   `inventoryGraph(openMasterlist)`, `menuGraph(openSettings)`) with consumed-callbacks —
+   the same contract-preserving shape `bookingGraph(bookingIdToOpen)` established.
+3. **Graceful unknown ids.** `ExpensesDeepLinkViewModel.partyExists()` gates the ledger
+   navigation; a stale/foreign party id lands on the party list.
+4. **Verification.** autoVerify needs the web deploy to serve
+   `https://samaroh-web.vercel.app/.well-known/assetlinks.json` with this package +
+   signing-cert fingerprints (debug AND release). After it is live, re-check on device:
+   `adb shell pm verify-app-links --re-verify com.itsluminous.samaroh` then
+   `adb shell pm get-app-links com.itsluminous.samaroh` (expect `verified`).
+
+**Consequences.** Web links shared over WhatsApp etc. open natively for app users; the
+locale segment never overrides the in-app language preference. New web sections need a
+parser case (defaulting to Booking until added).

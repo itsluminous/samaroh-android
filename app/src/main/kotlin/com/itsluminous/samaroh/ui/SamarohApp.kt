@@ -44,6 +44,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.itsluminous.samaroh.applink.AppLink
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.OfflineBanner
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
@@ -87,12 +88,18 @@ private val topLevelDestinations =
  * @param pendingBookingId booking id from a reminder-notification launch intent — routes
  *   to the Booking tab and opens that booking's card (§4.1 deep link).
  * @param onBookingDeepLinkConsumed clears the pending id once handed to the feature.
+ * @param pendingAppLink destination parsed from a `https://samaroh-web.vercel.app` VIEW
+ *   intent (ADR-033) — routes to the matching tab; ledger/masterlist/settings sub-targets
+ *   are handed to the feature graphs, which consume them via [onAppLinkConsumed].
+ * @param onAppLinkConsumed clears the pending App Link once routed.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SamarohApp(
     pendingBookingId: String?,
     onBookingDeepLinkConsumed: () -> Unit,
+    pendingAppLink: AppLink? = null,
+    onAppLinkConsumed: () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -123,6 +130,39 @@ fun SamarohApp(
                 launchSingleTop = true
                 restoreState = true
             }
+        }
+    }
+
+    // Web App Link (ADR-033): switch to the target tab with the bottom-bar navigation
+    // pattern; tab-only links are consumed here, sub-targets (ledger/masterlist/settings)
+    // by the feature graphs below once they finished navigating.
+    LaunchedEffect(pendingAppLink, onboarded) {
+        val link = pendingAppLink
+        if (link != null && onboarded) {
+            val tabRoute =
+                when (link) {
+                    AppLink.Booking -> BOOKING_ROUTE
+                    is AppLink.Expenses -> EXPENSES_ROUTE
+                    is AppLink.Inventory -> INVENTORY_ROUTE
+                    is AppLink.Menu, AppLink.Reports -> MENU_ROUTE
+                }
+            navController.navigate(tabRoute) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+            // Reports sits on the root NavHost above the Menu tab (back returns to Menu).
+            if (link == AppLink.Reports) {
+                navController.navigate(REPORTS_ROUTE) { launchSingleTop = true }
+            }
+            val featureConsumes =
+                when (link) {
+                    is AppLink.Expenses -> link.partyId != null
+                    is AppLink.Inventory -> link.masterlist
+                    is AppLink.Menu -> link.settings
+                    else -> false
+                }
+            if (!featureConsumes) onAppLinkConsumed()
         }
     }
 
@@ -202,9 +242,19 @@ fun SamarohApp(
                     bookingIdToOpen = pendingBookingId,
                     onBookingOpened = onBookingDeepLinkConsumed,
                 )
-                expensesGraph()
-                inventoryGraph()
-                menuGraph(onOpenReports = { navController.navigate(REPORTS_ROUTE) })
+                expensesGraph(
+                    partyIdToOpen = (pendingAppLink as? AppLink.Expenses)?.partyId,
+                    onPartyDeepLinkConsumed = onAppLinkConsumed,
+                )
+                inventoryGraph(
+                    openMasterlist = (pendingAppLink as? AppLink.Inventory)?.masterlist == true,
+                    onMasterlistDeepLinkConsumed = onAppLinkConsumed,
+                )
+                menuGraph(
+                    onOpenReports = { navController.navigate(REPORTS_ROUTE) },
+                    openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
+                    onSettingsDeepLinkConsumed = onAppLinkConsumed,
+                )
                 onboardingGraph(
                     onOnboardingComplete = {
                         viewModel.completeOnboarding()

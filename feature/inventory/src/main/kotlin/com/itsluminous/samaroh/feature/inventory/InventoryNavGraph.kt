@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.inventory
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,19 +39,36 @@ private enum class InventoryScreen {
  * Masterlist screen live under one destination and swap via the contextual top-bar
  * toggle — mirroring the reference navigation pattern without leaving the tab.
  * Tapping a stock row pushes the per-item detail destination (transaction history).
+ *
+ * @param openMasterlist switches the toggle to the Masterlist screen (web App Link,
+ *   ADR-033); consumed via [onMasterlistDeepLinkConsumed].
+ * @param onMasterlistDeepLinkConsumed clears the pending masterlist target once handled.
  */
-fun NavGraphBuilder.inventoryGraph() {
+fun NavGraphBuilder.inventoryGraph(
+    openMasterlist: Boolean = false,
+    onMasterlistDeepLinkConsumed: () -> Unit = {},
+) {
     composable(INVENTORY_ROUTE) {
-        InventoryHost()
+        InventoryHost(
+            openMasterlist = openMasterlist,
+            onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
+        )
     }
 }
 
 @Composable
-private fun InventoryHost() {
+private fun InventoryHost(
+    openMasterlist: Boolean,
+    onMasterlistDeepLinkConsumed: () -> Unit,
+) {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = INVENTORY_HOME_ROUTE) {
         composable(INVENTORY_HOME_ROUTE) {
-            InventoryRoute(onOpenItem = { itemId -> navController.navigate(itemDetailRoute(itemId)) })
+            InventoryRoute(
+                onOpenItem = { itemId -> navController.navigate(itemDetailRoute(itemId)) },
+                openMasterlist = openMasterlist,
+                onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
+            )
         }
         composable(
             route = ITEM_DETAIL_ROUTE,
@@ -62,8 +80,19 @@ private fun InventoryHost() {
 }
 
 @Composable
-private fun InventoryRoute(onOpenItem: (String) -> Unit) {
+private fun InventoryRoute(
+    onOpenItem: (String) -> Unit,
+    openMasterlist: Boolean,
+    onMasterlistDeepLinkConsumed: () -> Unit,
+) {
     var screen by rememberSaveable { mutableStateOf(InventoryScreen.STOCK) }
+    // App-Link masterlist target (ADR-033): flip the toggle once, then consume.
+    LaunchedEffect(openMasterlist) {
+        if (openMasterlist) {
+            screen = InventoryScreen.MASTERLIST
+            onMasterlistDeepLinkConsumed()
+        }
+    }
     when (screen) {
         InventoryScreen.STOCK ->
             CurrentInventoryScreen(

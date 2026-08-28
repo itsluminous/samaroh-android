@@ -1,7 +1,9 @@
 package com.itsluminous.samaroh.feature.expenses
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -37,16 +39,41 @@ private fun addEntryRoute(
  * Expenses feature graph (§4.2). The outer signature is the Wave-0 contract the app shell
  * wires; internal navigation (home → add-person / ledger → add-entry) runs on a nested
  * NavHost so the bottom-bar destination stays a single route.
+ *
+ * @param partyIdToOpen party ledger to open directly (web App Link, ADR-033); unknown
+ *   ids gracefully stay on the party list. Cleared via [onPartyDeepLinkConsumed].
+ * @param onPartyDeepLinkConsumed clears the pending party id once handled.
  */
-fun NavGraphBuilder.expensesGraph() {
+fun NavGraphBuilder.expensesGraph(
+    partyIdToOpen: String? = null,
+    onPartyDeepLinkConsumed: () -> Unit = {},
+) {
     composable(EXPENSES_ROUTE) {
-        ExpensesTabNavHost()
+        ExpensesTabNavHost(
+            partyIdToOpen = partyIdToOpen,
+            onPartyDeepLinkConsumed = onPartyDeepLinkConsumed,
+        )
     }
 }
 
 @Composable
-private fun ExpensesTabNavHost(modifier: Modifier = Modifier) {
+private fun ExpensesTabNavHost(
+    partyIdToOpen: String?,
+    onPartyDeepLinkConsumed: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val navController = rememberNavController()
+    val deepLinkViewModel: ExpensesDeepLinkViewModel = hiltViewModel()
+    // App-Link ledger target (ADR-033): only navigate when the party exists locally —
+    // a stale/foreign id lands on the party list instead of an empty ledger.
+    LaunchedEffect(partyIdToOpen) {
+        if (partyIdToOpen != null) {
+            if (deepLinkViewModel.partyExists(partyIdToOpen)) {
+                navController.navigate(ledgerRoute(partyIdToOpen)) { launchSingleTop = true }
+            }
+            onPartyDeepLinkConsumed()
+        }
+    }
     NavHost(
         navController = navController,
         startDestination = ROUTE_HOME,
