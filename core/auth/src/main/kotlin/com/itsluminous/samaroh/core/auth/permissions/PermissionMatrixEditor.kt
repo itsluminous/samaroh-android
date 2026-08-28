@@ -102,6 +102,7 @@ private fun moduleLabel(moduleKey: String): String =
 private fun actionLabel(actionKey: String): String =
     when (actionKey) {
         "view" -> stringResource(R.string.auth_permissions_action_view)
+        "view_amounts" -> stringResource(R.string.auth_permissions_action_view_amounts)
         "create" -> stringResource(R.string.auth_permissions_action_create)
         "edit" -> stringResource(R.string.auth_permissions_action_edit)
         "delete" -> stringResource(R.string.auth_permissions_action_delete)

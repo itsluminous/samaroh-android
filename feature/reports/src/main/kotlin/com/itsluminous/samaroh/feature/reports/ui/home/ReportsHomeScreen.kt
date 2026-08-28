@@ -48,7 +48,10 @@ fun ReportsHomeScreen(
                 deniedContent = { ReportsDeniedState() },
             ) {
                 androidx.compose.foundation.layout.Column {
-                    ReportType.entries.forEachIndexed { index, type ->
+                    // ADR-039: reports.view_amounts off hides money reports entirely —
+                    // only count/duration reports (occupancy, collection days) remain.
+                    val visibleReports = ReportType.entries.filter { state.canViewAmounts || !it.requiresAmounts }
+                    visibleReports.forEachIndexed { index, type ->
                         if (index > 0) HorizontalDivider()
                         ReportRow(type = type, onClick = { onOpenReport(type) })
                     }

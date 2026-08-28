@@ -14,6 +14,13 @@ object AmountFormatter {
     private const val RUPEE_SIGN = "\u20B9"
 
     /**
+     * The one sanctioned masked-amount rendering (₹•••): shown wherever a member's
+     * per-module `view_amounts` permission is off. Symbol-only by design — no catalog
+     * key; screen readers announce `auth.permissions.amount_hidden_a11y` instead.
+     */
+    const val MASKED: String = RUPEE_SIGN + "\u2022\u2022\u2022"
+
+    /**
      * Formats [amountPaise] as a rupee string.
      *
      * @param amountPaise amount in paise (minor units); may be negative.

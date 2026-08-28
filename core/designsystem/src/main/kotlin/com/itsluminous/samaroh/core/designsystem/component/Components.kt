@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +57,10 @@ enum class AmountTone {
 /**
  * The only sanctioned way to render money: Indian digit grouping via [AmountFormatter]
  * (₹1,06,51,161), semantic coloring per shared/brand/palette.md.
+ *
+ * [masked] renders ₹••• instead of the value (per-module `view_amounts` permission off,
+ * ADR-039) with a localized "Amount hidden" accessibility label; the tone color is
+ * dropped so the mask leaks no gave/got signal.
  */
 @Composable
 fun AmountText(
@@ -63,7 +68,17 @@ fun AmountText(
     modifier: Modifier = Modifier,
     tone: AmountTone = AmountTone.NEUTRAL,
     style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
+    masked: Boolean = false,
 ) {
+    if (masked) {
+        val hiddenLabel = stringResource(R.string.auth_permissions_amount_hidden_a11y)
+        Text(
+            text = AmountFormatter.MASKED,
+            style = style,
+            modifier = modifier.semantics { contentDescription = hiddenLabel },
+        )
+        return
+    }
     val color =
         when (tone) {
             AmountTone.NEUTRAL -> Color.Unspecified

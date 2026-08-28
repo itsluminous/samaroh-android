@@ -66,6 +66,9 @@ class ExpensesSession
         /** Party/entry delete gate (ADR-028): `expenses.delete`. */
         val canDeleteParties: Flow<Boolean> = permissionGate { it.expenses.delete }
 
+        /** `expenses.view_amounts` gate (ADR-039): masks entry amounts, totals and balances as ₹••• when false. */
+        val canViewAmounts: Flow<Boolean> = permissionGate { it.expenses.viewAmounts }
+
         /**
          * Owners always pass [allowed]; signed-out/offline keeps the historical
          * owner-mode default (true).

@@ -75,6 +75,8 @@ fun CurrentInventoryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    // ADR-039: inventory.view_amounts off masks values as ₹••• (quantities stay visible).
+    val canViewAmounts by viewModel.canViewAmounts.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -147,6 +149,7 @@ fun CurrentInventoryScreen(
                         items(uiState.lines, key = { it.masterItemId }) { line ->
                             CurrentInventoryRowCard(
                                 line = line,
+                                masked = !canViewAmounts,
                                 onClick = { onOpenItem(line.masterItemId) },
                                 onImageTap = { path -> expandedImagePath = path },
                                 modifier = animatedListItem(),
@@ -161,7 +164,7 @@ fun CurrentInventoryScreen(
         RecordTransactionDialog(
             onDismiss = { showTransactionDialog = false },
             onSaved = { saved ->
-                scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved)) }
+                scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved, masked = !canViewAmounts)) }
             },
         )
     }
@@ -185,6 +188,7 @@ fun CurrentInventoryScreen(
 @Composable
 private fun CurrentInventoryRowCard(
     line: CurrentInventoryLine,
+    masked: Boolean,
     onClick: () -> Unit,
     onImageTap: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -236,6 +240,7 @@ private fun CurrentInventoryRowCard(
             AmountText(
                 amountPaise = line.totalValuePaise,
                 style = MaterialTheme.typography.titleMedium,
+                masked = masked,
             )
         }
     }

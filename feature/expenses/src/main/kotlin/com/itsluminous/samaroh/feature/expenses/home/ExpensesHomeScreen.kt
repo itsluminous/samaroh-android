@@ -69,6 +69,7 @@ fun ExpensesHomeScreen(
             TotalsCard(
                 gavePaise = state.totals.gavePaise,
                 gotPaise = state.totals.gotPaise,
+                masked = !state.canViewAmounts,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             OutlinedTextField(
@@ -95,6 +96,7 @@ fun ExpensesHomeScreen(
                     items(state.parties, key = { it.party.id }) { item ->
                         PartyRow(
                             item = item,
+                            masked = !state.canViewAmounts,
                             onClick = { onPartyClick(item.party.id) },
                             modifier = animatedListItem(),
                         )
@@ -110,6 +112,7 @@ fun ExpensesHomeScreen(
 private fun TotalsCard(
     gavePaise: Long,
     gotPaise: Long,
+    masked: Boolean,
     modifier: Modifier = Modifier,
 ) {
     SamarohCard(modifier = modifier) {
@@ -118,12 +121,14 @@ private fun TotalsCard(
                 label = stringResource(R.string.expenses_home_you_gave),
                 amountPaise = gavePaise,
                 tone = AmountTone.MONEY_OUT,
+                masked = masked,
                 modifier = Modifier.weight(1f),
             )
             TotalsCell(
                 label = stringResource(R.string.expenses_home_you_got),
                 amountPaise = gotPaise,
                 tone = AmountTone.MONEY_IN,
+                masked = masked,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -135,17 +140,19 @@ private fun TotalsCell(
     label: String,
     amountPaise: Long,
     tone: AmountTone,
+    masked: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = label, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-        AmountText(amountPaise = amountPaise, tone = tone, style = MaterialTheme.typography.titleLarge)
+        AmountText(amountPaise = amountPaise, tone = tone, style = MaterialTheme.typography.titleLarge, masked = masked)
     }
 }
 
 @Composable
 private fun PartyRow(
     item: PartyListItem,
+    masked: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -176,6 +183,7 @@ private fun PartyRow(
                 amountPaise = if (item.netBalancePaise < 0) -item.netBalancePaise else item.netBalancePaise,
                 tone = if (item.netBalancePaise >= 0) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
                 style = MaterialTheme.typography.titleMedium,
+                masked = masked,
             )
         },
     )

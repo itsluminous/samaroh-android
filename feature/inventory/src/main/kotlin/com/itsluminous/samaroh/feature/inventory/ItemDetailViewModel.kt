@@ -62,6 +62,11 @@ class ItemDetailViewModel
             session.canRecordTransactions
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+        /** `inventory.view_amounts` gate (ADR-039): masks total value and unit prices as ₹•••. */
+        val canViewAmounts: StateFlow<Boolean> =
+            session.canViewAmounts
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
         private val visibleCount = MutableStateFlow(ITEM_DETAIL_PAGE_SIZE)
 
         private val activeBusinessId: Flow<String?> =

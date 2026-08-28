@@ -5,8 +5,10 @@ import kotlinx.serialization.Serializable
 
 /**
  * Member permissions — exact mirror of shared/permissions/permissions-schema.json.
- * Every action defaults to `false` when absent; owners bypass this object entirely.
- * Backups are owner-only and deliberately NOT representable here. FROZEN CONTRACT.
+ * Every action defaults to `false` when absent EXCEPT the per-module `view_amounts`
+ * keys, which default to `true` (backward compat: pre-existing permission objects keep
+ * showing amounts); owners bypass this object entirely. Backups are owner-only and
+ * deliberately NOT representable here. FROZEN CONTRACT.
  */
 @Serializable
 data class MemberPermissions(
@@ -56,6 +58,8 @@ data class MemberPermissions(
 @Serializable
 data class BookingPermissions(
     val view: Boolean = false,
+    /** ABSENT = TRUE: masks package total, advance, balance due and payment history when false. */
+    @SerialName("view_amounts") val viewAmounts: Boolean = true,
     val create: Boolean = false,
     val edit: Boolean = false,
     val delete: Boolean = false,
@@ -66,6 +70,8 @@ data class BookingPermissions(
 @Serializable
 data class ExpensesPermissions(
     val view: Boolean = false,
+    /** ABSENT = TRUE: masks ledger entry amounts and party balances when false. */
+    @SerialName("view_amounts") val viewAmounts: Boolean = true,
     val create: Boolean = false,
     val edit: Boolean = false,
     val delete: Boolean = false,
@@ -75,6 +81,8 @@ data class ExpensesPermissions(
 @Serializable
 data class InventoryPermissions(
     val view: Boolean = false,
+    /** ABSENT = TRUE: masks item prices, transaction values and stock worth when false. */
+    @SerialName("view_amounts") val viewAmounts: Boolean = true,
     val create: Boolean = false,
     val edit: Boolean = false,
     val delete: Boolean = false,
@@ -84,6 +92,8 @@ data class InventoryPermissions(
 @Serializable
 data class ReportsPermissions(
     val view: Boolean = false,
+    /** ABSENT = TRUE: hides money reports entirely from the reports home when false. */
+    @SerialName("view_amounts") val viewAmounts: Boolean = true,
 )
 
 @Serializable

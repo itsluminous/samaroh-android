@@ -20,6 +20,8 @@ import javax.inject.Inject
 data class ReportsHomeUiState(
     val loading: Boolean = true,
     val canView: Boolean = false,
+    /** ADR-039: `reports.view_amounts` off hides money reports entirely from the list. */
+    val canViewAmounts: Boolean = true,
 )
 
 @HiltViewModel
@@ -44,7 +46,13 @@ class ReportsHomeViewModel
                         else ->
                             permissionGuard
                                 .permissions(business.id)
-                                .map { ReportsHomeUiState(loading = false, canView = it.reports.view) }
+                                .map {
+                                    ReportsHomeUiState(
+                                        loading = false,
+                                        canView = it.reports.view,
+                                        canViewAmounts = it.reports.viewAmounts,
+                                    )
+                                }
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReportsHomeUiState())
     }

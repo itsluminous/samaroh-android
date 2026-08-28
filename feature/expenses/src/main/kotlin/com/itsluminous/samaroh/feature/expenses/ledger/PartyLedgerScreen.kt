@@ -198,7 +198,7 @@ fun PartyLedgerScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            NetBalanceHeader(netBalancePaise = state.netBalancePaise)
+            NetBalanceHeader(netBalancePaise = state.netBalancePaise, masked = !state.canViewAmounts)
             if (state.loaded && state.rows.isEmpty()) {
                 EmptyState(
                     icon = Icons.Filled.ReceiptLong,
@@ -213,6 +213,7 @@ fun PartyLedgerScreen(
                             attachments = state.attachmentsByExpense[row.expense.id].orEmpty(),
                             canEdit = state.canEditEntries,
                             canDelete = state.canDeleteEntries,
+                            masked = !state.canViewAmounts,
                             onEdit = { onEditEntry(row.expense.direction, row.expense.id) },
                             onDelete = { confirmDeleteId = row.expense.id },
                             modifier = animatedListItem(),
@@ -347,6 +348,7 @@ private fun EditPartyDialog(
 @Composable
 private fun NetBalanceHeader(
     netBalancePaise: Long,
+    masked: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -359,6 +361,7 @@ private fun NetBalanceHeader(
             amountPaise = if (netBalancePaise < 0) -netBalancePaise else netBalancePaise,
             tone = if (netBalancePaise >= 0) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
             style = MaterialTheme.typography.titleLarge,
+            masked = masked,
         )
     }
 }
@@ -369,6 +372,7 @@ private fun LedgerEntryRow(
     attachments: List<AttachmentWithLocalState>,
     canEdit: Boolean,
     canDelete: Boolean,
+    masked: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -398,7 +402,11 @@ private fun LedgerEntryRow(
                     Text(
                         stringResource(
                             R.string.expenses_ledger_balance_after,
-                            AmountFormatter.format(if (row.balanceAfterPaise < 0) -row.balanceAfterPaise else row.balanceAfterPaise),
+                            if (masked) {
+                                AmountFormatter.MASKED
+                            } else {
+                                AmountFormatter.format(if (row.balanceAfterPaise < 0) -row.balanceAfterPaise else row.balanceAfterPaise)
+                            },
                         ),
                     )
                 },
@@ -410,6 +418,7 @@ private fun LedgerEntryRow(
                 amountPaise = expense.amountPaise,
                 tone = if (expense.direction == ExpenseDirection.PAID) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
                 style = MaterialTheme.typography.titleMedium,
+                masked = masked,
             )
             PermissionGate(allowed = canEdit || canDelete) {
                 EntryMenu(showEdit = canEdit, showDelete = canDelete, onEdit = onEdit, onDelete = onDelete)

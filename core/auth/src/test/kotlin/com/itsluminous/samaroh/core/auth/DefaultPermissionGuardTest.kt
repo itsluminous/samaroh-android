@@ -119,6 +119,41 @@ class DefaultPermissionGuardTest {
         }
 
     @Test
+    fun `member view_amounts flows through the guard - off masks, absent stays on`() =
+        runTest {
+            // ADR-039: owner turned booking amounts off for this member; the other
+            // modules never carried the key (absent = TRUE).
+            val granted =
+                MemberPermissions(booking = BookingPermissions(view = true, viewAmounts = false))
+            sessionFlow.value = staffSession
+            businessesFlow.value = listOf(business())
+            membersFlow.value = listOf(member(staffSession, MemberStatus.ACTIVE, permissions = granted))
+
+            guard.permissions(bizId).test {
+                val perms = awaitItem()
+                assertThat(perms.booking.viewAmounts).isFalse()
+                assertThat(perms.expenses.viewAmounts).isTrue()
+                assertThat(perms.inventory.viewAmounts).isTrue()
+                assertThat(perms.reports.viewAmounts).isTrue()
+            }
+        }
+
+    @Test
+    fun `owner keeps view_amounts true even when a member row says otherwise`() =
+        runTest {
+            // Owners bypass the stored object entirely (fullAccess) — no self-lockout.
+            val restricted =
+                MemberPermissions(booking = BookingPermissions(view = true, viewAmounts = false))
+            sessionFlow.value = ownerSession
+            businessesFlow.value = listOf(business())
+            membersFlow.value = listOf(member(ownerSession, MemberStatus.ACTIVE, permissions = restricted, isOwner = true))
+
+            guard.permissions(bizId).test {
+                assertThat(awaitItem().booking.viewAmounts).isTrue()
+            }
+        }
+
+    @Test
     fun `revoked member loses everything even when permissions json still has grants`() =
         runTest {
             sessionFlow.value = staffSession

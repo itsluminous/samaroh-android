@@ -88,15 +88,18 @@ object PermissionMatrix {
             booking =
                 BookingPermissions(
                     view = true,
+                    viewAmounts = true,
                     create = true,
                     edit = true,
                     delete = true,
                     recordPayment = true,
                     generateInvoice = true,
                 ),
-            expenses = ExpensesPermissions(view = true, create = true, edit = true, delete = true, manageParties = true),
-            inventory = InventoryPermissions(view = true, create = true, edit = true, delete = true, manageMasterItems = true),
-            reports = ReportsPermissions(view = true),
+            expenses =
+                ExpensesPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageParties = true),
+            inventory =
+                InventoryPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageMasterItems = true),
+            reports = ReportsPermissions(view = true, viewAmounts = true),
             settings = SettingsPermissions(manageBusiness = true, manageMembers = true, gcalSync = true),
         )
 }

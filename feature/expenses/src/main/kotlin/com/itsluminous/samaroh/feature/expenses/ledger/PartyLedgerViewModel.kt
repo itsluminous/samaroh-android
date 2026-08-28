@@ -50,6 +50,8 @@ data class PartyLedgerState(
     val canEditParty: Boolean = true,
     /** Party-delete gate (ADR-028): `expenses.delete`. */
     val canDeleteParty: Boolean = true,
+    /** ADR-039 gate: `expenses.view_amounts`; masks entry amounts and balances as ₹••• when false. */
+    val canViewAmounts: Boolean = true,
     /** Active business display name for the edit-party "Associated with {business}?" pill. */
     val businessName: String = "",
     val loaded: Boolean = false,
@@ -100,14 +102,17 @@ class PartyLedgerViewModel
         /** All permission gates as one flow (keeps the state combine at 5 sources). */
         private val gates =
             combine(
-                session.canEditEntries,
-                session.canCreateEntries,
-                session.canDeleteEntries,
-                session.canManageParties,
-                session.canDeleteParties,
-            ) { canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty ->
-                Gates(canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty)
-            }
+                combine(
+                    session.canEditEntries,
+                    session.canCreateEntries,
+                    session.canDeleteEntries,
+                    session.canManageParties,
+                    session.canDeleteParties,
+                ) { canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty ->
+                    Gates(canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty)
+                },
+                session.canViewAmounts,
+            ) { base, viewAmounts -> base.copy(viewAmounts = viewAmounts) }
 
         val state: StateFlow<PartyLedgerState> =
             combine(
@@ -128,18 +133,20 @@ class PartyLedgerViewModel
                     canDeleteEntries = gate.deleteEntries,
                     canEditParty = gate.manageParties,
                     canDeleteParty = gate.deleteParties,
+                    canViewAmounts = gate.viewAmounts,
                     businessName = businessName,
                     loaded = true,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PartyLedgerState())
 
-        /** The five §3 gates the ledger screen renders from. */
+        /** The §3 gates the ledger screen renders from. */
         private data class Gates(
             val editEntries: Boolean,
             val createEntries: Boolean,
             val deleteEntries: Boolean,
             val manageParties: Boolean,
             val deleteParties: Boolean,
+            val viewAmounts: Boolean = true,
         )
 
         /** Tombstone delete (§4.2); the row disappears locally and the delete syncs as a tombstone. */

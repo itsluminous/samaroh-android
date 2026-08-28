@@ -1127,3 +1127,52 @@ members must not *see* affordances they cannot use — hide, never grey):
 error-producing buttons, and members without a module's `view` permission still got
 the tab (empty/erroring). Postgres RLS remains the authoritative layer; this is §3
 layer 2 only.
+
+## ADR-039 — Per-module `view_amounts` masking + booking audit-line fix (2026-08-28)
+
+**What.** The §3 permission object gains one key per money-bearing module —
+`booking.view_amounts`, `expenses.view_amounts`, `inventory.view_amounts`,
+`reports.view_amounts` (schema shared@d2c30b8) — the ONE exception to the
+absent-defaults-false rule: **absent = TRUE** (pre-existing permission objects keep
+showing amounts; Viewer/Staff/Manager presets leave it true; owners toggle it off per
+member via the matrix editor's new "View amounts" row, which appears automatically from
+the JSON projection). `MemberPermissions` mirrors this with `viewAmounts: Boolean = true`
+(`@SerialName("view_amounts")`); Room's converter and the sync payload round-trip it
+losslessly either way.
+
+**Enforcement is presentation-layer masking, designed once in `core:designsystem`:**
+`AmountText` gains a `masked` mode rendering `AmountFormatter.MASKED` (₹••• — symbol-only,
+no catalog key) with a localized "Amount hidden" accessibility label
+(`auth.permissions.amount_hidden_a11y`) and no money-in/out tone (the color would leak the
+sign). Sessions expose `canViewAmounts` per module (`ExpensesSession`/`InventorySession`
+flows, booking's `BookingActor.permissions.viewAmounts`, reports' home/detail states):
+
+- **Booking** — month summary card (Received/Pending), card total/deposit/paid/due,
+  payment-history rows, pending-confirmation reminder texts and the WhatsApp reminder
+  prefill all mask; invoice generation is *blocked* (button hidden) without
+  `booking.view_amounts` — an invoice IS the amounts. `record_payment` without
+  `view_amounts` is deliberately left orthogonal: granting that mix is the owner's call.
+- **Expenses** — gave/got totals, party net balances, entry amounts and balance-after
+  chips mask.
+- **Inventory** — stock total values, item total value, transaction values, unit prices
+  and the FIFO-cost snackbar mask; quantities stay visible.
+- **Reports** — `reports.view_amounts = false` hides MONEY reports entirely from the
+  reports home (revenue, dues aging, event types, sources, expense summary, profit,
+  inventory valuation, personal expenses); occupancy and collection-days — counts and
+  durations — stay. The report *detail* gate also denies money reports, covering
+  revoke-while-open. Simplest coherent rule: a money report without its figures is
+  meaningless, and per-cell masking of charts/CSV/PDF exports would be leaky.
+
+**Honest caveat.** This is presentation-layer only: the amounts still sync to the
+member's device (Room rows are unchanged; Supabase RLS row-level policies are unchanged —
+RLS filters rows, not columns). A determined employee can read the local database. Real
+secrecy requires revoking the module's `view` permission (no rows at all); `view_amounts`
+is a workplace-courtesy screen, not a security boundary.
+
+**Audit-line fix (bundled).** The booking card's "Added by {name} on {date}" showed the
+CURRENT user's name — `BookingCalendarScreen` passed `actor.displayName` (the active
+session's actor) as `creatorName`, so every viewer saw themselves as the creator. The
+`detail` flow now resolves the creator from `bookings.created_by` → `MemberRepository
+.memberForUser().displayName`, falling back to `Business.ownerName` when `created_by` is
+the owner (owners may lack a member row locally) and to the localized
+`booking.card.audit_added_unknown_member` ("a member") when unknown.

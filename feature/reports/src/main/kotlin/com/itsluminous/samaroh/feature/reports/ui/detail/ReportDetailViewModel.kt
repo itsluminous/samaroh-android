@@ -192,7 +192,8 @@ class ReportDetailViewModel
                             }
                         else ->
                             permissionGuard.permissions(business.id).flatMapLatest { permissions ->
-                                if (!permissions.reports.view) {
+                                // ADR-039: money reports additionally need reports.view_amounts.
+                                if (!permissions.reports.view || (type.requiresAmounts && !permissions.reports.viewAmounts)) {
                                     flowOf(baseState(selection).copy(loading = false, allowed = false))
                                 } else {
                                     dataFlow(business.id, selection.range).map { data ->

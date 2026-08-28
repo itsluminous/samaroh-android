@@ -103,3 +103,47 @@ class InventorySessionTest {
             assertThat(session("user-1", guard).canRecordTransactions.first()).isFalse()
         }
 }
+
+// ---- canViewAmounts (`inventory.view_amounts`, ADR-039 masking) appended tests ----
+
+/** Per-session `canViewAmounts` mapping (ADR-039): absent = true; explicit false masks. */
+class InventorySessionViewAmountsTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    private fun session(
+        userId: String?,
+        guard: FakePermissionGuard,
+    ) = InventorySession(FakeActiveBusinessProvider(), FakeCurrentUserProvider(userId), guard)
+
+    @Test
+    fun `signed out keeps the owner-mode default (amounts visible)`() =
+        runTest {
+            assertThat(session(userId = null, guard = FakePermissionGuard()).canViewAmounts.first()).isTrue()
+        }
+
+    @Test
+    fun `owner always sees amounts`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.ownerFlow.value = true
+            assertThat(session("user-1", guard).canViewAmounts.first()).isTrue()
+        }
+
+    @Test
+    fun `member without explicit view_amounts sees amounts (absent = true)`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.permissionsFlow.value = MemberPermissions(inventory = InventoryPermissions(view = true))
+            assertThat(session("user-1", guard).canViewAmounts.first()).isTrue()
+        }
+
+    @Test
+    fun `member with view_amounts off gets masked`() =
+        runTest {
+            val guard = FakePermissionGuard()
+            guard.permissionsFlow.value =
+                MemberPermissions(inventory = InventoryPermissions(view = true, viewAmounts = false))
+            assertThat(session("user-1", guard).canViewAmounts.first()).isFalse()
+        }
+}

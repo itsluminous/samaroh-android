@@ -103,6 +103,47 @@ class ExpensesHomeViewModelTest {
             }
         }
 
+    @Test
+    fun `member without explicit view_amounts keeps amounts visible (absent = true)`() =
+        runTest {
+            expensesRepository.parties.value = listOf(Fixtures.party(name = "Ramesh Kumar"))
+            val session =
+                fakeExpensesSession(
+                    userId = "viewer-1",
+                    isOwner = false,
+                    permissions =
+                        com.itsluminous.samaroh.core.model
+                            .MemberPermissions(),
+                )
+            val viewModel = ExpensesHomeViewModel(expensesRepository, ledgerRepository, session)
+            viewModel.state.test {
+                assertThat(awaitItemMatching { it.hasAnyParty }.canViewAmounts).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `member with expenses view_amounts off gets the masked state`() =
+        runTest {
+            expensesRepository.parties.value = listOf(Fixtures.party(name = "Ramesh Kumar"))
+            val session =
+                fakeExpensesSession(
+                    userId = "viewer-1",
+                    isOwner = false,
+                    permissions =
+                        com.itsluminous.samaroh.core.model.MemberPermissions(
+                            expenses =
+                                com.itsluminous.samaroh.core.model
+                                    .ExpensesPermissions(view = true, viewAmounts = false),
+                        ),
+                )
+            val viewModel = ExpensesHomeViewModel(expensesRepository, ledgerRepository, session)
+            viewModel.state.test {
+                assertThat(awaitItemMatching { it.hasAnyParty }.canViewAmounts).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
     private suspend fun app.cash.turbine.ReceiveTurbine<ExpensesHomeState>.awaitItemMatching(
         predicate: (ExpensesHomeState) -> Boolean,
     ): ExpensesHomeState {

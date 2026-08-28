@@ -48,6 +48,11 @@ class CurrentInventoryViewModel
             session.canRecordTransactions
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+        /** `inventory.view_amounts` gate (ADR-039): masks stock values as ₹••• (quantities stay). */
+        val canViewAmounts: StateFlow<Boolean> =
+            session.canViewAmounts
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
         /** App-wide active-business session seam (docs/decisions.md ADR-017). */
         private val activeBusinessId: Flow<String?> =
             activeBusinessProvider.activeBusiness

@@ -24,6 +24,13 @@ enum class ReportType(
      */
     val supportsDateRange: Boolean get() = this != INVENTORY_VALUATION
 
+    /**
+     * True for MONEY reports — hidden entirely from the reports home when the member's
+     * `reports.view_amounts` permission is off (ADR-039; occupancy and collection-days
+     * are counts/durations and stay visible).
+     */
+    val requiresAmounts: Boolean get() = this != OCCUPANCY && this != COLLECTION
+
     companion object {
         fun fromRoute(routeArg: String?): ReportType = entries.firstOrNull { it.routeArg == routeArg } ?: REVENUE
     }

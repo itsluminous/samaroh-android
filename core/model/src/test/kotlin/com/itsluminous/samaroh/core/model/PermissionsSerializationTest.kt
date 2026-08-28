@@ -42,6 +42,38 @@ class PermissionsSerializationTest {
     }
 
     @Test
+    fun `absent view_amounts defaults to TRUE in every module (ADR-039 backward compat)`() {
+        // Pre-existing permission objects never carry view_amounts — amounts stay visible.
+        val perms = json.decodeFromString<MemberPermissions>("""{ "booking": { "view": true } }""")
+        assertThat(perms.booking.viewAmounts).isTrue()
+        assertThat(perms.expenses.viewAmounts).isTrue()
+        assertThat(perms.inventory.viewAmounts).isTrue()
+        assertThat(perms.reports.viewAmounts).isTrue()
+        // While every OTHER absent action stays false.
+        assertThat(perms.booking.create).isFalse()
+        assertThat(perms.reports.view).isFalse()
+    }
+
+    @Test
+    fun `explicit view_amounts false survives a round-trip`() {
+        val original =
+            MemberPermissions.viewer().let {
+                it.copy(
+                    booking = it.booking.copy(viewAmounts = false),
+                    reports = it.reports.copy(viewAmounts = false),
+                )
+            }
+        val encoded = json.encodeToString(MemberPermissions.serializer(), original)
+        assertThat(encoded).contains("view_amounts")
+        val decoded = json.decodeFromString<MemberPermissions>(encoded)
+        assertThat(decoded).isEqualTo(original)
+        assertThat(decoded.booking.viewAmounts).isFalse()
+        assertThat(decoded.reports.viewAmounts).isFalse()
+        assertThat(decoded.expenses.viewAmounts).isTrue()
+        assertThat(decoded.inventory.viewAmounts).isTrue()
+    }
+
+    @Test
     fun `round-trips through snake_case json`() {
         val original = MemberPermissions.manager()
         val encoded = json.encodeToString(MemberPermissions.serializer(), original)

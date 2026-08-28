@@ -14,13 +14,13 @@ class PermissionMatrixTest {
             .containsExactly("booking", "expenses", "inventory", "reports", "settings")
             .inOrder()
         assertThat(groups.first { it.moduleKey == "booking" }.toggles.map { it.actionKey })
-            .containsExactly("view", "create", "edit", "delete", "record_payment", "generate_invoice")
+            .containsExactly("view", "view_amounts", "create", "edit", "delete", "record_payment", "generate_invoice")
         assertThat(groups.first { it.moduleKey == "expenses" }.toggles.map { it.actionKey })
-            .containsExactly("view", "create", "edit", "delete", "manage_parties")
+            .containsExactly("view", "view_amounts", "create", "edit", "delete", "manage_parties")
         assertThat(groups.first { it.moduleKey == "inventory" }.toggles.map { it.actionKey })
-            .containsExactly("view", "create", "edit", "delete", "manage_master_items")
+            .containsExactly("view", "view_amounts", "create", "edit", "delete", "manage_master_items")
         assertThat(groups.first { it.moduleKey == "reports" }.toggles.map { it.actionKey })
-            .containsExactly("view")
+            .containsExactly("view", "view_amounts")
         assertThat(groups.first { it.moduleKey == "settings" }.toggles.map { it.actionKey })
             .containsExactly("manage_business", "manage_members", "gcal_sync")
     }
@@ -46,15 +46,32 @@ class PermissionMatrixTest {
     }
 
     @Test
+    fun `view_amounts starts enabled on every preset and toggles off per module`() {
+        // ADR-039: all presets leave the default-true view_amounts untouched.
+        listOf(MemberPermissions.viewer(), MemberPermissions.staff(), MemberPermissions.manager()).forEach { preset ->
+            assertThat(preset.booking.viewAmounts).isTrue()
+            assertThat(preset.expenses.viewAmounts).isTrue()
+            assertThat(preset.inventory.viewAmounts).isTrue()
+            assertThat(preset.reports.viewAmounts).isTrue()
+        }
+
+        // The owner toggles it off per module through the matrix, wire key `view_amounts`.
+        val masked = PermissionMatrix.toggle(MemberPermissions.viewer(), "booking", "view_amounts")
+        assertThat(masked.booking.viewAmounts).isFalse()
+        assertThat(masked.expenses.viewAmounts).isTrue()
+        assertThat(PermissionMatrix.toggle(masked, "booking", "view_amounts")).isEqualTo(MemberPermissions.viewer())
+    }
+
+    @Test
     fun `presets produce the canonical preset permission sets`() {
         assertThat(PermissionPreset.VIEWER.permissions()).isEqualTo(MemberPermissions.viewer())
         assertThat(PermissionPreset.STAFF.permissions()).isEqualTo(MemberPermissions.staff())
         assertThat(PermissionPreset.MANAGER.permissions()).isEqualTo(MemberPermissions.manager())
 
-        // Viewer = all view, nothing else.
+        // Viewer = all view (+ default-true view_amounts), nothing else.
         val viewerGroups = PermissionMatrix.groups(MemberPermissions.viewer())
         viewerGroups.flatMap { it.toggles }.forEach { toggle ->
-            assertThat(toggle.enabled).isEqualTo(toggle.actionKey == "view")
+            assertThat(toggle.enabled).isEqualTo(toggle.actionKey == "view" || toggle.actionKey == "view_amounts")
         }
 
         // Manager = everything except settings/members.

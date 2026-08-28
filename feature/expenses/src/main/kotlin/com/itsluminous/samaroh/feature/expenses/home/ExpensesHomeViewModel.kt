@@ -43,6 +43,8 @@ data class ExpensesHomeState(
     val hasAnyParty: Boolean = false,
     /** ADR-028 gate: `expenses.edit` OR `expenses.manage_parties`; hides the add-person FAB. */
     val canManageParties: Boolean = false,
+    /** ADR-039 gate: `expenses.view_amounts`; masks totals and net balances as ₹••• when false. */
+    val canViewAmounts: Boolean = true,
 )
 
 @HiltViewModel
@@ -64,8 +66,10 @@ class ExpensesHomeViewModel
                         ledgerRepository.totals(businessId),
                         ledgerRepository.lastEntryPerParty(businessId),
                         searchQuery,
-                        session.canManageParties,
-                    ) { parties, totals, lastEntries, query, canManageParties ->
+                        // Both session gates as one source (keeps the combine at 5 flows).
+                        combine(session.canManageParties, session.canViewAmounts) { manage, amounts -> manage to amounts },
+                    ) { parties, totals, lastEntries, query, gates ->
+                        val (canManageParties, canViewAmounts) = gates
                         val items =
                             parties.map {
                                 PartyListItem(
@@ -80,6 +84,7 @@ class ExpensesHomeViewModel
                             parties = items.filterBy(query),
                             hasAnyParty = items.isNotEmpty(),
                             canManageParties = canManageParties,
+                            canViewAmounts = canViewAmounts,
                         )
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExpensesHomeState())

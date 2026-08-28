@@ -90,6 +90,8 @@ fun ItemDetailScreen(
     val editor by masterlistViewModel.editor.collectAsState()
     val deleteRequest by masterlistViewModel.deleteRequest.collectAsState()
     val canManage by masterlistViewModel.canManageMasterItems.collectAsState()
+    // ADR-039: inventory.view_amounts off masks values/prices as ₹••• (quantities stay).
+    val canViewAmounts by viewModel.canViewAmounts.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -176,6 +178,7 @@ fun ItemDetailScreen(
                         currentQuantity = uiState.currentQuantity,
                         totalValuePaise = uiState.totalValuePaise,
                         showTransactionButtons = canRecord,
+                        masked = !canViewAmounts,
                         onImageTap = { path -> expandedImagePath = path },
                         onAdd = { dialogType = TxnType.ADD },
                         onRemove = { dialogType = TxnType.REMOVE },
@@ -199,7 +202,7 @@ fun ItemDetailScreen(
                 }
             }
             items(uiState.transactions, key = { it.id }) { txn ->
-                TransactionRowCard(txn = txn, unit = item?.unit.orEmpty(), modifier = animatedListItem())
+                TransactionRowCard(txn = txn, unit = item?.unit.orEmpty(), masked = !canViewAmounts, modifier = animatedListItem())
             }
             item(key = "footer") {
                 Column(
@@ -234,7 +237,7 @@ fun ItemDetailScreen(
             preselectedItemId = viewModel.itemId,
             initialType = type,
             onSaved = { saved ->
-                scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved)) }
+                scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved, masked = !canViewAmounts)) }
             },
         )
     }
@@ -269,13 +272,14 @@ fun ItemDetailScreen(
 fun savedTransactionMessage(
     context: android.content.Context,
     saved: SavedTransaction,
+    masked: Boolean = false,
 ): String =
     when (saved.type) {
         TxnType.ADD -> context.getString(R.string.inventory_txn_saved_add)
         TxnType.REMOVE ->
             context.getString(
                 R.string.inventory_txn_saved_remove,
-                AmountFormatter.format(saved.totalValuePaise),
+                if (masked) AmountFormatter.MASKED else AmountFormatter.format(saved.totalValuePaise),
             )
     }
 
@@ -287,6 +291,7 @@ private fun ItemDetailHeader(
     currentQuantity: Double,
     totalValuePaise: Long,
     showTransactionButtons: Boolean,
+    masked: Boolean,
     onImageTap: (String) -> Unit,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
@@ -331,7 +336,7 @@ private fun ItemDetailHeader(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        AmountText(amountPaise = totalValuePaise, style = MaterialTheme.typography.titleMedium)
+                        AmountText(amountPaise = totalValuePaise, style = MaterialTheme.typography.titleMedium, masked = masked)
                     }
                 }
             }
@@ -358,6 +363,7 @@ private fun ItemDetailHeader(
 private fun TransactionRowCard(
     txn: InventoryTransaction,
     unit: String,
+    masked: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -373,6 +379,7 @@ private fun TransactionRowCard(
                 AmountText(
                     amountPaise = (txn.quantity * txn.unitPricePaise).roundToLong(),
                     style = MaterialTheme.typography.titleSmall,
+                    masked = masked,
                 )
             }
             Text(
@@ -381,7 +388,7 @@ private fun TransactionRowCard(
                         R.string.inventory_detail_qty_at_price,
                         formatQuantity(txn.quantity),
                         unitDisplayLabel(unit),
-                        AmountFormatter.format(txn.unitPricePaise),
+                        if (masked) AmountFormatter.MASKED else AmountFormatter.format(txn.unitPricePaise),
                     ),
                 style = MaterialTheme.typography.bodyLarge,
             )

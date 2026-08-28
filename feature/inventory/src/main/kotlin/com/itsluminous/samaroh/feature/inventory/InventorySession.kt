@@ -43,6 +43,13 @@ class InventorySession
         val canRecordTransactions: Flow<Boolean> =
             permissionGate { it.inventory.create }
 
+        /**
+         * `inventory.view_amounts` gate (ADR-039): masks unit prices, transaction values
+         * and stock worth as ₹••• when false — quantities stay visible.
+         */
+        val canViewAmounts: Flow<Boolean> =
+            permissionGate { it.inventory.viewAmounts }
+
         /** Owners always pass [allowed]; signed-out/offline keeps the owner-mode default (true). */
         private fun permissionGate(allowed: (MemberPermissions) -> Boolean): Flow<Boolean> =
             combine(
