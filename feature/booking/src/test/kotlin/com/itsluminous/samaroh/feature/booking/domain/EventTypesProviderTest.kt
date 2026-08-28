@@ -16,8 +16,17 @@ class EventTypesProviderTest {
     fun `parses the shared event types asset`() {
         val provider = EventTypesProvider(ApplicationProvider.getApplicationContext())
         assertThat(provider.eventTypes.map { it.key })
-            .containsExactly("engagement", "tilak", "wedding", "room_booking", "birthday", "anniversary", "custom")
-            .inOrder()
+            .containsExactly(
+                "engagement",
+                "tilak",
+                "wedding",
+                "room_booking",
+                "birthday",
+                "anniversary",
+                "custom",
+                "lagan",
+                "muh_dikhayi",
+            ).inOrder()
         assertThat(provider.byKey("wedding")!!.emoji).isEqualTo("\uD83D\uDC92")
         assertThat(provider.byKey("custom")!!.isCustom).isTrue()
     }
