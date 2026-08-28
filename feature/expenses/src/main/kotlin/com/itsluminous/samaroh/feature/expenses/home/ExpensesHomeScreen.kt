@@ -150,10 +150,12 @@ private fun PartyRow(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         leadingContent = { InitialsAvatar(initials = item.initials) },
         headlineContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Personal tag renders on its own row BELOW the name so long names keep the
+            // full width and wrap naturally instead of squeezing to one word per line.
+            Column {
                 Text(item.party.name, style = MaterialTheme.typography.bodyLarge)
                 if (!item.party.businessRelated) {
-                    PersonalPartyTag(modifier = Modifier.padding(start = 8.dp))
+                    PersonalPartyTag(modifier = Modifier.padding(top = 2.dp))
                 }
             }
         },

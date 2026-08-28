@@ -53,6 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -112,15 +113,17 @@ fun PartyLedgerScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                state.party?.name.orEmpty(),
-                                style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.semantics { heading() },
-                            )
-                            if (state.party?.businessRelated == false) {
-                                PersonalPartyTag(modifier = Modifier.padding(start = 8.dp))
-                            }
+                        // Personal tag sits on its own row BELOW the name so long names
+                        // keep the full width instead of wrapping one word per line.
+                        Text(
+                            state.party?.name.orEmpty(),
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                        if (state.party?.businessRelated == false) {
+                            PersonalPartyTag(modifier = Modifier.padding(top = 2.dp))
                         }
                         state.party?.phone?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                     }
