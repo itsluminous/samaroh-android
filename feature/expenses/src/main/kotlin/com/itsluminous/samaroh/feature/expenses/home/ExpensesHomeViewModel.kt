@@ -41,6 +41,8 @@ data class ExpensesHomeState(
     val searchQuery: String = "",
     val parties: List<PartyListItem> = emptyList(),
     val hasAnyParty: Boolean = false,
+    /** ADR-028 gate: `expenses.edit` OR `expenses.manage_parties`; hides the add-person FAB. */
+    val canManageParties: Boolean = false,
 )
 
 @HiltViewModel
@@ -62,7 +64,8 @@ class ExpensesHomeViewModel
                         ledgerRepository.totals(businessId),
                         ledgerRepository.lastEntryPerParty(businessId),
                         searchQuery,
-                    ) { parties, totals, lastEntries, query ->
+                        session.canManageParties,
+                    ) { parties, totals, lastEntries, query, canManageParties ->
                         val items =
                             parties.map {
                                 PartyListItem(
@@ -76,6 +79,7 @@ class ExpensesHomeViewModel
                             searchQuery = query,
                             parties = items.filterBy(query),
                             hasAnyParty = items.isNotEmpty(),
+                            canManageParties = canManageParties,
                         )
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExpensesHomeState())

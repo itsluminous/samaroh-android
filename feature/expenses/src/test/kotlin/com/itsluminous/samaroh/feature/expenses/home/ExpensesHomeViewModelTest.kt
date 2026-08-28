@@ -72,6 +72,37 @@ class ExpensesHomeViewModelTest {
             }
         }
 
+    @Test
+    fun `owner keeps the add-person gate open`() =
+        runTest {
+            val viewModel =
+                ExpensesHomeViewModel(expensesRepository, ledgerRepository, fakeExpensesSession())
+            viewModel.state.test {
+                assertThat(awaitItemMatching { it.canManageParties }.canManageParties).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `viewer without manage_parties cannot add people`() =
+        runTest {
+            expensesRepository.parties.value = listOf(Fixtures.party(name = "Ramesh Kumar"))
+            val session =
+                fakeExpensesSession(
+                    userId = "viewer-1",
+                    isOwner = false,
+                    permissions =
+                        com.itsluminous.samaroh.core.model
+                            .MemberPermissions(),
+                )
+            val viewModel = ExpensesHomeViewModel(expensesRepository, ledgerRepository, session)
+            viewModel.state.test {
+                val state = awaitItemMatching { it.hasAnyParty }
+                assertThat(state.canManageParties).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
     private suspend fun app.cash.turbine.ReceiveTurbine<ExpensesHomeState>.awaitItemMatching(
         predicate: (ExpensesHomeState) -> Boolean,
     ): ExpensesHomeState {

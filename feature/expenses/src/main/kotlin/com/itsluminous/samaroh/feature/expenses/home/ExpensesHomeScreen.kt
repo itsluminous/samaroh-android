@@ -55,11 +55,14 @@ fun ExpensesHomeScreen(
     Scaffold(
         modifier = modifier,
         floatingActionButton = {
-            SamarohExtendedFab(
-                onClick = onAddPerson,
-                icon = { Icon(Icons.Filled.PersonAdd, contentDescription = null) },
-                text = { Text(stringResource(R.string.expenses_home_add_person)) },
-            )
+            // ADR-028 gate: members without expenses.edit/manage_parties cannot add people.
+            if (state.canManageParties) {
+                SamarohExtendedFab(
+                    onClick = onAddPerson,
+                    icon = { Icon(Icons.Filled.PersonAdd, contentDescription = null) },
+                    text = { Text(stringResource(R.string.expenses_home_add_person)) },
+                )
+            }
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
