@@ -218,13 +218,17 @@ class FakeBusinessRepository(
     override suspend fun saveSettings(settings: BusinessSettings) = Unit
 }
 
-class FakeMemberRepository : MemberRepository {
-    override fun membersForBusiness(businessId: String): Flow<List<BusinessMember>> = MutableStateFlow(emptyList())
+class FakeMemberRepository(
+    initial: List<BusinessMember> = emptyList(),
+) : MemberRepository {
+    val members = MutableStateFlow(initial)
+
+    override fun membersForBusiness(businessId: String): Flow<List<BusinessMember>> = members
 
     override suspend fun memberForUser(
         businessId: String,
         userId: String,
-    ): BusinessMember? = null
+    ): BusinessMember? = members.value.firstOrNull { it.businessId == businessId && it.userId == userId }
 
     override suspend fun saveMember(member: BusinessMember) = Unit
 }

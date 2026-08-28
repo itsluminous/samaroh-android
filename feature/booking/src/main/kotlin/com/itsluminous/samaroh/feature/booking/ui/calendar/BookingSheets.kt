@@ -91,6 +91,7 @@ internal fun BookingCardSheet(
     canDelete: Boolean,
     canRecordPayment: Boolean,
     canInvoice: Boolean,
+    canViewAmounts: Boolean,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onRecordPayment: () -> Unit,
@@ -155,11 +156,20 @@ internal fun BookingCardSheet(
                 Text(text = formatDateRange(booking.startDate, booking.endDate), style = MaterialTheme.typography.bodyLarge)
             }
 
-            AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise)
+            AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise, masked = !canViewAmounts)
             if (booking.securityDepositPaise > 0) {
-                AmountRow(labelRes = R.string.booking_card_deposit_label, amountPaise = booking.securityDepositPaise)
+                AmountRow(
+                    labelRes = R.string.booking_card_deposit_label,
+                    amountPaise = booking.securityDepositPaise,
+                    masked = !canViewAmounts,
+                )
             }
-            AmountRow(labelRes = R.string.booking_card_paid_label, amountPaise = detail.paidPaise, tone = AmountTone.MONEY_IN)
+            AmountRow(
+                labelRes = R.string.booking_card_paid_label,
+                amountPaise = detail.paidPaise,
+                tone = AmountTone.MONEY_IN,
+                masked = !canViewAmounts,
+            )
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = stringResource(R.string.booking_card_due_label),
@@ -171,6 +181,7 @@ internal fun BookingCardSheet(
                     amountPaise = detail.duePaise,
                     tone = if (detail.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    masked = !canViewAmounts,
                 )
             }
 
@@ -190,7 +201,7 @@ internal fun BookingCardSheet(
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )
-                        AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN)
+                        AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN, masked = !canViewAmounts)
                     }
                 }
             }
@@ -289,6 +300,7 @@ private fun AmountRow(
     labelRes: Int,
     amountPaise: Long,
     tone: AmountTone = AmountTone.NEUTRAL,
+    masked: Boolean = false,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -296,7 +308,7 @@ private fun AmountRow(
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
         )
-        AmountText(amountPaise = amountPaise, tone = tone)
+        AmountText(amountPaise = amountPaise, tone = tone, masked = masked)
     }
 }
 

@@ -128,7 +128,9 @@ fun BookingCalendarScreen(
     val canEdit = actor?.let { it.isOwner || it.permissions.edit } ?: false
     val canDelete = actor?.let { it.isOwner || it.permissions.delete } ?: false
     val canRecordPayment = actor?.let { it.isOwner || it.permissions.recordPayment } ?: false
-    val canInvoice = actor?.let { it.isOwner || it.permissions.generateInvoice } ?: false
+    // Invoice needs booking.view_amounts too (an invoice IS the amounts, ADR-039).
+    val canViewAmounts = actor?.let { it.isOwner || it.permissions.viewAmounts } ?: true
+    val canInvoice = (actor?.let { it.isOwner || it.permissions.generateInvoice } ?: false) && canViewAmounts
 
     Scaffold(
         floatingActionButton = {
@@ -238,7 +240,7 @@ fun BookingCalendarScreen(
                             text =
                                 stringResource(
                                     R.string.booking_summary_received,
-                                    AmountFormatter.format(state.receivedPaise),
+                                    if (canViewAmounts) AmountFormatter.format(state.receivedPaise) else AmountFormatter.MASKED,
                                 ),
                             style = MaterialTheme.typography.titleMedium,
                             color = SamarohTheme.semanticColors.moneyIn,
@@ -247,7 +249,7 @@ fun BookingCalendarScreen(
                             text =
                                 stringResource(
                                     R.string.booking_summary_pending,
-                                    AmountFormatter.format(state.pendingPaise),
+                                    if (canViewAmounts) AmountFormatter.format(state.pendingPaise) else AmountFormatter.MASKED,
                                 ),
                             style = MaterialTheme.typography.titleMedium,
                             color = SamarohTheme.semanticColors.moneyOut,
@@ -272,7 +274,7 @@ fun BookingCalendarScreen(
                                     stringResource(
                                         R.string.booking_reminder_payment_question,
                                         confirmation.booking.customerName,
-                                        AmountFormatter.format(due),
+                                        if (canViewAmounts) AmountFormatter.format(due) else AmountFormatter.MASKED,
                                         eventTypeLabel(eventTypes, confirmation.booking.eventType),
                                     ),
                                 style = MaterialTheme.typography.bodyMedium,
@@ -472,7 +474,7 @@ fun BookingCalendarScreen(
             stringResource(
                 R.string.booking_whatsapp_reminder_text,
                 current.booking.customerName,
-                AmountFormatter.format(current.duePaise),
+                if (canViewAmounts) AmountFormatter.format(current.duePaise) else AmountFormatter.MASKED,
                 eventTypeLabel(eventTypes, current.booking.eventType),
                 formatDate(current.booking.startDate),
                 state.business?.name.orEmpty(),
@@ -482,11 +484,13 @@ fun BookingCalendarScreen(
             eventTypes = eventTypes,
             presets = presets,
             bookingColors = bookingColors,
-            creatorName = actor?.displayName ?: state.business?.ownerName.orEmpty(),
+            // Audit line: the CREATOR's name (bookings.created_by), never the viewer's.
+            creatorName = current.creatorName ?: stringResource(R.string.booking_card_audit_added_unknown_member),
             canEdit = canEdit,
             canDelete = canDelete,
             canRecordPayment = canRecordPayment,
             canInvoice = canInvoice,
+            canViewAmounts = canViewAmounts,
             onDismiss = viewModel::dismissBookingCard,
             onEdit = {
                 viewModel.dismissBookingCard()

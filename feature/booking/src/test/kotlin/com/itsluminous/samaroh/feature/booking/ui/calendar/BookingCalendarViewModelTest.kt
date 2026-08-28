@@ -3,7 +3,9 @@ package com.itsluminous.samaroh.feature.booking.ui.calendar
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
@@ -17,6 +19,7 @@ import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeInvoiceGenerator
+import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
 import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
@@ -40,6 +43,7 @@ class BookingCalendarViewModelTest {
 
     private val repository = FakeBookingRepository()
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
+    private val memberRepository = FakeMemberRepository()
     private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
     private val invoiceGenerator = FakeInvoiceGenerator()
     private val syncScheduler = RecordingSyncScheduler()
@@ -49,6 +53,7 @@ class BookingCalendarViewModelTest {
         BookingCalendarViewModel(
             bookingRepository = repository,
             businessRepository = businessRepository,
+            memberRepository = memberRepository,
             actorProvider = FakeActorProvider(),
             invoiceGenerator = invoiceGenerator,
             syncScheduler = syncScheduler,
@@ -385,6 +390,73 @@ class BookingCalendarViewModelTest {
                 assertThat(awaitItem()).isNull()
                 vm.openBooking("b-far")
                 assertThat(awaitItemMatching { it != null }?.booking?.id).isEqualTo("b-far")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- audit line (ADR-039 fix): creator resolved from created_by, never the viewer ----
+
+    @Test
+    fun `audit line resolves the CREATOR's member name, not the current actor`() =
+        runTest {
+            // Booking created by a non-owner member; the current actor is someone else.
+            val booking = Fixtures.booking(id = "b-audit", startDate = LocalDate.of(2026, 8, 28))
+            repository.bookings.value = listOf(booking.copy(createdBy = "creator-uid"))
+            memberRepository.members.value =
+                listOf(
+                    BusinessMember(
+                        id = "m-creator",
+                        businessId = Fixtures.BUSINESS_ID,
+                        invitedEmail = "creator@example.com",
+                        userId = "creator-uid",
+                        displayName = "fixture-creator",
+                        status = MemberStatus.ACTIVE,
+                        createdAt = Fixtures.NOW,
+                        updatedAt = Fixtures.NOW,
+                    ),
+                )
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-audit")
+                val detail = awaitItemMatching { it != null }
+                assertThat(detail?.creatorName).isEqualTo("fixture-creator")
+                // Regression guard: the old code showed the CURRENT actor's name here.
+                assertThat(detail?.creatorName).isNotEqualTo("test-owner")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `audit line falls back to the business owner name for owner-created bookings`() =
+        runTest {
+            // Fixtures.booking().createdBy == the business owner, who has NO member row.
+            val booking = Fixtures.booking(id = "b-owner", startDate = LocalDate.of(2026, 8, 28))
+            repository.bookings.value = listOf(booking)
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-owner")
+                assertThat(awaitItemMatching { it != null }?.creatorName).isEqualTo("fixture-owner")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `audit line creator is null when the creator is unknown locally`() =
+        runTest {
+            val booking = Fixtures.booking(id = "b-unknown", startDate = LocalDate.of(2026, 8, 28))
+            repository.bookings.value = listOf(booking.copy(createdBy = "gone-uid"))
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-unknown")
+                val detail = awaitItemMatching { it != null }
+                // Null → the UI shows the localized "a member" fallback.
+                assertThat(detail?.creatorName).isNull()
                 cancelAndIgnoreRemainingEvents()
             }
         }

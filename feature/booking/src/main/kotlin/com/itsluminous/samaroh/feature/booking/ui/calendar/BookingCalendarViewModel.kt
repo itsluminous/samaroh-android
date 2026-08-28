@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.data.invoice.InvoiceGenerator
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
+import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
@@ -77,6 +78,13 @@ data class BookingDetail(
     val payments: List<BookingPayment>,
     val paidPaise: Long,
     val duePaise: Long,
+    /**
+     * Display name of the booking's CREATOR, resolved from `bookings.created_by` via the
+     * member list (owner-name fallback for the business owner). Null when the creator is
+     * unknown locally — the UI shows a localized "a member" fallback. Never the current
+     * session's name (the audit line must not change with who is looking, ADR-039).
+     */
+    val creatorName: String? = null,
 )
 
 data class PendingConfirmationUi(
@@ -131,6 +139,7 @@ class BookingCalendarViewModel
     constructor(
         private val bookingRepository: BookingRepository,
         businessRepository: BusinessRepository,
+        private val memberRepository: MemberRepository,
         private val actorProvider: BookingActorProvider,
         private val invoiceGenerator: InvoiceGenerator,
         private val syncScheduler: SyncScheduler,
@@ -235,17 +244,31 @@ class BookingCalendarViewModel
                     } else {
                         combine(
                             uiState.map { state -> state.bookings.firstOrNull { it.id == id } },
+                            businessFlow,
                             bookingRepository.paymentsForBooking(id),
-                        ) { booking, payments ->
+                        ) { booking, business, payments ->
                             // Events view opens bookings outside the shown month — fall
                             // back to a direct lookup when the month state lacks the row.
                             (booking ?: bookingRepository.booking(id))?.let {
                                 val paid = payments.sumOf { p -> p.amountPaise }
-                                BookingDetail(it, payments, paid, DueCalculator.duePaise(it, paid))
+                                BookingDetail(it, payments, paid, DueCalculator.duePaise(it, paid), creatorName(it, business))
                             }
                         }
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+        /**
+         * Audit line (§4.1 ★, ADR-039 fix): resolve the CREATOR's display name from
+         * `bookings.created_by` via the member list — never from the current session
+         * (the old code showed whoever was looking at the card as its creator). The
+         * business owner may have no member row locally, hence the owner-name fallback.
+         */
+        private suspend fun creatorName(
+            booking: Booking,
+            business: Business?,
+        ): String? =
+            memberRepository.memberForUser(booking.businessId, booking.createdBy)?.displayName
+                ?: business?.takeIf { it.ownerUserId == booking.createdBy }?.ownerName
 
         /** Events (full agenda) view state: date-grouped rows of the loaded window. */
         data class EventsAgendaState(
