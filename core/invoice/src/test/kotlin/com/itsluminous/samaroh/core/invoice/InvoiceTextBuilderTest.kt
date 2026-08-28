@@ -15,6 +15,9 @@ class InvoiceTextBuilderTest {
         assertThat(text).contains("Invoice")
         assertThat(text).contains("INV-2026-0001")
         assertThat(text).contains("Billed to: fixture-customer")
+        // Unlike the PDF (icon-free per layout-spec §3 / ADR-035), the text receipt
+        // KEEPS the event icon emoji — plain text renders emoji fine.
+        assertThat(text).contains("\uD83D\uDC92 Wedding")
         assertThat(text).contains("Total amount: \u20B92,00,000")
         assertThat(text).contains("Security deposit: \u20B950,000")
         assertThat(text).contains("Payment history:")
@@ -31,6 +34,8 @@ class InvoiceTextBuilderTest {
         assertThat(text).contains("बिल")
         assertThat(text).contains("INV-2026-0001")
         assertThat(text).contains("बिल प्राप्तकर्ता: fixture-customer")
+        // The localized event line keeps the icon (see the English test note).
+        assertThat(text).contains("\uD83D\uDC92 शादी")
         assertThat(text).contains("कुल राशि: \u20B92,00,000")
         assertThat(text).contains("सिक्योरिटी जमा: \u20B950,000")
         assertThat(text).contains("भुगतान इतिहास:")

@@ -34,9 +34,11 @@ class ShadowPdfDocument {
     fun startPage(pageInfo: PdfDocument.PageInfo): PdfDocument.Page {
         check(!closed) { "document is closed" }
         val bitmap = Bitmap.createBitmap(pageInfo.pageWidth, pageInfo.pageHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        issuedCanvases += canvas
         return ReflectionHelpers.callConstructor(
             PdfDocument.Page::class.java,
-            ClassParameter(Canvas::class.java, Canvas(bitmap)),
+            ClassParameter(Canvas::class.java, canvas),
             ClassParameter(PdfDocument.PageInfo::class.java, pageInfo),
         )
     }
@@ -62,5 +64,15 @@ class ShadowPdfDocument {
     @Suppress("unused")
     fun close() {
         closed = true
+    }
+
+    companion object {
+        /**
+         * Every canvas handed to the renderer via [startPage], across all documents in
+         * the current test. In LEGACY graphics mode `shadowOf(canvas)` exposes the drawn
+         * text history, so content tests can assert what the PDF actually prints.
+         * Clear in `@Before`.
+         */
+        val issuedCanvases = mutableListOf<Canvas>()
     }
 }

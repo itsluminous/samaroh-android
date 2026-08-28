@@ -148,10 +148,10 @@ class PdfInvoiceRenderer
 
             private fun drawEventBlock() {
                 val booking = data.booking
-                line(
-                    "${booking.eventIcon} ${EventTypeLabels.label(ctx, booking.eventType)}",
-                    bodyBoldPaint,
-                )
+                // No event icon/emoji in PDF output (layout-spec §3, ADR-035): emoji
+                // glyphs render inconsistently across PDF fonts/viewers. The icon stays
+                // in the app UI and the text receipt.
+                line(EventTypeLabels.label(ctx, booking.eventType), bodyBoldPaint)
                 val dates =
                     if (booking.startDate == booking.endDate) {
                         date(booking.startDate)
