@@ -243,9 +243,12 @@ class BookingCalendarViewModelTest {
     fun `day tap routes to bookings block or add form`() =
         runTest {
             val bookedDate = LocalDate.of(2026, 8, 28)
+            val multiDate = LocalDate.of(2026, 8, 29)
             val blockedDate = LocalDate.of(2026, 8, 30)
             val booking = Fixtures.booking(startDate = bookedDate)
-            repository.bookings.value = listOf(booking)
+            val multiA = Fixtures.booking(startDate = multiDate)
+            val multiB = Fixtures.booking(startDate = multiDate)
+            repository.bookings.value = listOf(booking, multiA, multiB)
             repository.blocks.value =
                 listOf(
                     DateBlock(
@@ -262,9 +265,17 @@ class BookingCalendarViewModelTest {
 
             val vm = viewModel()
             vm.uiState.test {
-                awaitItemMatching { it.loaded && it.bookings.isNotEmpty() && it.blocks.isNotEmpty() }
+                awaitItemMatching { it.loaded && it.bookings.size == 3 && it.blocks.isNotEmpty() }
 
-                assertThat(vm.onDayTapped(bookedDate)).isEqualTo(DayTapResult.ShowBookings(listOf(booking.id)))
+                // A SINGLE booking still routes to the day sheet (never straight to the
+                // card): the sheet carries the tapped date for its Add-new-event row.
+                assertThat(vm.onDayTapped(bookedDate))
+                    .isEqualTo(DayTapResult.ShowBookings(bookedDate, listOf(booking.id)))
+                // Several bookings → the same sheet listing all of them.
+                val multi = vm.onDayTapped(multiDate)
+                assertThat(multi).isInstanceOf(DayTapResult.ShowBookings::class.java)
+                assertThat((multi as DayTapResult.ShowBookings).date).isEqualTo(multiDate)
+                assertThat(multi.bookingIds).containsExactly(multiA.id, multiB.id)
                 assertThat(vm.onDayTapped(blockedDate)).isInstanceOf(DayTapResult.ShowBlock::class.java)
                 // Empty date → Add form prefilled with the tapped date as start AND end (§4.1).
                 assertThat(vm.onDayTapped(LocalDate.of(2026, 8, 20)))

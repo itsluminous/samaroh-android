@@ -3,6 +3,9 @@ package com.itsluminous.samaroh.e2e
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.Intents.intending
@@ -52,8 +55,15 @@ abstract class CrossFeatureIntentsTest(
 
     private fun openBookingCard() {
         // Tap the booked DAY CELL (its a11y description carries the booking label) —
-        // deterministic, unlike picking the first of several "Meera" text nodes.
+        // deterministic, unlike picking the first of several "Meera" text nodes. The
+        // day sheet opens (even for a single booking); tap its row to reach the card.
         waitForContentDescription("Meera", substring = true).performClick()
+        waitForText(string(R.string.booking_calendar_add_new_event))
+        compose
+            .onNode(
+                hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
+                useUnmergedTree = true,
+            ).performClick()
         waitForText(string(R.string.booking_card_payments_title))
     }
 

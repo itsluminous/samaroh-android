@@ -1,7 +1,9 @@
 package com.itsluminous.samaroh.e2e
 
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -94,8 +96,15 @@ abstract class BookingFlowTest(
             bookingRepository.recordPayment(Fixtures.payment(booking.id, amountPaise = 50_000_00L, paidOn = LocalDate.now()))
         }
 
-        // Tap the booked day cell (a11y description carries the booking label).
+        // Tap the booked day cell (a11y description carries the booking label) — the
+        // day sheet opens (even for a single booking); tap its row to open the card.
         waitForContentDescription("Meera", substring = true).performClick()
+        waitForText(string(R.string.booking_calendar_add_new_event))
+        compose
+            .onNode(
+                hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
+                useUnmergedTree = true,
+            ).performClick()
 
         // Booking card: due = ₹1,50,000, bold red (asserting the text).
         waitForText(AmountFormatter.format(1_50_000_00L))

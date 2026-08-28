@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CurrencyRupee
 import androidx.compose.material.icons.filled.Edit
@@ -23,6 +25,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -38,8 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -63,6 +68,7 @@ import com.itsluminous.samaroh.feature.booking.ui.fill
 import com.itsluminous.samaroh.feature.booking.ui.form.parseRupeesToPaise
 import com.itsluminous.samaroh.feature.booking.ui.formatDate
 import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
+import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -460,27 +466,69 @@ internal fun BlockDetailsDialog(
     )
 }
 
-/** Chooser shown when a tapped date has several bookings. */
+/**
+ * Day bottom sheet: EVERY booking on the tapped date (even a single one) as a tinted
+ * agenda row, plus a final "Add new event" row (permission-gated) that opens the add
+ * form prefilled with that date as start AND end.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingChooserSheet(
+    date: LocalDate,
     bookings: List<com.itsluminous.samaroh.core.model.Booking>,
     eventTypes: EventTypeCatalog,
+    bookingColors: BookingColorCatalog,
+    presets: List<EventType>,
+    canCreate: Boolean,
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
+    onAddNew: (LocalDate) -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .testTag("day_sheet"),
+        ) {
+            Text(
+                text = formatFullDate(date),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 4.dp).semantics { heading() },
+            )
             bookings.forEach { booking ->
-                Text(
-                    text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
-                    style = MaterialTheme.typography.bodyLarge,
+                BookingAgendaRow(
+                    booking = booking,
+                    eventTypes = eventTypes,
+                    bookingColors = bookingColors,
+                    presets = presets,
+                    onClick = { onPick(booking.id) },
+                )
+            }
+            if (canCreate) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .clickable { onPick(booking.id) }
+                            .heightIn(min = 48.dp)
+                            .clickable { onAddNew(date) }
                             .padding(vertical = 12.dp),
-                )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = stringResource(R.string.booking_calendar_add_new_event),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
+                }
             }
         }
     }

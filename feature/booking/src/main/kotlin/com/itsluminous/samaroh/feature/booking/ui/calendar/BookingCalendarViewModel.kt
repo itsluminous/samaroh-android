@@ -51,8 +51,12 @@ import javax.inject.Inject
 
 /** What tapping a calendar day should do (§4.1 tap routing). */
 sealed interface DayTapResult {
-    /** Booked date → bottom-sheet booking card (first) or chooser (several). */
+    /**
+     * Booked date → the day bottom sheet listing EVERY booking (even a single one)
+     * plus an "Add new event" row prefilled with [date].
+     */
     data class ShowBookings(
+        val date: LocalDate,
         val bookingIds: List<String>,
     ) : DayTapResult
 
@@ -376,7 +380,7 @@ class BookingCalendarViewModel
         fun onDayTapped(date: LocalDate): DayTapResult {
             val state = uiState.value
             val booked = CalendarMonthMapper.bookingsOn(state.bookings, date)
-            if (booked.isNotEmpty()) return DayTapResult.ShowBookings(booked.map { it.id })
+            if (booked.isNotEmpty()) return DayTapResult.ShowBookings(date, booked.map { it.id })
             val blocked = CalendarMonthMapper.blocksOn(state.blocks, date)
             if (blocked.isNotEmpty()) return DayTapResult.ShowBlock(blocked.first())
             return DayTapResult.AddBooking(date)

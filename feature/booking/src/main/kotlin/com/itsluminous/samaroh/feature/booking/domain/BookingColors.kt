@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.booking.domain
 import com.itsluminous.samaroh.core.data.color.BookingColor
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.model.Booking
+import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.EventType
 
 /*
@@ -57,4 +58,46 @@ object BookingColorFallback {
         colors: BookingColorCatalog,
         presets: List<EventType>,
     ): BookingColor? = colors.byKey(effectiveKey(booking.color, booking.eventType, colors, presets))
+}
+
+/**
+ * Visual treatment of an agenda/events row (month-view agenda list, events view, and
+ * the day bottom sheet): the row's BACKGROUND is the booking's resolved colour — the
+ * ADR-031/032 fallback chain rendered as a tinted pill (web month-pill parity) instead
+ * of the former decorative dot. Status comes FIRST: tentative keeps its distinct
+ * subtle amber tint + outline and cancelled stays struck-through neutral — neither is
+ * ever colour-tinted, mirroring the month grid's "tentative never colours" rule.
+ */
+sealed interface AgendaRowLook {
+    /** Firm booking with a resolved palette colour: tinted row, `on_hex` text (AA). */
+    data class Tinted(
+        val color: BookingColor,
+    ) : AgendaRowLook
+
+    /** Firm booking with no resolved colour: the standard themed container. */
+    data object Themed : AgendaRowLook
+
+    /** Tentative: subtle amber tint + outline, never the booking colour. */
+    data object Tentative : AgendaRowLook
+
+    /** Cancelled: struck-through on a neutral container, never tinted. */
+    data object Cancelled : AgendaRowLook
+}
+
+/** Pure agenda-row appearance resolution, reusing [BookingColorFallback]'s chain. */
+object AgendaRowAppearance {
+    fun lookFor(
+        booking: Booking,
+        colors: BookingColorCatalog,
+        presets: List<EventType>,
+    ): AgendaRowLook =
+        when (booking.status) {
+            BookingStatus.CANCELLED -> AgendaRowLook.Cancelled
+            BookingStatus.TENTATIVE -> AgendaRowLook.Tentative
+            else ->
+                BookingColorFallback
+                    .effectiveColor(booking, colors, presets)
+                    ?.let { AgendaRowLook.Tinted(it) }
+                    ?: AgendaRowLook.Themed
+        }
 }

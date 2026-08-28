@@ -47,7 +47,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
@@ -61,21 +60,15 @@ import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
-import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
-import com.itsluminous.samaroh.core.model.displayIcon
-import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
-import com.itsluminous.samaroh.feature.booking.ui.BookingColorDot
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
 import com.itsluminous.samaroh.feature.booking.ui.eventTypeLabel
-import com.itsluminous.samaroh.feature.booking.ui.fill
 import com.itsluminous.samaroh.feature.booking.ui.formatDate
-import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
 import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
 import com.itsluminous.samaroh.feature.booking.ui.formatMonthYear
 import java.time.LocalDate
@@ -104,7 +97,7 @@ fun BookingCalendarScreen(
     var monthPicker by remember { mutableStateOf(false) }
     var blockDialog by remember { mutableStateOf(false) }
     var blockDetails by remember { mutableStateOf<DateBlock?>(null) }
-    var chooser by remember { mutableStateOf<List<String>?>(null) }
+    var chooser by remember { mutableStateOf<DayTapResult.ShowBookings?>(null) }
 
     /** bookingId + prefilled due + optionally the reminder being answered. */
     var paymentSheet by remember { mutableStateOf<Triple<String, Long, String?>?>(null) }
@@ -369,12 +362,9 @@ fun BookingCalendarScreen(
                             bookingColors = bookingColors,
                             onDayTapped = { date ->
                                 when (val result = viewModel.onDayTapped(date)) {
-                                    is DayTapResult.ShowBookings ->
-                                        if (result.bookingIds.size == 1) {
-                                            viewModel.openBooking(result.bookingIds.first())
-                                        } else {
-                                            chooser = result.bookingIds
-                                        }
+                                    // Booked date (even a single booking) → day sheet with
+                                    // every booking + the Add-new-event row.
+                                    is DayTapResult.ShowBookings -> chooser = result
 
                                     is DayTapResult.ShowBlock -> blockDetails = result.block
                                     is DayTapResult.AddBooking -> if (canCreate) onAddBooking(result.date)
@@ -398,41 +388,15 @@ fun BookingCalendarScreen(
                     )
                 } else {
                     state.agenda.forEach { item ->
-                        val booking = item.booking
-                        val cancelled = booking.status == BookingStatus.CANCELLED
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable { viewModel.openBooking(booking.id) }
-                                    .padding(vertical = 8.dp),
-                        ) {
-                            // Booking colour dot (ADR-030, fallback chain ADR-031) — decorative; text carries the info.
-                            BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.fill?.let { dotColor ->
-                                BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${booking.displayIcon} ${eventTypeLabel(
-                                        eventTypes,
-                                        booking.eventType,
-                                    )} - ${booking.customerName}",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                                )
-                                Text(
-                                    text = formatDateRange(booking.startDate, booking.endDate),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Text(
-                                text = statusLabel(booking.status),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = statusColor(booking.status),
-                            )
-                        }
+                        // Tinted row background per the resolved booking colour
+                        // (ADR-030/031/032 chain) — replaces the former colour dot.
+                        BookingAgendaRow(
+                            booking = item.booking,
+                            eventTypes = eventTypes,
+                            bookingColors = bookingColors,
+                            presets = presets,
+                            onClick = { viewModel.openBooking(item.booking.id) },
+                        )
                     }
                 }
             }
@@ -475,14 +439,22 @@ fun BookingCalendarScreen(
         )
     }
 
-    chooser?.let { ids ->
+    chooser?.let { sheet ->
         BookingChooserSheet(
-            bookings = state.bookings.filter { it.id in ids },
+            date = sheet.date,
+            bookings = state.bookings.filter { it.id in sheet.bookingIds },
             eventTypes = eventTypes,
+            bookingColors = bookingColors,
+            presets = presets,
+            canCreate = canCreate,
             onDismiss = { chooser = null },
             onPick = {
                 chooser = null
                 viewModel.openBooking(it)
+            },
+            onAddNew = { date ->
+                chooser = null
+                onAddBooking(date)
             },
         )
     }
@@ -647,37 +619,15 @@ private fun EventsAgendaList(
                 )
             }
             items(day.bookings, key = { "b:${it.id}" }) { booking ->
-                val cancelled = booking.status == BookingStatus.CANCELLED
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenBooking(booking.id) }
-                            .padding(vertical = 8.dp),
-                ) {
-                    // Booking colour dot (ADR-030, fallback chain ADR-031) — decorative; text carries the info.
-                    BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.fill?.let { dotColor ->
-                        BookingColorDot(color = dotColor, modifier = Modifier.padding(end = 8.dp))
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)} - ${booking.customerName}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                        )
-                        Text(
-                            text = formatDateRange(booking.startDate, booking.endDate),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        text = statusLabel(booking.status),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = statusColor(booking.status),
-                    )
-                }
+                // Tinted row background per the resolved booking colour
+                // (ADR-030/031/032 chain) — replaces the former colour dot.
+                BookingAgendaRow(
+                    booking = booking,
+                    eventTypes = eventTypes,
+                    bookingColors = bookingColors,
+                    presets = presets,
+                    onClick = { onOpenBooking(booking.id) },
+                )
             }
         }
     }
