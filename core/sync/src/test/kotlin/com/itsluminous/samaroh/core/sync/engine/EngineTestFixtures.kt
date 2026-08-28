@@ -182,6 +182,7 @@ fun syncEngine(
                 businessSettingsDao = db.businessSettingsDao(),
                 googleAccountLinkDao = db.googleAccountLinkDao(),
                 bookingDao = db.bookingDao(),
+                eventTypeDao = db.eventTypeDao(),
                 dateBlockDao = db.dateBlockDao(),
                 bookingPaymentDao = db.bookingPaymentDao(),
                 paymentReminderDao = db.paymentReminderDao(),

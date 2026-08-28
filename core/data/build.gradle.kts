@@ -6,6 +6,20 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+
+// Seed template + colour palette come straight from the shared submodule (single source
+// of truth, ADR-032): copied into a generated asset dir at build time so this module
+// never carries a stale duplicate (same pattern as feature:booking's copyEventTypes).
+val generatedAssetsDir = layout.buildDirectory.dir("generated/dataAssets")
+
+val copySharedDataAssets by tasks.registering(Copy::class) {
+    group = "assets"
+    description = "Copies shared/event-types.json + booking-colors.json into generated assets"
+    from(rootProject.file("shared/event-types.json"))
+    from(rootProject.file("shared/booking-colors.json"))
+    into(generatedAssetsDir)
+}
+
 android {
     namespace = "com.itsluminous.samaroh.core.data"
     compileSdk = 35
@@ -28,6 +42,12 @@ android {
         abortOnError = true
     }
 
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(generatedAssetsDir)
+        }
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -35,9 +55,14 @@ android {
     }
 }
 
+tasks.named("preBuild") {
+    dependsOn(copySharedDataAssets)
+}
+
 dependencies {
     api(project(":core:model"))
     api(project(":core:database"))
+    implementation(project(":core:i18n"))
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.datastore.preferences)

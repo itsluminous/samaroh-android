@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.database.dao.BusinessDao
 import com.itsluminous.samaroh.core.database.dao.BusinessMemberDao
 import com.itsluminous.samaroh.core.database.dao.BusinessSettingsDao
 import com.itsluminous.samaroh.core.database.dao.DateBlockDao
+import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
@@ -42,6 +43,7 @@ object DatabaseModule {
                 SamarohDatabase.MIGRATION_2_3,
                 SamarohDatabase.MIGRATION_3_4,
                 SamarohDatabase.MIGRATION_4_5,
+                SamarohDatabase.MIGRATION_5_6,
             ).build()
 
     @Provides fun provideBusinessDao(db: SamarohDatabase): BusinessDao = db.businessDao()
@@ -51,6 +53,8 @@ object DatabaseModule {
     @Provides fun provideBusinessSettingsDao(db: SamarohDatabase): BusinessSettingsDao = db.businessSettingsDao()
 
     @Provides fun provideGoogleAccountLinkDao(db: SamarohDatabase): GoogleAccountLinkDao = db.googleAccountLinkDao()
+
+    @Provides fun provideEventTypeDao(db: SamarohDatabase): EventTypeDao = db.eventTypeDao()
 
     @Provides fun provideBookingDao(db: SamarohDatabase): BookingDao = db.bookingDao()
 

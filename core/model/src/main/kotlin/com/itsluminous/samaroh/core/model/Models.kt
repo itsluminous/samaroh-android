@@ -65,6 +65,33 @@ data class GoogleAccountLink(
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
 )
 
+/**
+ * One per-business booking event-type preset — mirror of the `event_types` table
+ * (shared migration 006; docs/decisions.md ADR-032). `label` and `icon` are plain-text
+ * user data (NOT string-catalog keys — see shared/docs/event-type-presets.md); bookings
+ * snapshot them into `bookings.event_type`/`event_icon` at save time and are never
+ * re-pointed at this table, so editing or deleting a preset leaves old bookings intact.
+ */
+@Serializable
+data class EventType(
+    val id: String,
+    @SerialName("business_id") val businessId: String,
+    /** Plain-text display name, unique per business among live rows. */
+    val label: String,
+    /** Emoji shown in the picker, calendar and booking form. */
+    val icon: String,
+    /**
+     * The type's DEFAULT calendar colour — a `shared/booking-colors.json` key (ADR-031);
+     * NULL = the standard themed look.
+     */
+    val color: String? = null,
+    /** Display order in the picker and manage screen (ascending). */
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+)
+
 @Serializable
 data class Booking(
     val id: String,

@@ -46,6 +46,7 @@ object SyncTables {
             ),
             SyncTableSpec("business_members", businessScoped = true, enumFields = setOf("status")),
             SyncTableSpec("business_settings", businessScoped = true, idColumn = "business_id"),
+            SyncTableSpec("event_types", businessScoped = true),
             SyncTableSpec(
                 "bookings",
                 businessScoped = true,

@@ -1,4 +1,4 @@
-package com.itsluminous.samaroh.feature.booking.domain
+package com.itsluminous.samaroh.core.data.color
 
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat

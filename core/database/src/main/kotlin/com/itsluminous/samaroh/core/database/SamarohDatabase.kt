@@ -11,6 +11,7 @@ import com.itsluminous.samaroh.core.database.dao.BusinessDao
 import com.itsluminous.samaroh.core.database.dao.BusinessMemberDao
 import com.itsluminous.samaroh.core.database.dao.BusinessSettingsDao
 import com.itsluminous.samaroh.core.database.dao.DateBlockDao
+import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
@@ -28,6 +29,7 @@ import com.itsluminous.samaroh.core.database.entity.BusinessEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessMemberEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessSettingsEntity
 import com.itsluminous.samaroh.core.database.entity.DateBlockEntity
+import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
 import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
@@ -50,6 +52,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         BusinessMemberEntity::class,
         GoogleAccountLinkEntity::class,
         BusinessSettingsEntity::class,
+        EventTypeEntity::class,
         BookingEntity::class,
         DateBlockEntity::class,
         BookingPaymentEntity::class,
@@ -63,7 +66,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -75,6 +78,8 @@ abstract class SamarohDatabase : RoomDatabase() {
     abstract fun businessSettingsDao(): BusinessSettingsDao
 
     abstract fun googleAccountLinkDao(): GoogleAccountLinkDao
+
+    abstract fun eventTypeDao(): EventTypeDao
 
     abstract fun bookingDao(): BookingDao
 
@@ -154,6 +159,35 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE bookings ADD COLUMN color TEXT",
+                    )
+                }
+            }
+
+        /**
+         * v5 → v6 (ADR-032): local `event_types` presets table mirroring shared
+         * migration 006. NOT seeded here — existing businesses receive their rows from
+         * the server (migration 006 seeded them); new businesses are seeded client-side
+         * at creation. An offline pre-006 business that never syncs simply has no
+         * presets until the manage screen adds some (the form's Custom entry remains).
+         */
+        val MIGRATION_5_6: Migration =
+            object : Migration(5, 6) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS event_types (" +
+                            "id TEXT NOT NULL PRIMARY KEY, " +
+                            "business_id TEXT NOT NULL, " +
+                            "label TEXT NOT NULL, " +
+                            "icon TEXT NOT NULL, " +
+                            "color TEXT, " +
+                            "sort_order INTEGER NOT NULL DEFAULT 0, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_event_types_business_id_sort_order " +
+                            "ON event_types (business_id, sort_order)",
                     )
                 }
             }

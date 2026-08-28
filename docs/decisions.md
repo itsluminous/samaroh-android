@@ -874,3 +874,81 @@ default; the web app should apply the same chain (contract documented in the sha
 file's `$comment`). Old app versions simply keep the themed look for uncoloured
 bookings (they never read the type colour). Tentative bookings remain never coloured
 on the grid (amber outline + 👤 rule unchanged).
+
+## ADR-032 — DB-backed event-type presets + manage screen (2026-08-28)
+
+**Status:** accepted.
+
+**Context.** Event types were 7 hard-coded entries in `shared/event-types.json`
+(localized per-locale via catalog keys). Users want their OWN types; shared migration
+006 introduces the per-business `event_types` table (`label`/`icon` plain-text user
+data, `color` a booking-colors key, `sort_order`, soft delete, partial unique index on
+live labels) and seeds every EXISTING business with the 7 built-ins in English (see
+shared docs/event-type-presets.md). This ADR wires the Android side end-to-end and
+touches the frozen contracts throughout.
+
+**Decision.**
+1. **Contract (additive).** `core:model EventType` mirrors the table; Room v5→v6
+   (`MIGRATION_5_6`: CREATE TABLE `event_types` + business/sort index, exported schema
+   6.json; deliberately NOT seeded — see 4). `EventTypeDao` +
+   `core:data EventTypeRepository` (`presets` flow in sort order, save/delete via
+   Room+outbox, case-insensitive `labelInUse` duplicate check — stricter than the
+   server's case-sensitive index, `seedDefaults`).
+2. **Sync wire.** `event_types` joins `SyncTables.ALL` (business-scoped, no
+   money/enum fields) + a `LocalApplier` case. **⚠️ ORDERING — server migration 006
+   FIRST**, with the ADR-030 self-healing philosophy extended to PULLS: a missing
+   table is a PostgREST *rejection* on the table's pull, and the engine previously let
+   that abort the whole run — `pullTableGuarded` now drops ONLY that table's pull for
+   the run (pushes already held per-item), so everything else keeps syncing until 006
+   lands. Verified empirically on 2026-08-28 against the live project (see report).
+3. **Seeding (client-side, creation only).** Businesses created AFTER 006 are seeded
+   by the creating client: `seedDefaults` inserts the 7 template entries from
+   `event-types.json` (copied into core:data assets at build time) — **in ENGLISH**
+   (labels resolved from the catalog with an English-forced configuration context).
+   Chosen over current-locale seeding for cross-client uniformity with the server
+   migration's rows and a locale-independent "Custom" row (see 5). `seedDefaults` is a
+   no-op when the business has ANY `event_types` row, live or tombstoned — existing
+   businesses (server-seeded) are never reseeded, and a user who deletes every preset
+   stays at zero. Callers: onboarding create-business + the e2e fixture.
+4. **Room migration does NOT seed.** A pre-006 device upgrade gets the rows from the
+   server pull (the migration seeded them there); seeding locally too would duplicate
+   (different client ids, same labels → server unique-index rejects on push).
+5. **Booking form.** The dropdown lists the business's LIVE presets (sort order) plus
+   the always-available free-text Custom entry. A preset normalized-named `custom` (the
+   seeded "Custom" row) is REPRESENTED by that free-text entry rather than listed —
+   never two Custom rows. Selection is `EventTypeChoice` (Preset | Custom); a save
+   records the preset's CURRENT `label` + `icon` into `bookings.event_type`/`event_icon`
+   — **snapshot semantics**: renaming/deleting a preset never rewrites old bookings
+   (unit-tested). Editing a legacy booking whose `event_type` is a built-in KEY
+   normalizes to the matching preset (saving re-records the label — an upgrade, not a
+   bulk rewrite). New-booking default: the "wedding"-normalized preset, else the first.
+6. **Colour fallback (revises ADR-031).** The type-default step of the chain now
+   resolves from the business's PRESET rows: `EventTypePresets.defaultColorKeyFor`
+   matches `booking.event_type` against live preset labels NORMALIZED (trim, lowercase,
+   spaces→underscores) so legacy keys (`room_booking`) match their seeded row
+   (`Room Booking`) and follow the user's recolouring; no match → themed purple.
+   ADR-031's "custom is never coloured" special case is REMOVED: the literal
+   `custom`/"Custom" now matches the Custom preset row (seeded grape) like any other —
+   presets are uniformly the single colour source; free-text labels stay themed unless
+   the user creates a same-named preset. `BookingColorFallback` takes
+   `presets: List<EventType>`; the static catalog's `defaultColorKey` is gone
+   (`event-types.json`'s `color` is now only the seed template value).
+   `EventTypeCatalog` (renamed entry type `BuiltInEventType`) remains solely to
+   localize legacy key-recorded bookings.
+7. **Cross-feature moves.** The palette catalog (`BookingColor*`) moved
+   feature:booking → `core:data.color`, and the 16-swatch picker generalized into
+   `core:designsystem ColorSwatchPicker` (+ `parseHexColor`), because feature:menu
+   needs both and feature modules never depend on each other.
+8. **Manage screen.** Menu → Settings → "Event types", row + screen gated on owner or
+   `settings.manage_business` (mirrors the server's write RLS). List = icon + label +
+   colour dot in sort order; tap to edit; add/edit dialog = label (duplicate-validated,
+   case-insensitive) + emoji text field (same vocabulary as the booking form's custom
+   emoji) + the shared swatch picker (Default = themed); delete is SOFT with a
+   confirmation stating old bookings keep their recorded type; reorder via up/down
+   arrows swapping adjacent `sort_order` values (each swap pushes both rows).
+
+**Consequences.** The picker is finally user-shaped; renaming "Wedding" retints and
+relabels only FUTURE bookings (recorded ones are historical facts). An offline pre-006
+business that never syncs has no preset rows — the form still works via the Custom
+entry, and the manage screen can build a set from scratch. Web must apply the same
+normalized-label colour contract for consistent cross-platform reading.

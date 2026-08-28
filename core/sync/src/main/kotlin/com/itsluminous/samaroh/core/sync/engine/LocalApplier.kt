@@ -6,6 +6,7 @@ import com.itsluminous.samaroh.core.database.dao.BusinessDao
 import com.itsluminous.samaroh.core.database.dao.BusinessMemberDao
 import com.itsluminous.samaroh.core.database.dao.BusinessSettingsDao
 import com.itsluminous.samaroh.core.database.dao.DateBlockDao
+import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
@@ -19,6 +20,7 @@ import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
@@ -48,6 +50,7 @@ class LocalApplier
         private val businessSettingsDao: BusinessSettingsDao,
         private val googleAccountLinkDao: GoogleAccountLinkDao,
         private val bookingDao: BookingDao,
+        private val eventTypeDao: EventTypeDao,
         private val dateBlockDao: DateBlockDao,
         private val bookingPaymentDao: BookingPaymentDao,
         private val paymentReminderDao: PaymentReminderDao,
@@ -72,6 +75,7 @@ class LocalApplier
                 "google_accounts" ->
                     googleAccountLinkDao.upsert(json.decodeFromJsonElement(GoogleAccountLink.serializer(), row).toEntity())
                 "bookings" -> bookingDao.upsert(json.decodeFromJsonElement(Booking.serializer(), row).toEntity())
+                "event_types" -> eventTypeDao.upsert(json.decodeFromJsonElement(EventType.serializer(), row).toEntity())
                 "date_blocks" -> dateBlockDao.upsert(json.decodeFromJsonElement(DateBlock.serializer(), row).toEntity())
                 "booking_payments" ->
                     bookingPaymentDao.upsert(json.decodeFromJsonElement(BookingPayment.serializer(), row).toEntity())
@@ -98,7 +102,7 @@ class LocalApplier
 
         /** Human-readable row identifier for conflict notifications and the conflict log. */
         fun titleOf(row: JsonObject): String {
-            for (key in listOf("customer_name", "name", "display_name", "file_name")) {
+            for (key in listOf("customer_name", "name", "label", "display_name", "file_name")) {
                 val value = row[key]
                 if (value != null && value !is JsonNull) return value.jsonPrimitive.content
             }

@@ -6,6 +6,7 @@ import com.itsluminous.samaroh.core.database.entity.BusinessEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessMemberEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessSettingsEntity
 import com.itsluminous.samaroh.core.database.entity.DateBlockEntity
+import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
 import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
@@ -19,6 +20,7 @@ import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
@@ -96,6 +98,8 @@ internal fun Booking.toEntity() =
         updatedAt,
         deletedAt,
     )
+
+internal fun EventType.toEntity() = EventTypeEntity(id, businessId, label, icon, color, sortOrder, createdAt, updatedAt, deletedAt)
 
 internal fun DateBlock.toEntity() = DateBlockEntity(id, businessId, startDate, endDate, reason, createdBy, createdAt, updatedAt, deletedAt)
 

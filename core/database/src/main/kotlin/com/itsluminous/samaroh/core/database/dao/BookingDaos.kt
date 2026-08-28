@@ -7,6 +7,7 @@ import androidx.room.Query
 import com.itsluminous.samaroh.core.database.entity.BookingEntity
 import com.itsluminous.samaroh.core.database.entity.BookingPaymentEntity
 import com.itsluminous.samaroh.core.database.entity.DateBlockEntity
+import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -261,4 +262,49 @@ interface PaymentReminderDao {
 
     @Query("SELECT * FROM payment_reminders WHERE id = :id")
     suspend fun byId(id: String): PaymentReminderEntity?
+}
+
+@Dao
+interface EventTypeDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(preset: EventTypeEntity)
+
+    @Query("SELECT * FROM event_types WHERE id = :id")
+    suspend fun byId(id: String): EventTypeEntity?
+
+    /** Live presets of a business in picker/manage order. */
+    @Query(
+        "SELECT * FROM event_types WHERE business_id = :businessId AND deleted_at IS NULL ORDER BY sort_order ASC, label COLLATE NOCASE ASC",
+    )
+    fun presetsForBusiness(businessId: String): Flow<List<EventTypeEntity>>
+
+    /** One-shot variant of [presetsForBusiness] for save-time snapshots and seeding checks. */
+    @Query(
+        "SELECT * FROM event_types WHERE business_id = :businessId AND deleted_at IS NULL ORDER BY sort_order ASC, label COLLATE NOCASE ASC",
+    )
+    suspend fun presetsForBusinessOnce(businessId: String): List<EventTypeEntity>
+
+    /** Rows (incl. tombstones) counted to decide whether a business was ever seeded. */
+    @Query("SELECT COUNT(*) FROM event_types WHERE business_id = :businessId")
+    suspend fun countAllForBusiness(businessId: String): Int
+
+    /**
+     * Live presets already using [label] (case-insensitive — stricter than the server's
+     * case-sensitive unique index, deliberately) excluding the row being edited.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM event_types WHERE business_id = :businessId " +
+            "AND label = :label COLLATE NOCASE AND deleted_at IS NULL AND id != :excludingId",
+    )
+    suspend fun countLabelUses(
+        businessId: String,
+        label: String,
+        excludingId: String,
+    ): Int
+
+    @Query("UPDATE event_types SET deleted_at = :at, updated_at = :at WHERE id = :id")
+    suspend fun tombstone(
+        id: String,
+        at: Instant,
+    )
 }

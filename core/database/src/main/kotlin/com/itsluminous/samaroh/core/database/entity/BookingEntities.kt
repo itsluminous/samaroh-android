@@ -101,3 +101,25 @@ data class PaymentReminderEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
 )
+
+/**
+ * Per-business booking event-type preset — mirror of `event_types` (shared migration
+ * 006, ADR-032). `label`/`icon` are plain-text user data; bookings snapshot them at
+ * save time and never reference this table, so preset edits leave old bookings intact.
+ */
+@Entity(
+    tableName = "event_types",
+    indices = [Index(value = ["business_id", "sort_order"])],
+)
+data class EventTypeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "business_id") val businessId: String,
+    val label: String,
+    val icon: String,
+    /** Default `booking-colors.json` key (ADR-031); NULL = standard themed look. */
+    val color: String? = null,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    @ColumnInfo(name = "created_at") val createdAt: Instant,
+    @ColumnInfo(name = "updated_at") val updatedAt: Instant,
+    @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
+)

@@ -261,7 +261,7 @@ class SyncEngine
             val coveredBusinessIds = mutableSetOf<String>()
             for (pass in 1..MAX_PULL_PASSES) {
                 for (spec in globalTables) {
-                    val result = pullTable(remote, spec, SyncCursorEntity.GLOBAL_SCOPE)
+                    val result = pullTableGuarded(remote, spec, SyncCursorEntity.GLOBAL_SCOPE)
                     applied += result.first
                     conflicts += result.second
                 }
@@ -274,7 +274,7 @@ class SyncEngine
                 if (newBusinessIds.isEmpty()) break
                 for (spec in scopedTables) {
                     for (businessId in newBusinessIds) {
-                        val result = pullTable(remote, spec, businessId)
+                        val result = pullTableGuarded(remote, spec, businessId)
                         applied += result.first
                         conflicts += result.second
                     }
@@ -283,6 +283,25 @@ class SyncEngine
             }
             return applied to conflicts
         }
+
+        /**
+         * A REJECTED pull of ONE table (e.g. the server does not have `event_types` yet
+         * because shared migration 006 is unapplied — PostgREST "relation does not
+         * exist") must not abort the run: every other table still pulls, and the missing
+         * one self-heals on the first run after the migration lands (ADR-032; same
+         * philosophy as the ADR-027/030 per-item PGRST204 push holds). Transport
+         * failures still propagate — the whole run retries with backoff.
+         */
+        private suspend fun pullTableGuarded(
+            remote: RemoteStore,
+            spec: SyncTableSpec,
+            scope: String,
+        ): Pair<Int, Int> =
+            try {
+                pullTable(remote, spec, scope)
+            } catch (_: RemoteRejectedException) {
+                0 to 0
+            }
 
         private suspend fun pullTable(
             remote: RemoteStore,
