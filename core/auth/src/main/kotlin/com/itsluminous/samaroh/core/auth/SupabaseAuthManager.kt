@@ -43,7 +43,15 @@ class SupabaseAuthManager
             } ?: flowOf(null)
 
         override suspend fun signOut() {
-            client?.auth?.signOut()
+            val supabase = client ?: return
+            try {
+                supabase.auth.signOut()
+            } catch (e: Exception) {
+                // Offline-first (§5): the server-side token revoke can fail without
+                // network, but sign-out must still complete locally — drop the persisted
+                // session so the device is signed out; the token expires server-side.
+                supabase.auth.clearSession()
+            }
         }
 
         override suspend fun signInWithEmail(

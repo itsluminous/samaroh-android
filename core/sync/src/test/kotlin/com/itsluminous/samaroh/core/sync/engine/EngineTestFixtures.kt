@@ -129,6 +129,10 @@ class InMemorySyncMetaStore : SyncMetaStore {
     override suspend fun recordSyncTime(at: Instant) {
         state.value = at
     }
+
+    override suspend fun clear() {
+        state.value = null
+    }
 }
 
 class FakeAttachmentUploader(

@@ -1,12 +1,14 @@
 package com.itsluminous.samaroh.core.google.di
 
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
+import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.google.auth.CredentialManagerGoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleAccessTokenProvider
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.PlayServicesAccessTokenProvider
 import com.itsluminous.samaroh.core.google.calendar.CalendarService
+import com.itsluminous.samaroh.core.google.calendar.GcalSyncStateStore
 import com.itsluminous.samaroh.core.google.calendar.RestCalendarService
 import com.itsluminous.samaroh.core.google.drive.DriveAttachmentUploader
 import com.itsluminous.samaroh.core.google.drive.DriveBackedAttachmentUploadQueue
@@ -18,6 +20,7 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntoSet
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -37,4 +40,9 @@ abstract class GoogleModule {
 
     /** Supersedes `core:data`'s local-only placeholder queue (ADR-018). */
     @Binds abstract fun bindAttachmentUploadQueue(impl: DriveBackedAttachmentUploadQueue): AttachmentUploadQueue
+
+    /** Sign-out wipes the per-device gcal push state with the rest of the local data (ADR-040). */
+    @Binds
+    @IntoSet
+    abstract fun bindGcalSessionScopedStore(impl: GcalSyncStateStore): SessionScopedStore
 }

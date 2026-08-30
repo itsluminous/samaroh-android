@@ -62,6 +62,7 @@ import com.itsluminous.samaroh.feature.menu.SYNC_STATUS_ROUTE
 import com.itsluminous.samaroh.feature.menu.menuGraph
 import com.itsluminous.samaroh.feature.menu.syncStatusGraph
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_ROUTE
+import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_SIGN_IN_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.onboardingGraph
 import com.itsluminous.samaroh.feature.reports.REPORTS_ROUTE
 import com.itsluminous.samaroh.feature.reports.reportsGraph
@@ -279,6 +280,15 @@ fun SamarohApp(
                     onOpenReports = { navController.navigate(REPORTS_ROUTE) },
                     openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
                     onSettingsDeepLinkConsumed = onAppLinkConsumed,
+                    // Sign-out (ADR-040): session dropped + local data wiped — land on the
+                    // onboarding SIGN-IN step (language already chosen) with the whole
+                    // back stack cleared so back cannot return to the signed-in UI.
+                    onSignedOut = {
+                        navController.navigate(ONBOARDING_SIGN_IN_ROUTE) {
+                            popUpTo(0) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
                 )
                 onboardingGraph(
                     onOnboardingComplete = {

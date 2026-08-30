@@ -7,6 +7,11 @@ import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.session.SignOutCleaner
+import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
+import com.itsluminous.samaroh.core.data.sync.SyncItemError
+import com.itsluminous.samaroh.core.data.sync.SyncPendingItem
+import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.Business
@@ -16,6 +21,7 @@ import com.itsluminous.samaroh.core.model.MemberPermissions
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
 
 class FakeBusinessRepository(
     initialBusinesses: List<Business> = emptyList(),
@@ -69,8 +75,35 @@ class FakeSessionHolder(
 ) : SessionHolder {
     override val session: Flow<Session?> = sessionFlow
 
+    var signOutCalls = 0
+
     override suspend fun signOut() {
+        signOutCalls++
         sessionFlow.value = null
+    }
+}
+
+class FakeSyncStatus(
+    val pendingCountFlow: MutableStateFlow<Int> = MutableStateFlow(0),
+) : SyncStatus {
+    override val pendingCount: Flow<Int> = pendingCountFlow
+    override val pendingItems: Flow<List<SyncPendingItem>> = MutableStateFlow(emptyList())
+    override val itemErrors: Flow<List<SyncItemError>> = MutableStateFlow(emptyList())
+    override val conflictLog: Flow<List<SyncConflictEntry>> = MutableStateFlow(emptyList())
+    override val lastSyncTime: Flow<Instant?> = MutableStateFlow(null)
+    override val hasUnacknowledgedConflicts: Flow<Boolean> = MutableStateFlow(false)
+    override val isSyncing: Flow<Boolean> = MutableStateFlow(false)
+
+    override fun syncNow() = Unit
+
+    override suspend fun acknowledgeConflict(id: Long) = Unit
+}
+
+class FakeSignOutCleaner : SignOutCleaner {
+    var clearAllCalls = 0
+
+    override suspend fun clearAll() {
+        clearAllCalls++
     }
 }
 

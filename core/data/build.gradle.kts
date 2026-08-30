@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.core)
+    // RoomDatabase supertype access for the sign-out clearAllTables wipe (ADR-040).
+    implementation(libs.room.runtime)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

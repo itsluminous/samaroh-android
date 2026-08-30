@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.onboarding
 
 import android.graphics.Bitmap
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.AuthConfig
@@ -100,10 +101,19 @@ class OnboardingViewModel
         private val googleIdTokenFetcher: GoogleIdTokenFetcher,
         authConfig: AuthConfig,
         private val clock: Clock,
+        savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val _uiState =
             MutableStateFlow(
                 OnboardingUiState(
+                    // Post-sign-out re-entry (ADR-040): the device already has a chosen
+                    // language, so the flow starts directly at the sign-in step.
+                    step =
+                        if (savedStateHandle.get<Boolean>(ONBOARDING_ARG_START_AT_SIGN_IN) == true) {
+                            OnboardingStep.SIGN_IN
+                        } else {
+                            OnboardingStep.LANGUAGE
+                        },
                     supportedLocales = localeApplier.supportedLocales,
                     selectedLanguage = localeApplier.current(),
                     supabaseConfigured = authConfig.isSupabaseConfigured,

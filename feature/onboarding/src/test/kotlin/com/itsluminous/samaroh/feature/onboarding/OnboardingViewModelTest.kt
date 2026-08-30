@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.feature.onboarding
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.auth.AuthConfig
@@ -56,6 +57,7 @@ class OnboardingViewModelTest {
     private fun viewModel(
         supabaseConfigured: Boolean = true,
         googleConfigured: Boolean = true,
+        startAtSignIn: Boolean = false,
     ): OnboardingViewModel {
         val config =
             AuthConfig(
@@ -76,7 +78,22 @@ class OnboardingViewModelTest {
             googleIdTokenFetcher = GoogleIdTokenFetcher(config),
             authConfig = config,
             clock = Clock.fixed(now, ZoneOffset.UTC),
+            savedStateHandle = SavedStateHandle(mapOf(ONBOARDING_ARG_START_AT_SIGN_IN to startAtSignIn)),
         )
+    }
+
+    // ---- Post-sign-out re-entry (ADR-040) ----
+
+    @Test
+    fun `startAtSignIn arg opens the flow directly at the sign-in step`() {
+        val vm = viewModel(startAtSignIn = true)
+        assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.SIGN_IN)
+    }
+
+    @Test
+    fun `without the arg the flow starts at the language step`() {
+        val vm = viewModel()
+        assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.LANGUAGE)
     }
 
     private fun invitedMember(businessId: String = "biz-9") =

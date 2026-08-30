@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -54,7 +55,7 @@ class GcalSyncStateStore
     @Inject
     constructor(
         @GcalSyncStateDataStore private val dataStore: DataStore<Preferences>,
-    ) {
+    ) : SessionScopedStore {
         private val json = Json { ignoreUnknownKeys = true }
         private val serializer = MapSerializer(String.serializer(), SyncedEventState.serializer())
 
@@ -77,6 +78,14 @@ class GcalSyncStateStore
         }
 
         suspend fun clear(businessId: String) = write(businessId, emptyMap())
+
+        /**
+         * Sign-out wipe (ADR-040): drops the push state of EVERY business so stale
+         * fingerprints can't suppress calendar pushes for the next account on this device.
+         */
+        override suspend fun clearForSignOut() {
+            dataStore.edit { prefs -> prefs.clear() }
+        }
 
         private fun keyFor(businessId: String) = stringPreferencesKey("state_$businessId")
     }

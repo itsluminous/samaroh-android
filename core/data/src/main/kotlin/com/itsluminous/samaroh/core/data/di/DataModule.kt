@@ -11,11 +11,15 @@ import com.itsluminous.samaroh.core.data.repository.RoomBookingRepository
 import com.itsluminous.samaroh.core.data.repository.RoomBusinessRepository
 import com.itsluminous.samaroh.core.data.repository.RoomExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.RoomMemberRepository
+import com.itsluminous.samaroh.core.data.session.DefaultSignOutCleaner
+import com.itsluminous.samaroh.core.data.session.SessionScopedStore
+import com.itsluminous.samaroh.core.data.session.SignOutCleaner
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.Multibinds
 import java.time.Clock
 
 @Module
@@ -33,6 +37,12 @@ abstract class DataModule {
     @Binds abstract fun bindBusinessRepository(impl: RoomBusinessRepository): BusinessRepository
 
     @Binds abstract fun bindMemberRepository(impl: RoomMemberRepository): MemberRepository
+
+    /** Sign-out local-data wipe (ADR-040). */
+    @Binds abstract fun bindSignOutCleaner(impl: DefaultSignOutCleaner): SignOutCleaner
+
+    /** Modules contribute [SessionScopedStore]s via `@IntoSet`; valid when none do (ADR-040). */
+    @Multibinds abstract fun sessionScopedStores(): Set<SessionScopedStore>
 
     companion object {
         @Provides fun provideClock(): Clock = Clock.systemUTC()

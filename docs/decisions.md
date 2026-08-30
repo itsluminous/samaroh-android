@@ -1176,3 +1176,32 @@ session's actor) as `creatorName`, so every viewer saw themselves as the creator
 .memberForUser().displayName`, falling back to `Business.ownerName` when `created_by` is
 the owner (owners may lack a member row locally) and to the localized
 `booking.card.audit_added_unknown_member` ("a member") when unknown.
+
+## ADR-040 — Sign-out wipes all session-scoped local data (2026-08-30)
+
+**What.** The Menu identity row gains a sign-out icon (right side, `ExplainableIcon`,
+Logout glyph) shown only while a session exists — offline/owner-mode ("Not signed in")
+has no icon. Tapping it opens a confirmation dialog: when `SyncStatus.pendingCount > 0`
+the body is the ICU plural `menu.sign_out.confirm_message_pending` ("N changes not yet
+synced will be lost…"), otherwise the plain `menu.sign_out.confirm_message`. Confirming
+runs, in order: (1) `SessionHolder.signOut()` — hardened in `SupabaseAuthManager` to
+`clearSession()` locally when the server-side revoke fails offline; (2) the new
+`core:data` **`SignOutCleaner.clearAll()`** (additive session contract); (3) a one-shot
+`SignedOut` event the app shell answers by navigating to the onboarding **sign-in step**
+(`ONBOARDING_SIGN_IN_ROUTE`, new optional `startAtSignIn` nav arg — the device already
+has a chosen language) with `popUpTo(0)`, so back cannot return to signed-in UI.
+
+**Local-data decision.** Sign-out clears the ENTIRE Room database
+(`clearAllTables()`: business data, outbox, sync cursors, conflict log, Google link
+rows), resets the `onboarding_complete` flag (a restart lands on onboarding, not on
+empty tabs in owner mode), and clears every module-contributed `SessionScopedStore`
+(Hilt `@IntoSet`, same pattern as ADR-024's `PostSyncHook`): `core:sync` wipes the
+sync-meta DataStore (last-sync time), `core:google` wipes the per-device gcal push-state
+DataStore. This is the simplest CORRECT behavior for a shared device: the next sign-in
+— any account — re-pulls from the server from cursor zero, and the previous user's data
+never leaks to the next one. The cost is deliberate: **unsynced outbox changes are
+discarded**, which is exactly what the dialog's pending-count warning surfaces before
+the user commits. Device-level preferences (theme, language, reminder settings, form
+toggles) are kept — they carry no user data. Scheduled WorkManager sync runs are not
+cancelled: a post-sign-out run finds an empty outbox and an anon client (RLS filters
+every read to nothing) and no-ops.

@@ -7,7 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.itsluminous.samaroh.feature.onboarding.ui.CreateBusinessScreen
 import com.itsluminous.samaroh.feature.onboarding.ui.ForkScreen
 import com.itsluminous.samaroh.feature.onboarding.ui.JoinScreen
@@ -16,8 +18,22 @@ import com.itsluminous.samaroh.feature.onboarding.ui.LinkGoogleScreen
 import com.itsluminous.samaroh.feature.onboarding.ui.SignInScreen
 import com.itsluminous.samaroh.feature.onboarding.ui.WelcomeScreen
 
-/** Route of the onboarding flow's start destination (not a bottom tab). */
-const val ONBOARDING_ROUTE = "onboarding"
+/** Nav argument: start the flow at the sign-in step (post-sign-out re-entry, ADR-040). */
+internal const val ONBOARDING_ARG_START_AT_SIGN_IN = "startAtSignIn"
+
+/**
+ * Route (pattern) of the onboarding flow's start destination (not a bottom tab). The
+ * optional [ONBOARDING_ARG_START_AT_SIGN_IN] argument defaults to false, so plain
+ * navigation still begins at the language step.
+ */
+const val ONBOARDING_ROUTE = "onboarding?$ONBOARDING_ARG_START_AT_SIGN_IN={$ONBOARDING_ARG_START_AT_SIGN_IN}"
+
+/**
+ * Route that opens onboarding directly at the sign-in step — the post-sign-out landing
+ * (ADR-040): the user already picked a language, so re-running the language/welcome
+ * steps would be noise.
+ */
+const val ONBOARDING_SIGN_IN_ROUTE = "onboarding?$ONBOARDING_ARG_START_AT_SIGN_IN=true"
 
 /**
  * Onboarding feature graph (§4.0): language pick → welcome carousel → sign-in →
@@ -33,7 +49,16 @@ fun NavGraphBuilder.onboardingGraph(
     onOnboardingComplete: () -> Unit = {},
     onConnectGoogle: () -> Unit = {},
 ) {
-    composable(ONBOARDING_ROUTE) {
+    composable(
+        route = ONBOARDING_ROUTE,
+        arguments =
+            listOf(
+                navArgument(ONBOARDING_ARG_START_AT_SIGN_IN) {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+    ) {
         OnboardingRoute(onOnboardingComplete = onOnboardingComplete, onConnectGoogle = onConnectGoogle)
     }
 }

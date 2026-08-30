@@ -42,17 +42,21 @@ fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
  * @param openSettings lands on the Settings screen (web App-Link `/menu/settings…`,
  *   ADR-033); consumed via [onSettingsDeepLinkConsumed].
  * @param onSettingsDeepLinkConsumed clears the pending settings target once handled.
+ * @param onSignedOut sign-out completed on the Menu home identity row (ADR-040) — the
+ *   app shell routes to the onboarding sign-in step with a cleared back stack.
  */
 fun NavGraphBuilder.menuGraph(
     onOpenReports: () -> Unit = {},
     openSettings: Boolean = false,
     onSettingsDeepLinkConsumed: () -> Unit = {},
+    onSignedOut: () -> Unit = {},
 ) {
     composable(MENU_ROUTE) {
         MenuTabHost(
             onOpenReports = onOpenReports,
             openSettings = openSettings,
             onSettingsDeepLinkConsumed = onSettingsDeepLinkConsumed,
+            onSignedOut = onSignedOut,
         )
     }
 }
@@ -74,6 +78,7 @@ private fun MenuTabHost(
     onOpenReports: () -> Unit,
     openSettings: Boolean,
     onSettingsDeepLinkConsumed: () -> Unit,
+    onSignedOut: () -> Unit,
 ) {
     val navController = rememberNavController()
     // App-Link settings target (ADR-033): push Settings over Home once, then consume.
@@ -90,6 +95,7 @@ private fun MenuTabHost(
                 onOpenReports = onOpenReports,
                 onOpenMembers = { navController.navigate(MenuRoutes.MEMBERS) },
                 onOpenAbout = { navController.navigate(MenuRoutes.ABOUT) },
+                onSignedOut = onSignedOut,
             )
         }
         composable(MenuRoutes.SETTINGS) {

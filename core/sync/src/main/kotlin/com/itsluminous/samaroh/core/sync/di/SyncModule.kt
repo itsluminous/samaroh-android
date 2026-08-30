@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.core.sync.di
 
+import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
@@ -23,6 +24,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntoSet
 import dagger.multibindings.Multibinds
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -40,6 +42,11 @@ abstract class SyncModule {
     @Binds abstract fun bindConflictNotifier(impl: NotificationConflictNotifier): ConflictNotifier
 
     @Binds abstract fun bindSyncMetaStore(impl: DataStoreSyncMetaStore): SyncMetaStore
+
+    /** Sign-out wipes the sync metadata (last-sync time) with the rest of the local data (ADR-040). */
+    @Binds
+    @IntoSet
+    abstract fun bindSyncMetaSessionScopedStore(impl: DataStoreSyncMetaStore): SessionScopedStore
 
     /** Bound by `core:google` (W1-F); while absent, attachment ops stay queued with a pending state. */
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
