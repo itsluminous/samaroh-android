@@ -46,7 +46,9 @@ object SyncTables {
             ),
             SyncTableSpec("business_members", businessScoped = true, enumFields = setOf("status")),
             SyncTableSpec("business_settings", businessScoped = true, idColumn = "business_id"),
-            SyncTableSpec("event_types", businessScoped = true),
+            // `kind` is a CHECK-constrained text column, not a Postgres enum, but the
+            // same casing contract applies: local "BOOKING"/"MARKER" ⇄ wire lowercase.
+            SyncTableSpec("event_types", businessScoped = true, enumFields = setOf("kind")),
             SyncTableSpec(
                 "bookings",
                 businessScoped = true,

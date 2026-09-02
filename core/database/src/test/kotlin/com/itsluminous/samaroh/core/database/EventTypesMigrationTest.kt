@@ -60,6 +60,33 @@ class EventTypesMigrationTest {
         }
     }
 
+    @Test
+    fun `migration 6 to 7 adds kind defaulting to booking`() {
+        helper.createDatabase(TEST_DB, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO event_types (id, business_id, label, icon, color, sort_order, created_at, updated_at) " +
+                    "VALUES ('et-1', 'b-1', 'Wedding', '💒', 'tomato', 0, 1725000000000, 1725000000000)",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, SamarohDatabase.MIGRATION_6_7)
+
+        // Existing presets stay ordinary booking types (ADR-041).
+        db.query("SELECT kind FROM event_types WHERE id = 'et-1'").use { cursor ->
+            assertThat(cursor.moveToFirst()).isTrue()
+            assertThat(cursor.getString(0)).isEqualTo("booking")
+        }
+        // Marker rows persist post-migration.
+        db.execSQL(
+            "INSERT INTO event_types (id, business_id, label, icon, sort_order, kind, created_at, updated_at) " +
+                "VALUES ('et-2', 'b-1', 'Lagan', '⭐', 1, 'marker', 1725000000000, 1725000000000)",
+        )
+        db.query("SELECT kind FROM event_types WHERE id = 'et-2'").use { cursor ->
+            assertThat(cursor.moveToFirst()).isTrue()
+            assertThat(cursor.getString(0)).isEqualTo("marker")
+        }
+    }
+
     private companion object {
         const val TEST_DB = "event-types-migration-test.db"
     }

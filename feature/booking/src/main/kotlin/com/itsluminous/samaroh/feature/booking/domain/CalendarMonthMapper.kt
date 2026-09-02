@@ -71,6 +71,11 @@ object CalendarMonthMapper {
      * Sunday, the common Indian wall-calendar convention. [effectiveColorKey] resolves a
      * booking's cell-fill palette key — callers pass [BookingColorFallback.effectiveKey]
      * so type defaults apply (ADR-031); the parameter keeps the mapper pure.
+     * [isMarker] flags bookings whose type resolves to a MARKER-kind preset (ADR-041) —
+     * callers pass `EventTypeKinds.isMarker`; on a date covered by both real and marker
+     * bookings the CELL shows only the real bookings' icons/colour (the day sheet still
+     * lists everything via [bookingsOn]); marker-only dates keep the marker's own
+     * icon/colour treatment.
      */
     fun map(
         month: YearMonth,
@@ -78,6 +83,7 @@ object CalendarMonthMapper {
         bookings: List<Booking>,
         blocks: List<DateBlock>,
         firstDayOfWeek: DayOfWeek = DayOfWeek.SUNDAY,
+        isMarker: (Booking) -> Boolean = { false },
         effectiveColorKey: (Booking) -> String? = { it.color },
     ): MonthGrid {
         val visible = bookings.filter { it.status != BookingStatus.CANCELLED && it.deletedAt == null }
@@ -97,17 +103,21 @@ object CalendarMonthMapper {
                         visible
                             .filter { date in it.startDate..it.endDate }
                             .sortedWith(compareBy({ it.startDate }, { it.createdAt }))
+                    // Marker precedence (ADR-041): real bookings own the cell when
+                    // present; markers only paint dates nothing real covers.
+                    val real = covering.filterNot(isMarker)
+                    val shown = real.ifEmpty { covering }
                     Day(
                         date = date,
                         inMonth = YearMonth.from(date) == month,
                         isToday = date == today,
                         isBlocked = liveBlocks.any { date in it.startDate..it.endDate },
-                        eventIcons = covering.map { it.displayIcon },
-                        bookingNames = covering.map { BookingTitleFormatter.firstName(it.customerName) },
-                        hasFirmBooking = covering.any { it.status != BookingStatus.TENTATIVE },
-                        hasTentativeBooking = covering.any { it.status == BookingStatus.TENTATIVE },
+                        eventIcons = shown.map { it.displayIcon },
+                        bookingNames = shown.map { BookingTitleFormatter.firstName(it.customerName) },
+                        hasFirmBooking = shown.any { it.status != BookingStatus.TENTATIVE },
+                        hasTentativeBooking = shown.any { it.status == BookingStatus.TENTATIVE },
                         fillColorKey =
-                            covering
+                            shown
                                 .singleOrNull()
                                 ?.takeIf { it.status != BookingStatus.TENTATIVE }
                                 ?.let(effectiveColorKey),

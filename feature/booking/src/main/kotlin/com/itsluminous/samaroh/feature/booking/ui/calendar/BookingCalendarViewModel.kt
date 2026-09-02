@@ -15,6 +15,7 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKinds
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderKind
@@ -366,7 +367,14 @@ class BookingCalendarViewModel
                 month = shownMonth,
                 today = today,
                 grid =
-                    CalendarMonthMapper.map(shownMonth, today, data.bookings, data.blocks) { booking ->
+                    CalendarMonthMapper.map(
+                        shownMonth,
+                        today,
+                        data.bookings,
+                        data.blocks,
+                        // Marker precedence (ADR-041): real bookings own mixed cells.
+                        isMarker = { booking -> EventTypeKinds.isMarker(presetRows, booking.eventType) },
+                    ) { booking ->
                         // Fallback chain (ADR-031/032): explicit colour → preset default → themed.
                         BookingColorFallback.effectiveKey(
                             booking.color,

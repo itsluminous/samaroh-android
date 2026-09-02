@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.database
 import androidx.room.TypeConverter
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
@@ -58,6 +59,10 @@ class Converters {
     @TypeConverter fun reminderKindToString(value: ReminderKind?): String? = value?.wire
 
     @TypeConverter fun stringToReminderKind(value: String?): ReminderKind? = value?.let(ReminderKind::fromWire)
+
+    @TypeConverter fun eventTypeKindToString(value: EventTypeKind?): String? = value?.wire
+
+    @TypeConverter fun stringToEventTypeKind(value: String?): EventTypeKind? = value?.let(EventTypeKind::fromWire)
 
     @TypeConverter fun txnTypeToString(value: TxnType?): String? = value?.wire
 

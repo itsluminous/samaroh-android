@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.reports.fakes
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.PartyWithNetBalance
@@ -13,6 +14,7 @@ import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MemberPermissions
@@ -216,4 +218,33 @@ class FakeReportExporter : ReportExporter {
             Result.success(ExportedReport(absolutePath = "/tmp/$fileBaseName.fake", mimeType = "application/octet-stream"))
         }
     }
+}
+
+/** In-memory `event_types` repository for the report tests (ADR-041). */
+class FakeEventTypeRepository(
+    initial: List<EventType> = emptyList(),
+) : EventTypeRepository {
+    val presetsFlow = MutableStateFlow(initial)
+
+    override fun presets(businessId: String): Flow<List<EventType>> = presetsFlow
+
+    override suspend fun presetsOnce(businessId: String): List<EventType> = presetsFlow.value
+
+    override suspend fun preset(id: String): EventType? = presetsFlow.value.firstOrNull { it.id == id }
+
+    override suspend fun savePreset(preset: EventType) {
+        presetsFlow.value = presetsFlow.value.filterNot { it.id == preset.id } + preset
+    }
+
+    override suspend fun deletePreset(id: String) {
+        presetsFlow.value = presetsFlow.value.filterNot { it.id == id }
+    }
+
+    override suspend fun labelInUse(
+        businessId: String,
+        label: String,
+        excludingId: String?,
+    ): Boolean = false
+
+    override suspend fun seedDefaults(businessId: String) = Unit
 }

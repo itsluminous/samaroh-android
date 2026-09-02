@@ -87,6 +87,12 @@ data class EventType(
     val color: String? = null,
     /** Display order in the picker and manage screen (ascending). */
     @SerialName("sort_order") val sortOrder: Int = 0,
+    /**
+     * What the preset is for (ADR-041): a real customer booking or a calendar-only
+     * marker. Defaulted so rows pulled from a server without the `kind` column decode
+     * as ordinary booking presets (same additive-column pattern as ADR-027/030).
+     */
+    val kind: EventTypeKind = EventTypeKind.BOOKING,
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,

@@ -3,6 +3,8 @@ package com.itsluminous.samaroh.feature.reports.domain
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -109,6 +111,67 @@ class BreakdownCalculatorsTest {
         val rows = BookingSourceBreakdownCalculator.calculate(listOf(outside), range)
 
         assertThat(rows).isEmpty()
+    }
+
+    // ---- marker exclusion (ADR-041) ----
+
+    private fun preset(
+        label: String,
+        kind: EventTypeKind,
+        deletedAt: Instant? = null,
+    ) = EventType(
+        id = "preset-$label",
+        businessId = Fixtures.BUSINESS_ID,
+        label = label,
+        icon = "\u2B50",
+        kind = kind,
+        createdAt = Instant.parse("2026-01-01T00:00:00Z"),
+        updatedAt = Instant.parse("2026-01-01T00:00:00Z"),
+        deletedAt = deletedAt,
+    )
+
+    @Test
+    fun `event types exclude marker-kind bookings from counts and revenue`() {
+        val wedding = Fixtures.booking(startDate = LocalDate.of(2026, 8, 5), totalAmountPaise = 2_00_000_00L)
+        val lagan =
+            Fixtures
+                .booking(startDate = LocalDate.of(2026, 8, 5), totalAmountPaise = 0L)
+                .copy(eventType = "Lagan", eventIcon = "\u2B50")
+        val presets = listOf(preset("Wedding", EventTypeKind.BOOKING), preset("Lagan", EventTypeKind.MARKER))
+
+        val rows = EventTypeBreakdownCalculator.calculate(listOf(wedding, lagan), range, presets)
+
+        assertThat(rows.map { it.eventType }).containsExactly("wedding")
+        assertThat(EventTypeBreakdownCalculator.excludesMarkers(listOf(wedding, lagan), range, presets)).isTrue()
+    }
+
+    @Test
+    fun `marker matching is label-normalized like the colour chain`() {
+        // A legacy key-recorded booking ("lagan") matches the "Lagan" preset row.
+        val legacy = Fixtures.booking(startDate = LocalDate.of(2026, 8, 5)).copy(eventType = "lagan")
+        val presets = listOf(preset("Lagan", EventTypeKind.MARKER))
+
+        assertThat(EventTypeBreakdownCalculator.calculate(listOf(legacy), range, presets)).isEmpty()
+    }
+
+    @Test
+    fun `bookings without a matching preset always count`() {
+        val freeText = Fixtures.booking(startDate = LocalDate.of(2026, 8, 5)).copy(eventType = "College Fest")
+        val presets = listOf(preset("Lagan", EventTypeKind.MARKER))
+
+        val rows = EventTypeBreakdownCalculator.calculate(listOf(freeText), range, presets)
+
+        assertThat(rows.single().eventType).isEqualTo("College Fest")
+        assertThat(EventTypeBreakdownCalculator.excludesMarkers(listOf(freeText), range, presets)).isFalse()
+    }
+
+    @Test
+    fun `a deleted marker preset stops excluding`() {
+        // Tombstoned presets no longer resolve — their old bookings count again.
+        val booking = Fixtures.booking(startDate = LocalDate.of(2026, 8, 5)).copy(eventType = "Lagan")
+        val presets = listOf(preset("Lagan", EventTypeKind.MARKER, deletedAt = Instant.parse("2026-02-01T00:00:00Z")))
+
+        assertThat(EventTypeBreakdownCalculator.calculate(listOf(booking), range, presets)).hasSize(1)
     }
 }
 

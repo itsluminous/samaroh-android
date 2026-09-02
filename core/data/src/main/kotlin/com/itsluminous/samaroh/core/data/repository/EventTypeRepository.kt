@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -70,6 +71,8 @@ data class EventTypeSeed(
     val icon: String,
     val color: String?,
     val sortOrder: Int,
+    /** booking | marker (ADR-041) — the template's `kind`, carried into the seeded row. */
+    val kind: EventTypeKind = EventTypeKind.BOOKING,
 )
 
 /** Source of the seed template; interface so tests can fake it without assets. */
@@ -102,6 +105,8 @@ class AssetEventTypeSeedTemplate
             val emoji: String,
             @SerialName("label_key") val labelKey: String,
             val color: String? = null,
+            /** 'booking' | 'marker' (ADR-041); absent in older templates → booking. */
+            val kind: String = "booking",
         )
 
         private val json = Json { ignoreUnknownKeys = true }
@@ -127,6 +132,7 @@ class AssetEventTypeSeedTemplate
                             icon = entry.emoji,
                             color = entry.color,
                             sortOrder = index,
+                            kind = EventTypeKind.fromWire(entry.kind),
                         )
                     }
                 }
@@ -143,6 +149,8 @@ class AssetEventTypeSeedTemplate
                 "birthday" -> com.itsluminous.samaroh.core.i18n.R.string.booking_event_type_birthday
                 "anniversary" -> com.itsluminous.samaroh.core.i18n.R.string.booking_event_type_anniversary
                 "custom" -> com.itsluminous.samaroh.core.i18n.R.string.booking_event_type_custom
+                "lagan" -> com.itsluminous.samaroh.core.i18n.R.string.booking_event_type_lagan
+                "muh_dikhayi" -> com.itsluminous.samaroh.core.i18n.R.string.booking_event_type_muh_dikhayi
                 else -> null
             }
     }
@@ -202,6 +210,7 @@ class RoomEventTypeRepository
                         icon = seed.icon,
                         color = seed.color,
                         sortOrder = seed.sortOrder,
+                        kind = seed.kind,
                         createdAt = now,
                         updatedAt = now,
                     ),
@@ -210,9 +219,9 @@ class RoomEventTypeRepository
         }
     }
 
-internal fun EventTypeEntity.toModel() = EventType(id, businessId, label, icon, color, sortOrder, createdAt, updatedAt, deletedAt)
+internal fun EventTypeEntity.toModel() = EventType(id, businessId, label, icon, color, sortOrder, kind, createdAt, updatedAt, deletedAt)
 
-internal fun EventType.toEntity() = EventTypeEntity(id, businessId, label, icon, color, sortOrder, createdAt, updatedAt, deletedAt)
+internal fun EventType.toEntity() = EventTypeEntity(id, businessId, label, icon, color, sortOrder, kind, createdAt, updatedAt, deletedAt)
 
 private fun eventTypeTombstonePayload(
     id: String,

@@ -4,6 +4,8 @@ import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKinds
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.InventoryTransaction
@@ -143,15 +145,21 @@ object OccupancyCalculator {
     }
 }
 
-/** §4.4 #4 — count and revenue per event type, biggest revenue first. */
+/**
+ * §4.4 #4 — count and revenue per event type, biggest revenue first. Bookings whose
+ * type resolves to a MARKER-kind preset (ADR-041) are EXCLUDED: markers only highlight
+ * calendar days — they are not bookings and must not enter counts or revenue.
+ */
 object EventTypeBreakdownCalculator {
     fun calculate(
         bookings: List<Booking>,
         range: ReportDateRange,
+        presets: List<EventType> = emptyList(),
     ): List<EventTypeRow> =
         bookings
             .countable()
             .filter { it.startDate in range.start..range.end }
+            .filterNot { EventTypeKinds.isMarker(presets, it.eventType) }
             .groupBy { it.eventType }
             .map { (type, group) ->
                 EventTypeRow(
@@ -161,6 +169,17 @@ object EventTypeBreakdownCalculator {
                     revenuePaise = group.sumOf { it.totalAmountPaise },
                 )
             }.sortedByDescending { it.revenuePaise }
+
+    /** True when [calculate] dropped at least one in-range marker booking — drives the report footnote. */
+    fun excludesMarkers(
+        bookings: List<Booking>,
+        range: ReportDateRange,
+        presets: List<EventType>,
+    ): Boolean =
+        bookings
+            .countable()
+            .filter { it.startDate in range.start..range.end }
+            .any { EventTypeKinds.isMarker(presets, it.eventType) }
 }
 
 /** §4.4 #5 — count and revenue per booking source; bookings without one group under null. */

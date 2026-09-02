@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,6 +31,8 @@ data class EventTypeDraft(
     val label: String = "",
     val icon: String = "✨",
     val colorKey: String? = null,
+    /** booking | marker (ADR-041) — the "Used for" pill row's selection. */
+    val kind: EventTypeKind = EventTypeKind.BOOKING,
     /** True when the entered label collides with another live preset (ADR-032). */
     val duplicateLabel: Boolean = false,
 )
@@ -93,7 +96,8 @@ class EventTypesViewModel
         }
 
         fun startEdit(preset: EventType) {
-            _draft.value = EventTypeDraft(id = preset.id, label = preset.label, icon = preset.icon, colorKey = preset.color)
+            _draft.value =
+                EventTypeDraft(id = preset.id, label = preset.label, icon = preset.icon, colorKey = preset.color, kind = preset.kind)
         }
 
         fun dismissDraft() {
@@ -105,6 +109,8 @@ class EventTypesViewModel
         fun setDraftIcon(value: String) = _draft.update { it?.copy(icon = value) }
 
         fun setDraftColor(colorKey: String?) = _draft.update { it?.copy(colorKey = colorKey) }
+
+        fun setDraftKind(kind: EventTypeKind) = _draft.update { it?.copy(kind = kind) }
 
         /** Validates (non-blank, no live duplicate) and persists the draft. */
         fun saveDraft() {
@@ -125,6 +131,7 @@ class EventTypesViewModel
                         label = label,
                         icon = current.icon.ifBlank { "✨" },
                         color = current.colorKey,
+                        kind = current.kind,
                         updatedAt = now,
                     ) ?: EventType(
                         id = UUID.randomUUID().toString(),
@@ -133,6 +140,7 @@ class EventTypesViewModel
                         icon = current.icon.ifBlank { "✨" },
                         color = current.colorKey,
                         sortOrder = (uiState.value.presets.maxOfOrNull { it.sortOrder } ?: -1) + 1,
+                        kind = current.kind,
                         createdAt = now,
                         updatedAt = now,
                     )

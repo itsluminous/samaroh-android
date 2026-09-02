@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.feature.reports.export.ReportTable
 import com.itsluminous.samaroh.feature.reports.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.reports.fakes.FakeBookingRepository
 import com.itsluminous.samaroh.feature.reports.fakes.FakeCurrentUserProvider
+import com.itsluminous.samaroh.feature.reports.fakes.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.reports.fakes.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.reports.fakes.FakeInventoryOverviewRepository
 import com.itsluminous.samaroh.feature.reports.fakes.FakePermissionGuard
@@ -42,6 +43,7 @@ class ReportDetailViewModelTest {
     private val expensesRepository = FakeExpensesRepository()
     private val reportsRepository = FakeReportsRepository()
     private val inventoryRepository = FakeInventoryOverviewRepository()
+    private val eventTypeRepository = FakeEventTypeRepository()
     private val exporter = FakeReportExporter()
 
     private fun viewModel(type: ReportType): ReportDetailViewModel =
@@ -54,6 +56,7 @@ class ReportDetailViewModelTest {
             expensesRepository = expensesRepository,
             reportsRepository = reportsRepository,
             inventoryOverviewRepository = inventoryRepository,
+            eventTypeRepository = eventTypeRepository,
             exporter = exporter,
             clock = clock,
         )

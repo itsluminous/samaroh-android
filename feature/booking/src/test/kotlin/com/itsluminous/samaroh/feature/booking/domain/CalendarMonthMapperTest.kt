@@ -3,9 +3,12 @@ package com.itsluminous.samaroh.feature.booking.domain
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventTypeKind
+import com.itsluminous.samaroh.core.model.EventTypeKinds
 import com.itsluminous.samaroh.core.model.TENTATIVE_ICON
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
+import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import org.junit.Test
 import java.time.LocalDate
@@ -332,5 +335,88 @@ class CalendarMonthMapperTest {
         val grid =
             CalendarMonthMapper.map(month, today, listOf(first, second), emptyList(), effectiveColorKey = fallbackResolver)
         assertThat(days(grid).getValue(date).fillColorKey).isNull()
+    }
+
+    // ---- marker precedence (ADR-041) ----
+
+    /** The kind resolver the ViewModel builds: preset rows + EventTypeKinds matching. */
+    private val markerPresets =
+        seededPresetFixtures() +
+            listOf(
+                presetFixture("Lagan", "\u2B50", color = "grape", sortOrder = 10, kind = EventTypeKind.MARKER),
+            )
+    private val isMarker: (com.itsluminous.samaroh.core.model.Booking) -> Boolean =
+        { booking -> EventTypeKinds.isMarker(markerPresets, booking.eventType) }
+
+    @Test
+    fun `mixed day shows only the real booking's icon and colour`() {
+        val date = LocalDate.of(2026, 9, 10)
+        val real = Fixtures.booking(startDate = date).copy(color = "sky", customerName = "Asha Devi")
+        val marker = Fixtures.booking(startDate = date).copy(eventType = "Lagan", eventIcon = "\u2B50", customerName = "Lagan")
+        val grid =
+            CalendarMonthMapper.map(
+                month,
+                today,
+                listOf(marker, real),
+                emptyList(),
+                isMarker = isMarker,
+                effectiveColorKey = fallbackResolver,
+            )
+        val day = days(grid).getValue(date)
+        // Only the real booking's icon — the marker's ⭐ never enters the cell.
+        assertThat(day.eventIcons).containsExactly("\uD83D\uDC92")
+        assertThat(day.bookingNames).containsExactly("Asha")
+        // Single REAL booking → its colour fills the cell despite the marker's presence.
+        assertThat(day.fillColorKey).isEqualTo("sky")
+    }
+
+    @Test
+    fun `marker-only day keeps the marker's icon and colour`() {
+        val date = LocalDate.of(2026, 9, 12)
+        val marker = Fixtures.booking(startDate = date).copy(eventType = "Lagan", eventIcon = "\u2B50")
+        val grid =
+            CalendarMonthMapper.map(
+                month,
+                today,
+                listOf(marker),
+                emptyList(),
+                isMarker = isMarker,
+                effectiveColorKey = { booking ->
+                    BookingColorFallback.effectiveKey(booking.color, booking.eventType, FakeBookingColorCatalog(), markerPresets)
+                },
+            )
+        val day = days(grid).getValue(date)
+        assertThat(day.eventIcons).containsExactly("\u2B50")
+        assertThat(day.fillColorKey).isEqualTo("grape")
+    }
+
+    @Test
+    fun `mixed day with tentative real booking follows the real booking's treatment`() {
+        val date = LocalDate.of(2026, 9, 14)
+        val tentative = Fixtures.booking(startDate = date, status = BookingStatus.TENTATIVE)
+        val marker = Fixtures.booking(startDate = date).copy(eventType = "Lagan", eventIcon = "\u2B50")
+        val grid =
+            CalendarMonthMapper.map(
+                month,
+                today,
+                listOf(marker, tentative),
+                emptyList(),
+                isMarker = isMarker,
+                effectiveColorKey = fallbackResolver,
+            )
+        val day = days(grid).getValue(date)
+        // The marker (firm) must not paint a firm treatment over a tentative-only real day.
+        assertThat(day.eventIcons).containsExactly(TENTATIVE_ICON)
+        assertThat(day.hasFirmBooking).isFalse()
+        assertThat(day.hasTentativeBooking).isTrue()
+        assertThat(day.fillColorKey).isNull()
+    }
+
+    @Test
+    fun `day sheet listing still includes marker bookings`() {
+        val date = LocalDate.of(2026, 9, 16)
+        val real = Fixtures.booking(startDate = date)
+        val marker = Fixtures.booking(startDate = date).copy(eventType = "Lagan", eventIcon = "\u2B50")
+        assertThat(CalendarMonthMapper.bookingsOn(listOf(real, marker), date)).hasSize(2)
     }
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.ReportsRepository
@@ -83,6 +84,8 @@ sealed interface ReportData {
 
     data class EventTypes(
         val rows: List<EventTypeRow>,
+        /** True when marker-kind bookings were dropped (ADR-041) — shows the footnote. */
+        val markersExcluded: Boolean = false,
     ) : ReportData {
         override val isEmpty: Boolean get() = rows.isEmpty()
     }
@@ -149,6 +152,7 @@ class ReportDetailViewModel
         private val expensesRepository: ExpensesRepository,
         private val reportsRepository: ReportsRepository,
         private val inventoryOverviewRepository: InventoryOverviewRepository,
+        private val eventTypeRepository: EventTypeRepository,
         private val exporter: ReportExporter,
         private val clock: Clock,
     ) : ViewModel() {
@@ -265,9 +269,16 @@ class ReportDetailViewModel
                         .bookingsBetween(businessId, range.start, range.end)
                         .map { ReportData.Occupancy(OccupancyCalculator.calculate(it, range)) }
                 ReportType.EVENT_TYPES ->
-                    bookingRepository
-                        .bookingsBetween(businessId, range.start, range.end)
-                        .map { ReportData.EventTypes(EventTypeBreakdownCalculator.calculate(it, range)) }
+                    combine(
+                        bookingRepository.bookingsBetween(businessId, range.start, range.end),
+                        eventTypeRepository.presets(businessId),
+                    ) { bookings, presets ->
+                        // ADR-041: marker-kind bookings never enter the breakdown.
+                        ReportData.EventTypes(
+                            rows = EventTypeBreakdownCalculator.calculate(bookings, range, presets),
+                            markersExcluded = EventTypeBreakdownCalculator.excludesMarkers(bookings, range, presets),
+                        )
+                    }
                 ReportType.SOURCES ->
                     bookingRepository
                         .bookingsBetween(businessId, range.start, range.end)

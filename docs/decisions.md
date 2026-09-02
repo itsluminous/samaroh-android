@@ -1205,3 +1205,60 @@ the user commits. Device-level preferences (theme, language, reminder settings, 
 toggles) are kept — they carry no user data. Scheduled WorkManager sync runs are not
 cancelled: a post-sign-out run finds an empty outbox and an anon client (RLS filters
 every read to nothing) and no-ops.
+
+## ADR-041 — Marker event types (`event_types.kind`) (2026-09-02)
+
+**Status:** accepted.
+
+**Context.** Owners record auspicious days (Lagan, Tilak) as "bookings" purely to see
+them highlighted on the calendar — they have no customer, no payments, and pollute the
+event-type report. The shared schema adds `event_types.kind text not null default
+'booking' check (kind in ('booking','marker'))` (shared@0baf15e: baseline 001, idempotent
+`scripts/alter-event-type-kind.sql` for the live DB, seed template flags lagan/tilak as
+markers). This ADR wires the Android side end-to-end; it touches the frozen contracts.
+
+**Decision.**
+1. **Contract (additive).** `core:model EventTypeKind` (BOOKING|MARKER, wire lowercase);
+   `EventType.kind` defaulted to BOOKING so rows pulled from a server WITHOUT the column
+   decode unchanged (same additive-column pattern as ADR-027/030). Unlike the other
+   enums, `fromWire` is TOLERANT (unknown → BOOKING): a future kind value degrades to
+   the ordinary treatment instead of failing. Room v6→v7 (`MIGRATION_6_7`: `ALTER TABLE
+   event_types ADD COLUMN kind TEXT NOT NULL DEFAULT 'booking'`, exported schema 7.json);
+   converter stores the wire string.
+2. **Sync wire.** `event_types` gains `enumFields = setOf("kind")` — local payloads carry
+   the serial name ("MARKER"), the wire the lowercase check-constraint value ("marker").
+   **⚠️ ORDERING — server column FIRST** (ADR-030 philosophy): until the owner applies
+   the shared ALTER script, PostgREST rejects event-type pushes (PGRST204 unknown
+   column) — the §8 push loop holds ONLY those ops per-item and retries; pulls never
+   break (defaulted decode). Deliberately NOT gated client-side.
+3. **Kind resolution is normalized-label matching** — `core:model EventTypeKinds`
+   (normalize + kindFor + isMarker), the exact contract `EventTypePresets` (ADR-032)
+   established for colours, hoisted to core:model because feature:reports needs it too
+   and feature modules never depend on each other (`EventTypePresets.normalize` now
+   delegates). A booking matching NO live preset is always a real booking — free-text
+   types and tombstoned presets are never silently demoted to markers.
+4. **Seeding.** `EventTypeSeed`/`AssetEventTypeSeedTemplate` carry the template's `kind`
+   (absent → booking); the label map gains the template's `lagan`/`muh_dikhayi` keys
+   (previously skipped for lack of a catalog string — both keys exist now).
+5. **Calendar precedence.** `CalendarMonthMapper.map` gains a pure
+   `isMarker: (Booking) -> Boolean` parameter: on a date covered by BOTH real and
+   marker bookings the CELL uses only the real bookings (icons, names, firm/tentative
+   treatment, single-booking colour fill); marker-only dates keep the marker's own
+   icon/colour. The day sheet (`bookingsOn`) still lists everything — precedence is a
+   cell-rendering rule, not a data filter.
+6. **Manage screen.** The add/edit dialog gains a "Used for" pill row
+   (`settings.event_types.kind_*`, same FilterChip vocabulary as the booking form's
+   Confirmed/Tentative) with a helper line under the marker pill; list rows show a
+   subtle `booking.marker.badge` chip on marker presets.
+7. **Analytics.** `EventTypeBreakdownCalculator` excludes bookings resolving to a
+   marker-kind preset (count AND revenue) and reports `excludesMarkers` so the report
+   detail shows the `reports.event_types.marker_note` footnote only when something was
+   actually dropped. Only the event-type breakdown changes: the other money reports
+   (revenue, dues, profit…) aggregate payments/amounts, which marker bookings simply
+   don't have — and a marker with an accidental amount still appearing there is the
+   honest behaviour.
+
+**Consequences.** Web should mirror the precedence + exclusion rules. Old app versions
+ignore the column (defaulted decode; Room untouched pre-migration). Deleting a marker
+preset makes its old bookings count again — acceptable: the preset is the single source
+of kind truth, mirroring how recolouring works.

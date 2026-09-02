@@ -99,7 +99,7 @@ internal fun Booking.toEntity() =
         deletedAt,
     )
 
-internal fun EventType.toEntity() = EventTypeEntity(id, businessId, label, icon, color, sortOrder, createdAt, updatedAt, deletedAt)
+internal fun EventType.toEntity() = EventTypeEntity(id, businessId, label, icon, color, sortOrder, kind, createdAt, updatedAt, deletedAt)
 
 internal fun DateBlock.toEntity() = DateBlockEntity(id, businessId, startDate, endDate, reason, createdBy, createdAt, updatedAt, deletedAt)
 

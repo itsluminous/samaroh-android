@@ -66,7 +66,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -188,6 +188,21 @@ abstract class SamarohDatabase : RoomDatabase() {
                     db.execSQL(
                         "CREATE INDEX IF NOT EXISTS index_event_types_business_id_sort_order " +
                             "ON event_types (business_id, sort_order)",
+                    )
+                }
+            }
+
+        /**
+         * v6 → v7 (ADR-041): `event_types.kind` ('booking' | 'marker') mirroring the
+         * shared schema's additive column — existing presets default to 'booking'.
+         * Servers not yet carrying the column are tolerated on pull (defaulted decode)
+         * and hold pushes per-item until it lands, exactly like ADR-030's colour.
+         */
+        val MIGRATION_6_7: Migration =
+            object : Migration(6, 7) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE event_types ADD COLUMN kind TEXT NOT NULL DEFAULT 'booking'",
                     )
                 }
             }

@@ -6,6 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
@@ -119,6 +120,8 @@ data class EventTypeEntity(
     /** Default `booking-colors.json` key (ADR-031); NULL = standard themed look. */
     val color: String? = null,
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    /** 'booking' | 'marker' (ADR-041); stored as the wire string via the converter. */
+    @ColumnInfo(name = "kind", defaultValue = "booking") val kind: EventTypeKind = EventTypeKind.BOOKING,
     @ColumnInfo(name = "created_at") val createdAt: Instant,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,

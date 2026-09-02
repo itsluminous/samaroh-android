@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -33,12 +34,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchEntry
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchPicker
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.parseHexColor
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 
 /**
@@ -145,6 +148,20 @@ private fun PresetRow(
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text = preset.label, modifier = Modifier.weight(1f, fill = false))
+                if (preset.kind == EventTypeKind.MARKER) {
+                    // Subtle marker badge (ADR-041): tells markers apart in the list.
+                    Text(
+                        text = stringResource(R.string.booking_marker_badge),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier =
+                            Modifier
+                                .padding(start = 8.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(MaterialTheme.colorScheme.secondaryContainer)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
                 if (dotColor != null) {
                     // Decorative colour dot — the edit dialog announces the colour name.
                     Box(
@@ -222,6 +239,31 @@ private fun EventTypeDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // Kind selector (ADR-041): pill row, same UX vocabulary as the booking
+                // form's Confirmed/Tentative status chips.
+                Text(
+                    text = stringResource(R.string.settings_event_types_kind_label),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                ChipRow {
+                    FilterChip(
+                        selected = draft.kind == EventTypeKind.BOOKING,
+                        onClick = { viewModel.setDraftKind(EventTypeKind.BOOKING) },
+                        label = { Text(stringResource(R.string.settings_event_types_kind_booking)) },
+                    )
+                    FilterChip(
+                        selected = draft.kind == EventTypeKind.MARKER,
+                        onClick = { viewModel.setDraftKind(EventTypeKind.MARKER) },
+                        label = { Text(stringResource(R.string.settings_event_types_kind_marker)) },
+                    )
+                }
+                if (draft.kind == EventTypeKind.MARKER) {
+                    Text(
+                        text = stringResource(R.string.settings_event_types_kind_marker_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     text = stringResource(R.string.settings_event_types_color_label),
                     style = MaterialTheme.typography.labelLarge,

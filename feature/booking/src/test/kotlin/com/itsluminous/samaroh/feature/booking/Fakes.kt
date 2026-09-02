@@ -17,6 +17,7 @@ import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -313,6 +314,7 @@ fun presetFixture(
     businessId: String = Fixtures.BUSINESS_ID,
     id: String = "preset-$label",
     deletedAt: java.time.Instant? = null,
+    kind: EventTypeKind = EventTypeKind.BOOKING,
 ): EventType =
     EventType(
         id = id,
@@ -321,6 +323,7 @@ fun presetFixture(
         icon = icon,
         color = color,
         sortOrder = sortOrder,
+        kind = kind,
         createdAt = java.time.Instant.parse("2026-01-01T00:00:00Z"),
         updatedAt = java.time.Instant.parse("2026-01-01T00:00:00Z"),
         deletedAt = deletedAt,

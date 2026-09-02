@@ -5,6 +5,7 @@ import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKinds
 
 /*
  * Booking colour fallback chain (ADR-031, revised by ADR-032): the palette catalog
@@ -20,7 +21,8 @@ import com.itsluminous.samaroh.core.model.EventType
  * Free-text types match only when the user made a preset of the same name.
  */
 object EventTypePresets {
-    fun normalize(label: String): String = label.trim().lowercase().replace(' ', '_')
+    /** Delegates to the shared normalization (core:model, ADR-041) so colour and kind matching never drift. */
+    fun normalize(label: String): String = EventTypeKinds.normalize(label)
 
     /** The preset default colour key for a stored `event_type` value, or null. */
     fun defaultColorKeyFor(

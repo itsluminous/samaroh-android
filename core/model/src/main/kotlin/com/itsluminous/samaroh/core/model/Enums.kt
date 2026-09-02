@@ -105,6 +105,28 @@ enum class BookingSource(
 }
 
 /**
+ * What an `event_types` preset is FOR (ADR-041, shared schema `event_types.kind`):
+ * a real customer booking, or a calendar-only auspicious-day marker (Lagan/Tilak).
+ * Marker-kind bookings carry no customer/payments meaning: the month cell prefers
+ * real bookings' icons/colour over markers, and event-type report aggregations
+ * exclude them. Unlike the other enums, [fromWire] is TOLERANT (unknown → BOOKING):
+ * the column is brand-new server-side and a future kind value must degrade to the
+ * ordinary treatment instead of failing a Room read — same philosophy as
+ * absent-on-pull defaulting to booking.
+ */
+enum class EventTypeKind(
+    val wire: String,
+) {
+    BOOKING("booking"),
+    MARKER("marker"),
+    ;
+
+    companion object {
+        fun fromWire(value: String): EventTypeKind = entries.firstOrNull { it.wire == value } ?: BOOKING
+    }
+}
+
+/**
  * What a reminder row is about (ADR-020). LOCAL-ONLY discriminator: the canonical
  * `payment_reminders` Postgres table has no such column, so the kind never enters sync
  * payloads (`@Transient` on [PaymentReminder.kind]) and pulls preserve the local value

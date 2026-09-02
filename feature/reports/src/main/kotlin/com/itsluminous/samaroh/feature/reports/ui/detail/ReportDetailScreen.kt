@@ -117,6 +117,15 @@ fun ReportDetailScreen(
                             ExportButtonsRow(onExport = { format -> viewModel.export(table, format) })
                             ReportTableGrid(table = table)
                         }
+                        if (data is ReportData.EventTypes && data.markersExcluded) {
+                            // ADR-041: marker-kind bookings are excluded — say so.
+                            Text(
+                                text = stringResource(R.string.reports_event_types_marker_note),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
                         val partiesTable = rememberExpensePartiesTable(state)
                         if (partiesTable != null) {
                             Text(

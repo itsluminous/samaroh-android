@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.data.repository
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.color.BookingColorsProvider
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -17,13 +18,29 @@ class AssetEventTypeSeedTemplateTest {
     private val template = AssetEventTypeSeedTemplate(ApplicationProvider.getApplicationContext())
 
     @Test
-    fun `seeds the seven built-ins in template order with English labels`() {
+    fun `seeds the nine template entries in order with English labels`() {
         val seeds = template.seeds()
         assertThat(seeds.map { it.label })
-            .containsExactly("Engagement", "Tilak", "Wedding", "Room Booking", "Birthday", "Anniversary", "Custom")
-            .inOrder()
-        assertThat(seeds.map { it.sortOrder }).containsExactly(0, 1, 2, 3, 4, 5, 6).inOrder()
+            .containsExactly(
+                "Engagement",
+                "Tilak",
+                "Wedding",
+                "Room Booking",
+                "Birthday",
+                "Anniversary",
+                "Custom",
+                "Lagan",
+                "Muh Dikhayi",
+            ).inOrder()
+        assertThat(seeds.map { it.sortOrder }).containsExactly(0, 1, 2, 3, 4, 5, 6, 7, 8).inOrder()
         assertThat(seeds.first { it.label == "Wedding" }.icon).isEqualTo("💒")
+    }
+
+    @Test
+    fun `seed kinds mirror the shared contract`() {
+        // ADR-041: lagan + tilak are calendar-only markers; everything else is a booking type.
+        val markers = template.seeds().filter { it.kind == EventTypeKind.MARKER }.map { it.label }
+        assertThat(markers).containsExactly("Tilak", "Lagan")
     }
 
     @Test
@@ -46,6 +63,8 @@ class AssetEventTypeSeedTemplateTest {
                     "Birthday" to "banana",
                     "Anniversary" to "sage",
                     "Custom" to "grape",
+                    "Lagan" to "peacock",
+                    "Muh Dikhayi" to "fuchsia",
                 ),
             )
     }
