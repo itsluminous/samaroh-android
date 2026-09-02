@@ -1,9 +1,14 @@
 package com.itsluminous.samaroh.feature.menu.ui.settings
 
+import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -19,6 +24,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,15 +33,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.data.ReminderStyle
+import com.itsluminous.samaroh.feature.menu.domain.ReminderPermissionsStatus
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 
 private val PRESET_LEAD_DAYS = listOf(1, 3, 7)
@@ -48,6 +60,42 @@ fun ReminderSettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showCustomDialog by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // System permission states (ADR-043): re-read on resume so returning from the
+    // deep-linked system-settings screens refreshes the rows immediately.
+    var permissionRefresh by remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) permissionRefresh++
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val notificationsEnabled =
+        remember(permissionRefresh) { NotificationManagerCompat.from(context).areNotificationsEnabled() }
+    val canUseFullScreenIntent =
+        remember(permissionRefresh) {
+            Build.VERSION.SDK_INT < 34 ||
+                context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
+        }
+    val canScheduleExactAlarms =
+        remember(permissionRefresh) {
+            Build.VERSION.SDK_INT < 31 ||
+                context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true
+        }
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permissionRefresh++ }
+    // Contextual request (spec §6, ADR-043): opening the reminder settings IS the
+    // reminder-relevant moment — fire the system dialog once per screen entry while
+    // not granted. Denial changes nothing: the app stays fully usable, and the status
+    // row below keeps offering the fix.
+    LaunchedEffect(Unit) {
+        if (ReminderPermissionsStatus.shouldRequestNotifications(Build.VERSION.SDK_INT, notificationsEnabled)) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     val ringtoneLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -117,6 +165,50 @@ fun ReminderSettingsScreen(
                     ringtoneLauncher.launch(intent)
                 },
         )
+        HorizontalDivider()
+
+        // Permission status (ADR-043): what the OS will actually let reminders do,
+        // with fix-it actions deep-linking to the matching system-settings screen.
+        Text(
+            text = stringResource(R.string.settings_reminders_permissions_title),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(16.dp),
+        )
+        ReminderPermissionsStatus
+            .rows(
+                sdkInt = Build.VERSION.SDK_INT,
+                notificationsEnabled = notificationsEnabled,
+                style = current.reminderStyle,
+                canUseFullScreenIntent = canUseFullScreenIntent,
+                canScheduleExactAlarms = canScheduleExactAlarms,
+            ).forEach { rowState ->
+                PermissionStatusRow(
+                    state = rowState,
+                    onFix = {
+                        when (rowState.row) {
+                            ReminderPermissionsStatus.Row.NOTIFICATIONS ->
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                                )
+                            ReminderPermissionsStatus.Row.FULL_SCREEN ->
+                                if (Build.VERSION.SDK_INT >= 34) {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                                            .setData(Uri.fromParts("package", context.packageName, null)),
+                                    )
+                                }
+                            ReminderPermissionsStatus.Row.EXACT_ALARM ->
+                                if (Build.VERSION.SDK_INT >= 31) {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                                            .setData(Uri.fromParts("package", context.packageName, null)),
+                                    )
+                                }
+                        }
+                    },
+                )
+            }
     }
 
     if (showCustomDialog) {
@@ -164,6 +256,52 @@ private fun StyleRow(
         headlineContent = { Text(stringResource(labelRes)) },
         leadingContent = { RadioButton(selected = selected, onClick = onSelect) },
         modifier = Modifier.clickable(onClick = onSelect),
+    )
+}
+
+/**
+ * One permission-status row (ADR-043): grant name + state; a fix button appears only
+ * while denied. Everything stays usable either way — this is information, not a gate.
+ */
+@Composable
+private fun PermissionStatusRow(
+    state: ReminderPermissionsStatus.RowState,
+    onFix: () -> Unit,
+) {
+    val nameRes =
+        when (state.row) {
+            ReminderPermissionsStatus.Row.NOTIFICATIONS -> R.string.settings_reminders_permission_notifications
+            ReminderPermissionsStatus.Row.FULL_SCREEN -> R.string.settings_reminders_permission_fullscreen
+            ReminderPermissionsStatus.Row.EXACT_ALARM -> R.string.settings_reminders_permission_exact_alarm
+        }
+    val stateRes =
+        if (state.granted) {
+            R.string.settings_reminders_permission_granted
+        } else {
+            when (state.row) {
+                ReminderPermissionsStatus.Row.NOTIFICATIONS -> R.string.settings_reminders_permission_notifications_denied
+                ReminderPermissionsStatus.Row.FULL_SCREEN -> R.string.settings_reminders_permission_fullscreen_denied
+                ReminderPermissionsStatus.Row.EXACT_ALARM -> R.string.settings_reminders_permission_exact_alarm_denied
+            }
+        }
+    ListItem(
+        headlineContent = { Text(stringResource(nameRes)) },
+        supportingContent = {
+            Text(
+                text = stringResource(stateRes),
+                color = if (state.granted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+            )
+        },
+        trailingContent =
+            if (state.granted) {
+                null
+            } else {
+                {
+                    TextButton(onClick = onFix) {
+                        Text(stringResource(R.string.settings_reminders_permission_fix))
+                    }
+                }
+            },
     )
 }
 

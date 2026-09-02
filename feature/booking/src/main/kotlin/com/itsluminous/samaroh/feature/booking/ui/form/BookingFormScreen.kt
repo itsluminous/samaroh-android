@@ -1,6 +1,8 @@
 package com.itsluminous.samaroh.feature.booking.ui.form
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,6 +54,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
@@ -88,8 +91,21 @@ fun BookingFormScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
+    // Contextual POST_NOTIFICATIONS request (spec §6, ADR-043): saving a booking is the
+    // first moment reminders matter (every booking gets upcoming/payment reminders), so
+    // fire the system dialog HERE — never at app launch. Denial is fine: the in-app
+    // pending-confirmations card remains the reliable path, nothing else changes.
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(state.saved) {
-        if (state.saved) onDone()
+        if (state.saved) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                !NotificationManagerCompat.from(context).areNotificationsEnabled()
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            onDone()
+        }
     }
 
     val contactPicker =

@@ -1283,3 +1283,35 @@ NavHost subscreens (Settings/Members/About) were likewise already covered.
 
 **Consequence.** Opening Sync status from the app-bar cloud icon on any tab now
 highlights Menu — correct: it IS a Menu subscreen, and back returns to the previous tab.
+
+## ADR-043 — Contextual notification permissions + status rows (2026-09-02)
+
+**Status:** accepted.
+
+**Context (honest audit).** `POST_NOTIFICATIONS` was declared in the manifest but NEVER
+requested at runtime: on Android 13+ (every modern device) the permission starts denied,
+`BookingNotifier`/`ConflictNotifier` silently no-op behind their `canNotify()` guards,
+and every reminder notification — payment confirmations, follow-ups, upcoming-event
+alerts, the full-screen alarm style — was silently dropped. Additionally, on Android 14+
+the full-screen-intent grant (`canUseFullScreenIntent`) can be off for sideloaded apps
+(the notification downgrades to heads-up), and on Android 12+ the exact-alarm grant can
+be revoked (the alarm falls back to inexact). Only the in-app pending-confirmations card
+actually worked.
+
+**Decision (spec §6: optional, in-context, fully usable when denied).**
+1. **Contextual requests, never at launch.** The system POST_NOTIFICATIONS dialog fires
+   (a) after saving a booking — the first moment reminders matter — and (b) on opening
+   Settings → Booking reminders. Denial changes nothing; the OS itself stops the dialog
+   after repeated denials.
+2. **Status rows.** Settings → Booking reminders gains a "Reminder permissions" section
+   driven by the pure, unit-tested `ReminderPermissionsStatus`: a Notifications row
+   (state via `areNotificationsEnabled()`, covering both the runtime permission and
+   channel/app-level blocks) always; Full-screen-reminders (API 34+,
+   `canUseFullScreenIntent()`) and Exact-time-alarms (API 31+,
+   `canScheduleExactAlarms()`) rows only while the ALARM style is selected. Denied rows
+   show the consequence in words plus an "Allow" fix button deep-linking to the matching
+   system screen (`ACTION_APP_NOTIFICATION_SETTINGS`,
+   `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT`, `ACTION_REQUEST_SCHEDULE_EXACT_ALARM`);
+   states re-read on every resume so returning from Settings refreshes immediately.
+3. **No behaviour change for denied users** — notification posting keeps its silent
+   no-op guards; the in-app cards remain the reliable path (§4.1).
