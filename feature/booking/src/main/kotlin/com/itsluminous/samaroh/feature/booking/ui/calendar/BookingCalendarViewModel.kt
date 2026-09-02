@@ -86,6 +86,12 @@ data class BookingDetail(
      * session's name (the audit line must not change with who is looking, ADR-039).
      */
     val creatorName: String? = null,
+    /**
+     * Whether the booking's type resolves to a MARKER-kind preset (ADR-041/ADR-044):
+     * the card then renders NO payment surface — no amounts, no payment history, no
+     * record-payment / invoice / payment-reminder actions. A marker has no money.
+     */
+    val isMarker: Boolean = false,
 )
 
 data class PendingConfirmationUi(
@@ -247,12 +253,20 @@ class BookingCalendarViewModel
                             uiState.map { state -> state.bookings.firstOrNull { it.id == id } },
                             businessFlow,
                             bookingRepository.paymentsForBooking(id),
-                        ) { booking, business, payments ->
+                            presets,
+                        ) { booking, business, payments, presetRows ->
                             // Events view opens bookings outside the shown month — fall
                             // back to a direct lookup when the month state lacks the row.
                             (booking ?: bookingRepository.booking(id))?.let {
                                 val paid = payments.sumOf { p -> p.amountPaise }
-                                BookingDetail(it, payments, paid, DueCalculator.duePaise(it, paid), creatorName(it, business))
+                                BookingDetail(
+                                    booking = it,
+                                    payments = payments,
+                                    paidPaise = paid,
+                                    duePaise = DueCalculator.duePaise(it, paid),
+                                    creatorName = creatorName(it, business),
+                                    isMarker = EventTypeKinds.isMarker(presetRows, it.eventType),
+                                )
                             }
                         }
                     }
@@ -335,10 +349,15 @@ class BookingCalendarViewModel
             presetRows: List<EventType>,
         ): BookingCalendarUiState {
             val live = data.bookings.filter { it.status != BookingStatus.CANCELLED && it.deletedAt == null }
+            // Marker bookings (ADR-041/ADR-044) carry no money: they are excluded from
+            // the month summary — and, belt-and-braces, from the payment-confirmation
+            // card (the reminder engine dismisses their reminders on its next pass).
+            val isMarkerBooking = { booking: Booking -> EventTypeKinds.isMarker(presetRows, booking.eventType) }
+            val moneyLive = live.filterNot(isMarkerBooking)
             val paymentsByBooking = data.payments.groupBy { it.bookingId }
-            val received = live.sumOf { booking -> paymentsByBooking[booking.id].orEmpty().sumOf { it.amountPaise } }
+            val received = moneyLive.sumOf { booking -> paymentsByBooking[booking.id].orEmpty().sumOf { it.amountPaise } }
             val pending =
-                live.sumOf { booking ->
+                moneyLive.sumOf { booking ->
                     DueCalculator.duePaise(booking, paymentsByBooking[booking.id].orEmpty().sumOf { it.amountPaise })
                 }
             val confirmations =
@@ -348,7 +367,9 @@ class BookingCalendarViewModel
                         val booking =
                             data.bookings.firstOrNull { it.id == reminder.bookingId }
                                 ?: bookingRepository.booking(reminder.bookingId)
-                        booking?.takeIf { it.status != BookingStatus.CANCELLED }?.let { PendingConfirmationUi(reminder, it) }
+                        booking
+                            ?.takeIf { it.status != BookingStatus.CANCELLED && !isMarkerBooking(it) }
+                            ?.let { PendingConfirmationUi(reminder, it) }
                     }
             // Follow-ups only surface while the booking is still tentative — a booking
             // confirmed elsewhere drops off immediately (the engine dismisses it later).

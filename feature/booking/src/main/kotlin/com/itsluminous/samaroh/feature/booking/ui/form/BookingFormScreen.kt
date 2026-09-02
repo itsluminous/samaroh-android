@@ -1,6 +1,9 @@
 package com.itsluminous.samaroh.feature.booking.ui.form
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
 import android.provider.ContactsContract
@@ -54,6 +57,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
@@ -66,6 +70,7 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
+import com.itsluminous.samaroh.feature.booking.reminders.NotificationPermissionGate
 import com.itsluminous.samaroh.feature.booking.ui.calendar.DateField
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
 import com.itsluminous.samaroh.feature.booking.ui.fill
@@ -91,19 +96,35 @@ fun BookingFormScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
-    // Contextual POST_NOTIFICATIONS request (spec §6, ADR-043): saving a booking is the
-    // first moment reminders matter (every booking gets upcoming/payment reminders), so
-    // fire the system dialog HERE — never at app launch. Denial is fine: the in-app
-    // pending-confirmations card remains the reliable path, nothing else changes.
+    // Contextual POST_NOTIFICATIONS request (spec §6, ADR-043 → ADR-044): the form is
+    // where reminders are born, so re-check on OPEN — earlier and less intrusive than
+    // after save. NotificationPermissionGate keeps this polite: a permanently-denied
+    // user (dialog fired before AND the system reports no rationale) is never re-nagged;
+    // the Settings → Booking reminders status rows remain their fix path. Denial is
+    // fine: the in-app pending-confirmations card remains the reliable path.
     val notificationPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    LaunchedEffect(state.saved) {
-        if (state.saved) {
-            if (Build.VERSION.SDK_INT >= 33 &&
-                !NotificationManagerCompat.from(context).areNotificationsEnabled()
-            ) {
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val activity = context.findActivity()
+            val shouldPrompt =
+                NotificationPermissionGate.shouldPrompt(
+                    sdkInt = Build.VERSION.SDK_INT,
+                    notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
+                    requestedBefore = viewModel.notificationPromptRequestedBefore(),
+                    shouldShowRationale =
+                        activity?.let {
+                            ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.POST_NOTIFICATIONS)
+                        } ?: false,
+                )
+            if (shouldPrompt) {
+                viewModel.markNotificationPromptRequested()
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+    }
+    LaunchedEffect(state.saved) {
+        if (state.saved) {
             onDone()
         }
     }
@@ -316,47 +337,53 @@ fun BookingFormScreen(
                     TimeField(labelRes = R.string.booking_form_end_time, time = state.endTime, onTimeChange = viewModel::setEndTime)
                 }
 
-                OutlinedTextField(
-                    value = state.totalAmountText,
-                    onValueChange = viewModel::setTotalAmount,
-                    label = { Text(stringResource(R.string.booking_form_total_amount)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // Security deposit — HIDDEN by default (ADR-020); the stored value is
-                // preserved on edit even while the field is hidden.
-                if (state.fieldVisibility.showSecurityDeposit) {
+                // Amounts (ADR-041/ADR-044): a MARKER type has no money, so Total /
+                // Security deposit / Advance / Due are hidden while one is selected.
+                // The typed values stay in state — switching the type back restores
+                // them; only a SAVE with a marker selected forces amounts to 0.
+                if (!state.isMarkerType) {
                     OutlinedTextField(
-                        value = state.securityDepositText,
-                        onValueChange = viewModel::setSecurityDeposit,
-                        label = { Text(stringResource(R.string.booking_form_security_deposit)) },
+                        value = state.totalAmountText,
+                        onValueChange = viewModel::setTotalAmount,
+                        label = { Text(stringResource(R.string.booking_form_total_amount)) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                }
-                if (state.editingId == null) {
-                    OutlinedTextField(
-                        value = state.advanceText,
-                        onValueChange = viewModel::setAdvance,
-                        label = { Text(stringResource(R.string.booking_form_advance)) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    // Due — read-only, auto-calculated, live-updating (§4.1).
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = stringResource(R.string.booking_form_due_auto),
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
+                    // Security deposit — HIDDEN by default (ADR-020); the stored value is
+                    // preserved on edit even while the field is hidden.
+                    if (state.fieldVisibility.showSecurityDeposit) {
+                        OutlinedTextField(
+                            value = state.securityDepositText,
+                            onValueChange = viewModel::setSecurityDeposit,
+                            label = { Text(stringResource(R.string.booking_form_security_deposit)) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                        AmountText(
-                            amountPaise = state.duePaise,
-                            tone = if (state.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    }
+                    if (state.editingId == null) {
+                        OutlinedTextField(
+                            value = state.advanceText,
+                            onValueChange = viewModel::setAdvance,
+                            label = { Text(stringResource(R.string.booking_form_advance)) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
                         )
+                        // Due — read-only, auto-calculated, live-updating (§4.1).
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = stringResource(R.string.booking_form_due_auto),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AmountText(
+                                amountPaise = state.duePaise,
+                                tone = if (state.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            )
+                        }
                     }
                 }
 
@@ -567,3 +594,11 @@ private fun sourceLabel(source: BookingSource): String =
             BookingSource.OTHER -> R.string.booking_source_other
         },
     )
+
+/** Unwraps the composition's context to its host Activity (needed for the rationale check). */
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }

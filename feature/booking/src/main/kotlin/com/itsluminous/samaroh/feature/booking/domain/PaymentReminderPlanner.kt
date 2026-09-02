@@ -100,7 +100,10 @@ object PaymentReminderPlanner {
      * stale — and gets DISMISSED — when its booking no longer justifies it:
      * - the booking is missing, soft-deleted or cancelled (reminders stop on cancel), or
      * - nothing is due: `due <= 0` covers fully-settled bookings AND bookings with no
-     *   known total (total 0 → due 0) — neither may ever surface a reminder.
+     *   known total (total 0 → due 0) — neither may ever surface a reminder, or
+     * - the booking resolves to a MARKER-kind preset (ADR-041/ADR-044): markers carry
+     *   no money, so any reminder for one — e.g. created before its preset was flipped
+     *   to marker, or synced from an older client — is dismissed here.
      *
      * This runs against every due pending reminder regardless of the booking's end date,
      * so reminders synced from another device for a booking that was settled here (or
@@ -110,12 +113,14 @@ object PaymentReminderPlanner {
         duePendingReminders: List<PaymentReminder>,
         bookingById: Map<String, Booking?>,
         duePaiseByBooking: Map<String, Long>,
+        isMarker: (Booking) -> Boolean = { false },
     ): List<PaymentReminder> =
         duePendingReminders.filter { reminder ->
             val booking = bookingById[reminder.bookingId]
             booking == null ||
                 booking.deletedAt != null ||
                 booking.status == BookingStatus.CANCELLED ||
+                isMarker(booking) ||
                 (duePaiseByBooking[booking.id] ?: 0L) <= 0L
         }
 

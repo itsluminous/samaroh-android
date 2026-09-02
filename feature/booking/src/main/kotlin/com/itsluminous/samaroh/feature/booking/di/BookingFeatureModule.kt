@@ -5,6 +5,8 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypesProvider
 import com.itsluminous.samaroh.feature.booking.domain.SessionBookingActorProvider
+import com.itsluminous.samaroh.feature.booking.reminders.DataStoreNotificationPromptPrefs
+import com.itsluminous.samaroh.feature.booking.reminders.NotificationPromptPrefs
 import com.itsluminous.samaroh.feature.booking.reminders.ReminderPostSyncHook
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.calendar.DataStoreBookingCalendarPrefs
@@ -37,6 +39,10 @@ abstract class BookingFeatureModule {
     /** Calendar icon-watermark opacity from the shared settings DataStore. */
     @Binds
     abstract fun bindBookingCalendarPrefs(impl: DataStoreBookingCalendarPrefs): BookingCalendarPrefs
+
+    /** "POST_NOTIFICATIONS was requested once" flag for the form-open gate (ADR-044). */
+    @Binds
+    abstract fun bindNotificationPromptPrefs(impl: DataStoreNotificationPromptPrefs): NotificationPromptPrefs
 
     /** Post-sync reminder re-planning + daily-worker registration (ADR-024). */
     @Binds

@@ -4,13 +4,17 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
+import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
+import com.itsluminous.samaroh.feature.booking.presetFixture
+import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -51,12 +55,14 @@ class ReminderEngineCleanupTest {
 
     private val bookingRepository = FakeBookingRepository()
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
+    private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
 
     private fun engine(): ReminderEngine =
         ReminderEngine(
             context = context,
             bookingRepository = bookingRepository,
             businessRepository = businessRepository,
+            eventTypeRepository = eventTypeRepository,
             eventTypes = emptyCatalog, // labelFor falls back to the raw key — no resource ids in JVM tests
             notifier = BookingNotifier(context),
             prefs =
@@ -150,5 +156,52 @@ class ReminderEngineCleanupTest {
             assertThat(created.status).isEqualTo(ReminderStatus.PENDING)
             assertThat(created.remindOn).isEqualTo(booking.endDate.plusDays(1))
             assertThat(created.amountDueSnapshotPaise).isEqualTo(1_50_000_00L)
+        }
+
+    // ---- marker bookings never get payment reminders (ADR-041/ADR-044) ----
+
+    @Test
+    fun `marker booking gets no payment reminder even with an accidental amount`() =
+        runTest(dispatcher) {
+            eventTypeRepository.presetsFlow.value =
+                seededPresetFixtures() + presetFixture("Lagan", kind = EventTypeKind.MARKER, sortOrder = 9)
+            val day = engineToday()
+            // Edge case: a marker row carrying money (preset flipped to marker after the
+            // fact, or synced from an older client) — normally the form forces 0.
+            val marker =
+                Fixtures.booking(
+                    startDate = day.minusDays(3),
+                    endDate = day.minusDays(2),
+                    totalAmountPaise = 2_00_000_00L,
+                    eventType = "Lagan",
+                )
+            bookingRepository.saveBooking(marker)
+
+            engine().runDailyPass()
+
+            assertThat(bookingRepository.reminders.value).isEmpty()
+        }
+
+    @Test
+    fun `stale pending reminder of a marker booking is dismissed`() =
+        runTest(dispatcher) {
+            eventTypeRepository.presetsFlow.value =
+                seededPresetFixtures() + presetFixture("Lagan", kind = EventTypeKind.MARKER, sortOrder = 9)
+            val day = engineToday()
+            val marker =
+                Fixtures.booking(
+                    startDate = day.minusDays(3),
+                    endDate = day.minusDays(2),
+                    totalAmountPaise = 2_00_000_00L,
+                    eventType = "Lagan",
+                )
+            bookingRepository.saveBooking(marker)
+            // Reminder created BEFORE the preset became a marker (or synced in).
+            bookingRepository.saveReminder(pendingReminder(marker.id, day.minusDays(1)))
+
+            engine().runDailyPass()
+
+            val after = bookingRepository.reminders.value.single()
+            assertThat(after.status).isEqualTo(ReminderStatus.DISMISSED)
         }
 }

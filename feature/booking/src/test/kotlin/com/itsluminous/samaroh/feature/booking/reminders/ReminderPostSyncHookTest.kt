@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
+import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import kotlinx.coroutines.CoroutineScope
@@ -82,6 +83,7 @@ class ReminderPostSyncHookTest {
                     context = context,
                     bookingRepository = bookingRepository,
                     businessRepository = businessRepository,
+                    eventTypeRepository = FakeEventTypeRepository(),
                     eventTypes = emptyCatalog, // labelFor falls back to the raw key — no resource ids in JVM tests
                     notifier = BookingNotifier(context),
                     prefs =

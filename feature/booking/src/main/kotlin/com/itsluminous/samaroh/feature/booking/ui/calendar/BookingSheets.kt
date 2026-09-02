@@ -78,6 +78,9 @@ import java.time.ZoneOffset
 /**
  * The booking card (§4.1 — one card = customer + event + financials): status chip,
  * tap-to-call, amounts with bold red due, payment history, audit line, actions.
+ * MARKER bookings (ADR-041/ADR-044) have no money, so the whole payment surface —
+ * amounts, payment history, record-payment / invoice / payment-reminder actions —
+ * is omitted; only customer, dates, audit line, edit and cancel remain.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,52 +159,54 @@ internal fun BookingCardSheet(
                 Text(text = formatDateRange(booking.startDate, booking.endDate), style = MaterialTheme.typography.bodyLarge)
             }
 
-            AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise, masked = !canViewAmounts)
-            if (booking.securityDepositPaise > 0) {
+            if (!detail.isMarker) {
+                AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise, masked = !canViewAmounts)
+                if (booking.securityDepositPaise > 0) {
+                    AmountRow(
+                        labelRes = R.string.booking_card_deposit_label,
+                        amountPaise = booking.securityDepositPaise,
+                        masked = !canViewAmounts,
+                    )
+                }
                 AmountRow(
-                    labelRes = R.string.booking_card_deposit_label,
-                    amountPaise = booking.securityDepositPaise,
+                    labelRes = R.string.booking_card_paid_label,
+                    amountPaise = detail.paidPaise,
+                    tone = AmountTone.MONEY_IN,
                     masked = !canViewAmounts,
                 )
-            }
-            AmountRow(
-                labelRes = R.string.booking_card_paid_label,
-                amountPaise = detail.paidPaise,
-                tone = AmountTone.MONEY_IN,
-                masked = !canViewAmounts,
-            )
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(R.string.booking_card_due_label),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                // Due: auto-calculated, bold, red when > 0 (§4.1).
-                AmountText(
-                    amountPaise = detail.duePaise,
-                    tone = if (detail.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    masked = !canViewAmounts,
-                )
-            }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.booking_card_due_label),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // Due: auto-calculated, bold, red when > 0 (§4.1).
+                    AmountText(
+                        amountPaise = detail.duePaise,
+                        tone = if (detail.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        masked = !canViewAmounts,
+                    )
+                }
 
-            HorizontalDivider()
-            Text(text = stringResource(R.string.booking_card_payments_title), style = MaterialTheme.typography.titleSmall)
-            if (detail.payments.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.booking_card_no_payments),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                detail.payments.forEach { payment ->
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "${formatDate(payment.paidOn)} · ${paymentMethodLabel(payment.method)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN, masked = !canViewAmounts)
+                HorizontalDivider()
+                Text(text = stringResource(R.string.booking_card_payments_title), style = MaterialTheme.typography.titleSmall)
+                if (detail.payments.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.booking_card_no_payments),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    detail.payments.forEach { payment ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "${formatDate(payment.paidOn)} · ${paymentMethodLabel(payment.method)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN, masked = !canViewAmounts)
+                        }
                     }
                 }
             }
@@ -223,25 +228,29 @@ internal fun BookingCardSheet(
                 if (canEdit) {
                     ExplainableIcon(icon = Icons.Filled.Edit, explanationRes = R.string.common_action_edit, onClick = onEdit)
                 }
-                if (canRecordPayment) {
+                if (canRecordPayment && !detail.isMarker) {
                     ExplainableIcon(
                         icon = Icons.Filled.CurrencyRupee,
                         explanationRes = R.string.booking_card_action_record_payment,
                         onClick = onRecordPayment,
                     )
                 }
-                if (canInvoice) {
+                if (canInvoice && !detail.isMarker) {
                     ExplainableIcon(
                         icon = Icons.Filled.Print,
                         explanationRes = R.string.booking_card_action_invoice,
                         onClick = { invoiceChooser = true },
                     )
                 }
-                ExplainableIcon(
-                    icon = Icons.Filled.Share,
-                    explanationRes = R.string.booking_card_action_whatsapp,
-                    onClick = onWhatsApp,
-                )
+                // The share action is specifically a payment REMINDER text (due amount
+                // included), so markers — which have no dues — drop it too (ADR-044).
+                if (!detail.isMarker) {
+                    ExplainableIcon(
+                        icon = Icons.Filled.Share,
+                        explanationRes = R.string.booking_card_action_whatsapp,
+                        onClick = onWhatsApp,
+                    )
+                }
             }
             if (canDelete) {
                 TextButton(onClick = { confirmCancel = true }) {

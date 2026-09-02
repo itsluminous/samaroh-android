@@ -185,6 +185,18 @@ class FakeFormFieldPrefs(
     override val visibility: Flow<BookingFormFieldVisibility> = state
 }
 
+/** In-memory "POST_NOTIFICATIONS dialog fired once" flag (ADR-044 form-open gate). */
+class FakeNotificationPromptPrefs(
+    initial: Boolean = false,
+) : com.itsluminous.samaroh.feature.booking.reminders.NotificationPromptPrefs {
+    val state = MutableStateFlow(initial)
+    override val requestedBefore: Flow<Boolean> = state
+
+    override suspend fun markRequested() {
+        state.value = true
+    }
+}
+
 /** In-memory booking-calendar appearance prefs. */
 class FakeBookingCalendarPrefs(
     initial: Float = DataStoreBookingCalendarPrefs.DEFAULT_ICON_WATERMARK_ALPHA,

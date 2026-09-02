@@ -5,6 +5,7 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
@@ -21,6 +22,7 @@ import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeInvoiceGenerator
 import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
 import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
+import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -457,6 +459,86 @@ class BookingCalendarViewModelTest {
                 val detail = awaitItemMatching { it != null }
                 // Null → the UI shows the localized "a member" fallback.
                 assertThat(detail?.creatorName).isNull()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- marker bookings carry no payment surface (ADR-041/ADR-044) ----
+
+    private fun withMarkerPreset() {
+        eventTypeRepository.presetsFlow.value =
+            seededPresetFixtures() + presetFixture("Lagan", icon = "\uD83C\uDF1F", sortOrder = 9, kind = EventTypeKind.MARKER)
+    }
+
+    @Test
+    fun `marker bookings are excluded from the month summary`() =
+        runTest {
+            withMarkerPreset()
+            val real = Fixtures.booking(id = "b-real", startDate = LocalDate.of(2026, 8, 28))
+            // Edge-case marker WITH money (older client / preset flipped later): still excluded.
+            val marker =
+                Fixtures.booking(
+                    id = "b-marker",
+                    startDate = LocalDate.of(2026, 8, 20),
+                    eventType = "Lagan",
+                    totalAmountPaise = 1_00_000_00L,
+                )
+            repository.bookings.value = listOf(real, marker)
+            repository.payments.value =
+                listOf(
+                    Fixtures.payment(real.id, amountPaise = 50_000_00L),
+                    Fixtures.payment(marker.id, amountPaise = 10_000_00L),
+                )
+
+            viewModel().uiState.test {
+                val state = awaitItemMatching { it.loaded && it.grid != null }
+                // Only the real booking counts: received ₹50,000, pending ₹1,50,000.
+                assertThat(state.receivedPaise).isEqualTo(50_000_00L)
+                assertThat(state.pendingPaise).isEqualTo(1_50_000_00L)
+                // The marker still shows in the agenda — it IS an event.
+                assertThat(state.agenda.map { it.booking.id }).containsExactly(real.id, marker.id)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `booking card detail flags marker bookings`() =
+        runTest {
+            withMarkerPreset()
+            val marker = Fixtures.booking(id = "b-marker", startDate = LocalDate.of(2026, 8, 28), eventType = "Lagan")
+            val real = Fixtures.booking(id = "b-real", startDate = LocalDate.of(2026, 8, 29))
+            repository.bookings.value = listOf(marker, real)
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-marker")
+                // Interim emissions may resolve against a not-yet-loaded preset list —
+                // await the eventual marker-flagged detail (turbine times out otherwise).
+                assertThat(awaitItemMatching { it != null && it.isMarker }?.booking?.id).isEqualTo("b-marker")
+                vm.openBooking("b-real")
+                assertThat(awaitItemMatching { it != null && it.booking.id == "b-real" }?.isMarker).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `pending payment confirmations skip marker bookings`() =
+        runTest {
+            withMarkerPreset()
+            val marker =
+                Fixtures.booking(
+                    id = "b-marker",
+                    startDate = LocalDate.of(2026, 8, 20),
+                    eventType = "Lagan",
+                    totalAmountPaise = 1_00_000_00L,
+                )
+            repository.bookings.value = listOf(marker)
+            repository.reminders.value = listOf(pendingReminder(marker.id))
+
+            viewModel().uiState.test {
+                val state = awaitItemMatching { it.loaded && it.grid != null }
+                assertThat(state.pendingConfirmations).isEmpty()
                 cancelAndIgnoreRemainingEvents()
             }
         }

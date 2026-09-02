@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.EventTypeKinds
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
@@ -21,6 +22,8 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypePresets
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
+import com.itsluminous.samaroh.feature.booking.reminders.NotificationPromptPrefs
+import com.itsluminous.samaroh.feature.booking.reminders.requestedBeforeOnce
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -130,6 +133,15 @@ data class BookingFormState(
     val pickerPresets: List<EventType>
         get() = presets.filterNot { EventTypePresets.normalize(it.label) == BuiltInEventType.CUSTOM_KEY }
 
+    /**
+     * Whether the CURRENT selection resolves to a MARKER-kind preset (ADR-041/ADR-044).
+     * Markers have no money: the form hides Total/Deposit/Advance/Due while this is true
+     * (the typed texts stay in state, so switching the type back restores them) and a
+     * save forces all amounts to 0. Resolution is the same normalized-label matching the
+     * card/summary/reports use, so a free-text label matching a marker preset counts too.
+     */
+    val isMarkerType: Boolean get() = EventTypeKinds.isMarker(presets, effectiveEventType.first)
+
     /** The label + icon a save would record right now (snapshot semantics, ADR-032). */
     val effectiveEventType: Pair<String, String>
         get() =
@@ -172,6 +184,7 @@ class BookingFormViewModel
         val bookingColorsProvider: BookingColorCatalog,
         private val syncScheduler: SyncScheduler,
         fieldPrefs: BookingFormFieldPrefs,
+        private val notificationPromptPrefs: NotificationPromptPrefs,
         private val clock: Clock,
     ) : ViewModel() {
         private val editBookingId: String? = savedStateHandle.get<String?>("bookingId")?.ifBlank { null }
@@ -323,6 +336,16 @@ class BookingFormViewModel
 
         fun dismissBlocker() = _state.update { it.copy(blocker = null) }
 
+        // ---- contextual notification permission (ADR-043, form-open gating ADR-044) ----
+
+        /** Whether the POST_NOTIFICATIONS dialog was ever fired by this app (gate input). */
+        suspend fun notificationPromptRequestedBefore(): Boolean = notificationPromptPrefs.requestedBeforeOnce()
+
+        /** Records that the dialog fired — permanently-denied users are never re-nagged. */
+        fun markNotificationPromptRequested() {
+            viewModelScope.launch { notificationPromptPrefs.markRequested() }
+        }
+
         // ---- save pipeline (§4.1): validate → blocked dates → conflict warning → persist ----
 
         fun save() {
@@ -425,6 +448,12 @@ class BookingFormViewModel
             // recorded on the booking; later preset edits never rewrite it.
             val (eventTypeValue, eventIcon) = form.effectiveEventType
 
+            // Markers have no money (ADR-041/ADR-044): whatever the (hidden) amount
+            // fields still hold is forced to 0 on save, and no advance payment row is
+            // created. The form TEXTS are untouched, so flipping the type back before
+            // another save restores the typed values.
+            val marker = form.isMarkerType
+
             val base = editing
             val booking =
                 Booking(
@@ -438,8 +467,8 @@ class BookingFormViewModel
                     endDate = form.endDate,
                     startTime = form.startTime,
                     endTime = form.endTime,
-                    totalAmountPaise = form.totalAmountPaise,
-                    securityDepositPaise = form.securityDepositPaise,
+                    totalAmountPaise = if (marker) 0L else form.totalAmountPaise,
+                    securityDepositPaise = if (marker) 0L else form.securityDepositPaise,
                     source = form.source,
                     notes = form.notes.trim().ifBlank { null },
                     status = form.status,
@@ -457,7 +486,7 @@ class BookingFormViewModel
             bookingRepository.saveBooking(booking)
 
             // The advance is simply the FIRST payment row, dated today (§2, §4.1).
-            if (base == null && form.advancePaise > 0) {
+            if (base == null && !marker && form.advancePaise > 0) {
                 bookingRepository.recordPayment(
                     BookingPayment(
                         id = UUID.randomUUID().toString(),

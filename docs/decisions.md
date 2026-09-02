@@ -1315,3 +1315,59 @@ actually worked.
    states re-read on every resume so returning from Settings refreshes immediately.
 3. **No behaviour change for denied users** — notification posting keeps its silent
    no-op guards; the in-app cards remain the reliable path (§4.1).
+
+## ADR-044 — Markers carry no payment surface; form-open notification recheck (2026-09-02)
+
+**Status:** accepted.
+
+**Context.** ADR-041 made marker-kind presets (Lagan, Tilak) first-class, but marker
+BOOKINGS still rendered the full payment surface: the card showed Total/Paid/Due ₹0
+rows, record-payment/invoice actions, the form offered amount fields, and — in edge
+cases where a marker row carried money (preset flipped to marker after creation, or a
+row from an older client) — the month summary counted it and the reminder engine could
+create payment reminders for it. Separately, ADR-043's contextual POST_NOTIFICATIONS
+request fired only AFTER saving a booking, so a user who opened the form but had
+notifications disabled learned nothing until the save moment.
+
+**Decision.**
+1. **Card.** `BookingDetail` gains `isMarker` (resolved via `EventTypeKinds.isMarker`
+   against the live presets, same normalized-label contract as everywhere). A marker
+   card hides Total/Deposit/Paid/Due, the payment-history section, and the
+   record-payment, invoice AND WhatsApp actions — the share text is specifically a
+   payment REMINDER quoting the due, meaningless for a marker. Customer, dates, status
+   chip, audit line, edit and cancel remain.
+2. **Summary + confirmations.** The month summary's Received/Pending exclude marker
+   bookings (and their payments) entirely; the pending-payment-confirmations card
+   filters marker bookings too (belt — see 4).
+3. **Form.** `BookingFormState.isMarkerType` (live, from the current selection —
+   including a free-text label that normalizes onto a marker preset). While true the
+   form hides Total amount / Security deposit / Advance / auto-Due; invoice number,
+   source, colour, notes, dates, customer and status STAY (the owner's complaint was
+   amounts; an invoice number or source may still be meaningful bookkeeping). Hidden
+   fields keep their typed text — switching the type back restores the values; only a
+   SAVE with a marker selected forces `total`/`deposit` to 0 and skips the advance
+   payment row.
+4. **Reminder engine.** Marker bookings are filtered OUT of payment planning
+   (`bookingsEndedBefore` minus markers) and `PaymentReminderPlanner.staleDismissals`
+   gains an `isMarker` predicate, so a pending payment reminder whose booking now
+   resolves to a marker is dismissed on the next daily/post-sync pass. UPCOMING-event
+   reminders still fire for markers — a Lagan day is exactly the kind of event the
+   owner wants to be reminded of. Agenda/events rows never had a payment chip (they
+   show the booking STATUS), and money reports aggregate amounts/payments that markers
+   don't have (ADR-041 §7) — both verified, no change.
+5. **Notification recheck on form OPEN (moves ADR-043's request point).** Opening the
+   add/edit form re-checks POST_NOTIFICATIONS via the pure, unit-tested
+   `NotificationPermissionGate`: prompt when API 33+, notifications disabled, and
+   (never requested before OR `shouldShowRequestPermissionRationale` is true — i.e. a
+   system dialog can still actually appear). A per-device "requested once" flag
+   (`booking_notification_permission_requested`, shared settings DataStore via
+   `NotificationPromptPrefs`) disambiguates Android's tri-state rationale: requested
+   before + no rationale = permanently denied → stay silent forever; the Settings →
+   Booking reminders status rows (ADR-043 §2) remain that user's fix path. The
+   post-save request is REMOVED (the same form was just open — asking twice in one
+   flow is the nagging §6 forbids).
+
+**Consequences.** A marker with legacy money keeps its payment rows in Room (nothing is
+deleted); they are simply invisible and uncounted until the type changes back — then
+everything reappears, mirroring ADR-041's "the preset is the single source of kind
+truth". Web should mirror the same card/summary/reminder exclusions.

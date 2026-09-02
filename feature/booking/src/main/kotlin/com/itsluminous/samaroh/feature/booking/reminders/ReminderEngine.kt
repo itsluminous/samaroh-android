@@ -3,7 +3,9 @@ package com.itsluminous.samaroh.feature.booking.reminders
 import android.content.Context
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.model.Booking
+import com.itsluminous.samaroh.core.model.EventTypeKinds
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
@@ -34,6 +36,7 @@ class ReminderEngine
         @ApplicationContext private val context: Context,
         private val bookingRepository: BookingRepository,
         private val businessRepository: BusinessRepository,
+        private val eventTypeRepository: EventTypeRepository,
         private val eventTypes: EventTypeCatalog,
         private val notifier: BookingNotifier,
         private val prefs: BookingReminderPrefs,
@@ -53,7 +56,14 @@ class ReminderEngine
             businessId: String,
             today: LocalDate,
         ) {
-            val ended = bookingRepository.bookingsEndedBefore(businessId, today)
+            // Marker bookings (ADR-041/ADR-044) never enter payment planning: they have
+            // no money by construction (the form forces 0 amounts), and even an edge-case
+            // amount (preset flipped to marker later, row synced from an older client)
+            // must not produce a payment reminder. Upcoming-event reminders still fire —
+            // a marker IS an event worth being reminded of.
+            val presets = eventTypeRepository.presetsOnce(businessId)
+            val isMarker = { booking: Booking -> EventTypeKinds.isMarker(presets, booking.eventType) }
+            val ended = bookingRepository.bookingsEndedBefore(businessId, today).filterNot(isMarker)
             val dueByBooking =
                 ended.associate { it.id to DueCalculator.duePaise(it, bookingRepository.totalPaidPaise(it.id)) }.toMutableMap()
             // Follow-up rows (ADR-020) never participate in payment planning.
@@ -92,7 +102,7 @@ class ReminderEngine
                     dueByBooking[booking.id] = DueCalculator.duePaise(booking, bookingRepository.totalPaidPaise(booking.id))
                 }
             }
-            val stale = PaymentReminderPlanner.staleDismissals(duePending, bookingById, dueByBooking)
+            val stale = PaymentReminderPlanner.staleDismissals(duePending, bookingById, dueByBooking, isMarker)
             (plan.toDismiss + stale).distinctBy { it.id }.forEach { dismiss(it) }
 
             for (reminder in plan.toNotify) {

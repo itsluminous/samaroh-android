@@ -46,11 +46,12 @@ object Fixtures {
         status: BookingStatus = BookingStatus.CONFIRMED,
         totalAmountPaise: Long = 2_00_000_00L,
         securityDepositPaise: Long = 0L,
+        eventType: String = "wedding",
     ): Booking =
         Booking(
             id = id,
             businessId = businessId,
-            eventType = "wedding",
+            eventType = eventType,
             eventIcon = "\uD83D\uDC92",
             customerName = "fixture-customer",
             startDate = startDate,

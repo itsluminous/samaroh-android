@@ -6,6 +6,7 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.DateBlock
+import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -16,8 +17,10 @@ import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeFormFieldPrefs
+import com.itsluminous.samaroh.feature.booking.FakeNotificationPromptPrefs
 import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
+import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -43,6 +46,7 @@ class BookingFormViewModelTest {
     private val syncScheduler = RecordingSyncScheduler()
     private val actorProvider = FakeActorProvider()
     private val fieldPrefs = FakeFormFieldPrefs()
+    private val notificationPromptPrefs = FakeNotificationPromptPrefs()
 
     private fun viewModel(
         bookingId: String? = null,
@@ -56,6 +60,7 @@ class BookingFormViewModelTest {
         bookingColorsProvider = FakeBookingColorCatalog(),
         syncScheduler = syncScheduler,
         fieldPrefs = fieldPrefs,
+        notificationPromptPrefs = notificationPromptPrefs,
         clock = clock,
     )
 
@@ -477,6 +482,75 @@ class BookingFormViewModelTest {
                         .single()
                         .securityDepositPaise,
                 ).isEqualTo(25_000_00L)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- marker event types (ADR-041/ADR-044) ----
+
+    private fun markerPreset() = presetFixture("Lagan", icon = "\uD83C\uDF1F", sortOrder = 9, kind = EventTypeKind.MARKER)
+
+    @Test
+    fun `switching to a marker type flips isMarkerType and preserves typed amounts`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value = seededPresetFixtures() + markerPreset()
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setTotalAmount("5000")
+                vm.setAdvance("1000")
+                assertThat(vm.state.value.isMarkerType).isFalse()
+
+                vm.setEventType(EventTypeChoice.Preset(markerPreset()))
+                val marker = awaitItemMatching { it.isMarkerType }
+                // The hidden fields keep their text — switching back restores them.
+                assertThat(marker.totalAmountText).isEqualTo("5000")
+                assertThat(marker.advanceText).isEqualTo("1000")
+
+                vm.setEventType(EventTypeChoice.Preset(seededPresetFixtures().first()))
+                val restored = awaitItemMatching { !it.isMarkerType }
+                assertThat(restored.totalAmountText).isEqualTo("5000")
+                assertThat(restored.advanceText).isEqualTo("1000")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `saving a marker type forces amounts to zero and records no advance payment`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value = seededPresetFixtures() + markerPreset()
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Lagan")
+                // Typed BEFORE switching to the marker type — must not leak into the row.
+                vm.setTotalAmount("5000")
+                vm.setSecurityDeposit("500")
+                vm.setAdvance("1000")
+                vm.setEventType(EventTypeChoice.Preset(markerPreset()))
+
+                vm.save()
+                awaitItemMatching { it.saved }
+
+                val saved = repository.bookings.value.single()
+                assertThat(saved.eventType).isEqualTo("Lagan")
+                assertThat(saved.totalAmountPaise).isEqualTo(0L)
+                assertThat(saved.securityDepositPaise).isEqualTo(0L)
+                assertThat(repository.payments.value).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `free text label matching a marker preset is treated as a marker too`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value = seededPresetFixtures() + markerPreset()
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setEventType(EventTypeChoice.Custom)
+                vm.setCustomLabel("lagan")
+                assertThat(awaitItemMatching { it.customLabel == "lagan" }.isMarkerType).isTrue()
                 cancelAndIgnoreRemainingEvents()
             }
         }

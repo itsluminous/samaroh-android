@@ -237,4 +237,22 @@ class PaymentReminderPlannerTest {
             )
         assertThat(dismissals).isEmpty()
     }
+
+    @Test
+    fun `stale pass dismisses reminders of marker bookings even with due remaining`() {
+        // ADR-041/ADR-044: a marker booking never justifies a payment reminder — even
+        // an edge-case row with money (preset flipped to marker after creation).
+        val marker = Fixtures.booking(id = "marker-booking", startDate = today.minusDays(3), endDate = today.minusDays(2))
+        val real = Fixtures.booking(id = "real-booking", startDate = today.minusDays(3), endDate = today.minusDays(2))
+        val markerReminder = reminder(marker.id, today.minusDays(1))
+        val realReminder = reminder(real.id, today.minusDays(1))
+        val dismissals =
+            PaymentReminderPlanner.staleDismissals(
+                duePendingReminders = listOf(markerReminder, realReminder),
+                bookingById = mapOf(marker.id to marker, real.id to real),
+                duePaiseByBooking = mapOf(marker.id to 5_000_00L, real.id to 5_000_00L),
+                isMarker = { it.id == marker.id },
+            )
+        assertThat(dismissals).containsExactly(markerReminder)
+    }
 }
