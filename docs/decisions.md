@@ -1262,3 +1262,24 @@ markers). This ADR wires the Android side end-to-end; it touches the frozen cont
 ignore the column (defaulted decode; Room untouched pre-migration). Deleting a marker
 preset makes its old bookings count again — acceptable: the preset is the single source
 of kind truth, mirroring how recolouring works.
+
+## ADR-042 — Menu tab is a nested nav graph (bottom-bar highlight fix) (2026-09-02)
+
+**Status:** accepted.
+
+**What.** The bottom bar's selected state already used `currentDestination.hierarchy`
+matching, but Reports and the app-bar Sync-status screen were registered as ROOT-level
+destinations (siblings of the four tabs), so their hierarchy contained no tab route and
+NO tab highlighted while on them. Fix: the Menu tab is now a `navigation()` graph
+(`MENU_TAB_ROUTE`, start destination `MENU_ROUTE`) containing `menuGraph` + `reportsGraph`
++ `syncStatusGraph`; `NavPermissions`/`MainViewModel`/App-Link routing use the graph
+route (navigating to a graph route lands on its start destination, and the §3
+first-visible-tab / revocation redirects work unchanged). Selection is extracted into
+the pure `NavTabSelection.selectedTab(hierarchyRoutes, tabRoutes)` (unit-tested) used by
+both the bar and the permission-revocation currentTab probe. The other three tabs need
+no graph: their subscreens live in feature-internal NavHosts, so the root destination —
+and therefore the hierarchy match — never changes there; the Menu tab's own nested
+NavHost subscreens (Settings/Members/About) were likewise already covered.
+
+**Consequence.** Opening Sync status from the app-bar cloud icon on any tab now
+highlights Menu — correct: it IS a Menu subscreen, and back returns to the previous tab.

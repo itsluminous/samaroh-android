@@ -44,6 +44,7 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.applink.AppLink
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
@@ -79,7 +80,9 @@ private val topLevelDestinations =
         TopLevelDestination(BOOKING_ROUTE, R.string.common_nav_booking, Icons.Filled.CalendarMonth),
         TopLevelDestination(EXPENSES_ROUTE, R.string.common_nav_expenses, Icons.Filled.AccountBalanceWallet),
         TopLevelDestination(INVENTORY_ROUTE, R.string.common_nav_inventory, Icons.Filled.Inventory2),
-        TopLevelDestination(MENU_ROUTE, R.string.common_nav_menu, Icons.Filled.Menu),
+        // The Menu tab is a nested GRAPH (ADR-042): its root subscreens (Reports, Sync
+        // status) stay inside it so hierarchy matching keeps the tab highlighted there.
+        TopLevelDestination(MENU_TAB_ROUTE, R.string.common_nav_menu, Icons.Filled.Menu),
     )
 
 /**
@@ -130,12 +133,14 @@ fun SamarohApp(
 
     // Tab-level §3 gate, reactive leg: when a sync recompute revokes the module the user
     // is currently ON (or the saved start tab is no longer viewable), move to the first
-    // visible tab. Non-tab destinations (Reports, Sync status) are left alone.
-    val currentTab =
+    // visible tab. Hierarchy matching (ADR-042) covers nested subscreens too.
+    val hierarchyRoutes =
         currentDestination
             ?.hierarchy
             ?.mapNotNull { it.route }
-            ?.firstOrNull { it in NavPermissions.allTabRoutes }
+            ?.toList()
+            .orEmpty()
+    val currentTab = NavTabSelection.selectedTab(hierarchyRoutes)
     LaunchedEffect(visibleTabs, currentTab) {
         if (currentTab != null && currentTab !in visibleTabs) {
             navController.navigate(visibleTabs.first()) {
@@ -168,7 +173,7 @@ fun SamarohApp(
                     AppLink.Booking -> BOOKING_ROUTE
                     is AppLink.Expenses -> EXPENSES_ROUTE
                     is AppLink.Inventory -> INVENTORY_ROUTE
-                    is AppLink.Menu, AppLink.Reports -> MENU_ROUTE
+                    is AppLink.Menu, AppLink.Reports -> MENU_TAB_ROUTE
                 }
             navController.navigate(tabRoute) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -215,7 +220,9 @@ fun SamarohApp(
                     topLevelDestinations.filter { it.route in visibleTabs }.forEach { destination ->
                         val label = stringResource(destination.labelRes)
                         NavigationBarItem(
-                            selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true,
+                            // Hierarchy-based selection (ADR-042): the tab highlights on
+                            // every destination nested under it, not just its own route.
+                            selected = currentTab == destination.route,
                             onClick = {
                                 navController.navigate(destination.route) {
                                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -276,20 +283,27 @@ fun SamarohApp(
                     openMasterlist = (pendingAppLink as? AppLink.Inventory)?.masterlist == true,
                     onMasterlistDeepLinkConsumed = onAppLinkConsumed,
                 )
-                menuGraph(
-                    onOpenReports = { navController.navigate(REPORTS_ROUTE) },
-                    openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
-                    onSettingsDeepLinkConsumed = onAppLinkConsumed,
-                    // Sign-out (ADR-040): session dropped + local data wiped — land on the
-                    // onboarding SIGN-IN step (language already chosen) with the whole
-                    // back stack cleared so back cannot return to the signed-in UI.
-                    onSignedOut = {
-                        navController.navigate(ONBOARDING_SIGN_IN_ROUTE) {
-                            popUpTo(0) { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    },
-                )
+                // Menu TAB graph (ADR-042): the Menu screens PLUS its root-level
+                // subscreens (Reports, Sync status) nest under one graph route so the
+                // bottom bar's hierarchy matching keeps the Menu tab highlighted there.
+                navigation(route = MENU_TAB_ROUTE, startDestination = MENU_ROUTE) {
+                    menuGraph(
+                        onOpenReports = { navController.navigate(REPORTS_ROUTE) },
+                        openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
+                        onSettingsDeepLinkConsumed = onAppLinkConsumed,
+                        // Sign-out (ADR-040): session dropped + local data wiped — land on the
+                        // onboarding SIGN-IN step (language already chosen) with the whole
+                        // back stack cleared so back cannot return to the signed-in UI.
+                        onSignedOut = {
+                            navController.navigate(ONBOARDING_SIGN_IN_ROUTE) {
+                                popUpTo(0) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                    reportsGraph()
+                    syncStatusGraph(onBack = { navController.popBackStack() })
+                }
                 onboardingGraph(
                     onOnboardingComplete = {
                         viewModel.completeOnboarding()
@@ -300,8 +314,6 @@ fun SamarohApp(
                     },
                     onConnectGoogle = { viewModel.connectGoogle(activityContext) },
                 )
-                reportsGraph()
-                syncStatusGraph(onBack = { navController.popBackStack() })
             }
         }
     }

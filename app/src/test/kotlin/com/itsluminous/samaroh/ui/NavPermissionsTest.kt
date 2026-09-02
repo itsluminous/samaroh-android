@@ -8,7 +8,6 @@ import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.expenses.EXPENSES_ROUTE
 import com.itsluminous.samaroh.feature.inventory.INVENTORY_ROUTE
-import com.itsluminous.samaroh.feature.menu.MENU_ROUTE
 import org.junit.Test
 
 /** Tab-level §3 gate: bottom-nav tabs by member `view` permissions; Menu always stays. */
@@ -16,19 +15,19 @@ class NavPermissionsTest {
     @Test
     fun `owner sees all four tabs regardless of the permission object`() {
         val tabs = NavPermissions.visibleTabRoutes(isOwner = true, permissions = MemberPermissions())
-        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
     fun `member with no permissions still gets the Menu tab`() {
         val tabs = NavPermissions.visibleTabRoutes(isOwner = false, permissions = MemberPermissions())
-        assertThat(tabs).containsExactly(MENU_ROUTE)
+        assertThat(tabs).containsExactly(MENU_TAB_ROUTE)
     }
 
     @Test
     fun `viewer preset keeps booking expenses inventory and menu`() {
         val tabs = NavPermissions.visibleTabRoutes(isOwner = false, permissions = MemberPermissions.viewer())
-        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -42,7 +41,7 @@ class NavPermissionsTest {
                         inventory = InventoryPermissions(view = true),
                     ),
             )
-        assertThat(tabs).containsExactly(EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -56,7 +55,7 @@ class NavPermissionsTest {
                         inventory = InventoryPermissions(view = true),
                     ),
             )
-        assertThat(tabs).containsExactly(BOOKING_ROUTE, INVENTORY_ROUTE, MENU_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -70,7 +69,7 @@ class NavPermissionsTest {
                         expenses = ExpensesPermissions(view = true),
                     ),
             )
-        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, MENU_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -81,13 +80,13 @@ class NavPermissionsTest {
                 isOwner = false,
                 permissions = MemberPermissions(booking = BookingPermissions(create = true)),
             )
-        assertThat(tabs).containsExactly(MENU_ROUTE)
+        assertThat(tabs).containsExactly(MENU_TAB_ROUTE)
     }
 
     @Test
     fun `first visible tab exists even with nothing granted`() {
         val tabs = NavPermissions.visibleTabRoutes(isOwner = false, permissions = MemberPermissions())
         assertThat(tabs).isNotEmpty()
-        assertThat(tabs.first()).isEqualTo(MENU_ROUTE)
+        assertThat(tabs.first()).isEqualTo(MENU_TAB_ROUTE)
     }
 }
