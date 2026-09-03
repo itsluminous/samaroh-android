@@ -44,17 +44,21 @@ class ReminderEngine
     ) {
         suspend fun runDailyPass() {
             val today = LocalDate.now(clock)
+            // Style/sound resolved ONCE at fire time and honored by EVERY reminder kind
+            // (ADR-045) — payment, follow-up and upcoming alike.
+            val settings = prefs.current()
             val businesses = businessRepository.businesses().first().filter { it.deletedAt == null }
             for (business in businesses) {
-                runPaymentReminders(business.id, today)
-                runFollowUpReminders(business.id, today)
-                runUpcomingReminders(business.id, today)
+                runPaymentReminders(business.id, today, settings)
+                runFollowUpReminders(business.id, today, settings)
+                runUpcomingReminders(business.id, today, settings)
             }
         }
 
         private suspend fun runPaymentReminders(
             businessId: String,
             today: LocalDate,
+            settings: UpcomingReminderPrefs,
         ) {
             // Marker bookings (ADR-041/ADR-044) never enter payment planning: they have
             // no money by construction (the form forces 0 amounts), and even an edge-case
@@ -112,6 +116,8 @@ class ReminderEngine
                     booking = booking,
                     eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
                     duePaise = dueByBooking[booking.id] ?: reminder.amountDueSnapshotPaise,
+                    style = settings.style,
+                    soundUri = settings.soundUri,
                 )
             }
         }
@@ -124,6 +130,7 @@ class ReminderEngine
         private suspend fun runFollowUpReminders(
             businessId: String,
             today: LocalDate,
+            settings: UpcomingReminderPrefs,
         ) {
             val dueFollowUps =
                 bookingRepository
@@ -139,6 +146,8 @@ class ReminderEngine
                     reminder = reminder,
                     booking = checkNotNull(booking),
                     eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
+                    style = settings.style,
+                    soundUri = settings.soundUri,
                 )
             }
         }
@@ -153,8 +162,8 @@ class ReminderEngine
         private suspend fun runUpcomingReminders(
             businessId: String,
             today: LocalDate,
+            settings: UpcomingReminderPrefs,
         ) {
-            val settings = prefs.current()
             val dates = UpcomingReminderPlanner.reminderDates(today, settings.leadDays)
             val bookingsByDaysAway =
                 dates.mapValues { (_, date) -> bookingRepository.bookingsStartingOn(businessId, date) }
@@ -165,7 +174,7 @@ class ReminderEngine
                 val label = eventTypes.labelFor(booking.eventType, context::getString)
                 val title = "${booking.displayIcon} $label - ${booking.customerName}"
                 when (settings.style) {
-                    ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking, title, upcoming.daysAway)
+                    ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking.id, title, upcoming.daysAway)
                     ReminderStyle.FULLSCREEN ->
                         UpcomingReminderAlarmReceiver.scheduleExact(
                             context = context,

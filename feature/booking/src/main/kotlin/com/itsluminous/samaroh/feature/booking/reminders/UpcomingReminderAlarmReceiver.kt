@@ -47,9 +47,8 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
         const val EXTRA_SOUND_URI = "sound_uri"
 
         /**
-         * Schedules the exact wake-up. When exact alarms are not permitted (user can
-         * revoke SCHEDULE_EXACT_ALARM on Android 12+), falls back to an inexact alarm —
-         * reminders degrade, never crash (§6).
+         * Schedules the exact wake-up for the daily pass. The pass runs at 09:00; the
+         * popup fires right at the pass's run time (or ~now when the pass ran late).
          */
         fun scheduleExact(
             context: Context,
@@ -58,6 +57,34 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             daysAway: Int,
             soundUri: String?,
             clock: Clock,
+        ) {
+            val triggerAt =
+                ZonedDateTime
+                    .now(clock)
+                    .toLocalDate()
+                    .atTime(UpcomingReminderPlanner.DAILY_RUN_TIME)
+                    .atZone(clock.zone)
+                    .toInstant()
+                    .toEpochMilli()
+                    .coerceAtLeast(System.currentTimeMillis() + 1_000)
+            scheduleExactAt(context, bookingId, title, daysAway, soundUri, triggerAt)
+        }
+
+        /**
+         * Schedules the exact wake-up at an explicit time — the production posting
+         * path behind [scheduleExact], also used by the Settings Test button (ADR-045)
+         * so the sample popup travels the IDENTICAL AlarmManager → receiver →
+         * full-screen-notification pipeline. When exact alarms are not permitted
+         * (user can revoke SCHEDULE_EXACT_ALARM on Android 12+), falls back to an
+         * inexact alarm — reminders degrade, never crash (§6).
+         */
+        fun scheduleExactAt(
+            context: Context,
+            bookingId: String,
+            title: String,
+            daysAway: Int,
+            soundUri: String?,
+            triggerAtMillis: Long,
         ) {
             val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
             val intent =
@@ -74,21 +101,11 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
                     intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
-            // The daily pass runs at 09:00; the popup fires right at the pass's run time.
-            val triggerAt =
-                ZonedDateTime
-                    .now(clock)
-                    .toLocalDate()
-                    .atTime(UpcomingReminderPlanner.DAILY_RUN_TIME)
-                    .atZone(clock.zone)
-                    .toInstant()
-                    .toEpochMilli()
-                    .coerceAtLeast(System.currentTimeMillis() + 1_000)
             val canExact = Build.VERSION.SDK_INT < 31 || alarmManager.canScheduleExactAlarms()
             if (canExact) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
             } else {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
             }
         }
     }

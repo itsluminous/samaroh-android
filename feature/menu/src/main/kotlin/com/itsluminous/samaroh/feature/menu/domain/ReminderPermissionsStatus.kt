@@ -59,4 +59,17 @@ object ReminderPermissionsStatus {
         sdkInt: Int,
         notificationsEnabled: Boolean,
     ): Boolean = sdkInt >= 33 && !notificationsEnabled
+
+    /**
+     * Whether the Test button must show the fix-it prompt INSTEAD of firing (ADR-045):
+     * the full-screen style is selected but the Android 14+ full-screen-intent grant is
+     * off, so the OS would silently demote the popup to a plain notification — a test
+     * that quietly lies is worse than none. Below API 34 the grant does not exist and
+     * the test always fires.
+     */
+    fun blocksFullScreenTest(
+        sdkInt: Int,
+        style: ReminderStyle,
+        canUseFullScreenIntent: Boolean,
+    ): Boolean = style == ReminderStyle.FULLSCREEN && sdkInt >= 34 && !canUseFullScreenIntent
 }

@@ -13,12 +13,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -31,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -59,6 +68,7 @@ fun ReminderSettingsScreen(
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showCustomDialog by rememberSaveable { mutableStateOf(false) }
+    var showFsiBlockedDialog by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     // System permission states (ADR-043): re-read on resume so returning from the
@@ -131,11 +141,36 @@ fun ReminderSettingsScreen(
         }
         HorizontalDivider(modifier = Modifier.padding(top = 16.dp))
 
-        Text(
-            text = stringResource(R.string.settings_reminders_style_title),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(16.dp),
-        )
+        // Style selector + Test (ADR-045): the button fires a sample reminder through
+        // the REAL pipeline with the chosen style + sound. If the full-screen style is
+        // selected but the Android 14+ grant is off, the fix-it dialog appears instead —
+        // never a silently demoted test.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.settings_reminders_style_title),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+                onClick = {
+                    if (ReminderPermissionsStatus.blocksFullScreenTest(
+                            sdkInt = Build.VERSION.SDK_INT,
+                            style = current.reminderStyle,
+                            canUseFullScreenIntent = canUseFullScreenIntent,
+                        )
+                    ) {
+                        showFsiBlockedDialog = true
+                    } else {
+                        viewModel.fireTestReminder()
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.settings_reminders_test_button))
+            }
+        }
         StyleRow(
             labelRes = R.string.settings_reminders_style_notification,
             selected = current.reminderStyle == ReminderStyle.NOTIFICATION,
@@ -144,6 +179,14 @@ fun ReminderSettingsScreen(
             labelRes = R.string.settings_reminders_style_fullscreen,
             selected = current.reminderStyle == ReminderStyle.FULLSCREEN,
         ) { viewModel.setStyle(ReminderStyle.FULLSCREEN) }
+        // Expectation-setting (Android design, not a bug): screen on → heads-up banner;
+        // screen off/locked → the popup takes over.
+        Text(
+            text = stringResource(R.string.settings_reminders_style_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp),
+        )
         HorizontalDivider()
 
         // Sound picker — only meaningful for the full-screen style (§4.1), always reachable.
@@ -211,6 +254,37 @@ fun ReminderSettingsScreen(
             }
     }
 
+    // Fix-it prompt (ADR-045): the full-screen style is selected but the Android 14+
+    // grant is off — instead of firing a test the OS would silently demote, deep-link
+    // straight to the system screen that fixes it.
+    if (showFsiBlockedDialog) {
+        AlertDialog(
+            onDismissRequest = { showFsiBlockedDialog = false },
+            title = { Text(stringResource(R.string.settings_reminders_test_fullscreen_blocked_title)) },
+            text = { Text(stringResource(R.string.settings_reminders_test_fullscreen_blocked_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showFsiBlockedDialog = false
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            context.startActivity(
+                                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                                    .setData(Uri.fromParts("package", context.packageName, null)),
+                            )
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_reminders_permission_fix))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFsiBlockedDialog = false }) {
+                    Text(stringResource(R.string.common_action_cancel))
+                }
+            },
+        )
+    }
+
     if (showCustomDialog) {
         var text by remember { mutableStateOf("") }
         AlertDialog(
@@ -260,8 +334,10 @@ private fun StyleRow(
 }
 
 /**
- * One permission-status row (ADR-043): grant name + state; a fix button appears only
- * while denied. Everything stays usable either way — this is information, not a gate.
+ * One permission-status row (ADR-043): grant name + state. Everything stays usable
+ * either way — this is information, not a gate — but a DENIED row is loud (ADR-045):
+ * error-container background, warning icon and a filled Allow button, because a
+ * quietly demoted full-screen reminder was being read as "the app is broken".
  */
 @Composable
 private fun PermissionStatusRow(
@@ -285,11 +361,35 @@ private fun PermissionStatusRow(
             }
         }
     ListItem(
+        colors =
+            if (state.granted) {
+                ListItemDefaults.colors()
+            } else {
+                ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            },
+        leadingContent =
+            if (state.granted) {
+                null
+            } else {
+                {
+                    // Decorative — the denied text next to it carries the meaning.
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
         headlineContent = { Text(stringResource(nameRes)) },
         supportingContent = {
             Text(
                 text = stringResource(stateRes),
-                color = if (state.granted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                color =
+                    if (state.granted) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onErrorContainer
+                    },
             )
         },
         trailingContent =
@@ -297,7 +397,7 @@ private fun PermissionStatusRow(
                 null
             } else {
                 {
-                    TextButton(onClick = onFix) {
+                    Button(onClick = onFix) {
                         Text(stringResource(R.string.settings_reminders_permission_fix))
                     }
                 }

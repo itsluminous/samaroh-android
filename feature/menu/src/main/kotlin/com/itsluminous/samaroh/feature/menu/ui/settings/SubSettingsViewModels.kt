@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.menu.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.data.reminders.ReminderTestFirer
 import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.feature.menu.data.ReminderStyle
@@ -21,9 +22,20 @@ class ReminderSettingsViewModel
     @Inject
     constructor(
         private val preferences: SettingsPreferencesDataSource,
+        private val reminderTestFirer: ReminderTestFirer,
     ) : ViewModel() {
         val settings =
             preferences.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+        /**
+         * Fires a SAMPLE reminder through the real reminder pipeline with the chosen
+         * style + sound (ADR-045). The screen gates this behind the full-screen-intent
+         * check — a missing grant surfaces the fix-it dialog instead of a silently
+         * demoted test.
+         */
+        fun fireTestReminder() {
+            viewModelScope.launch { reminderTestFirer.fireSample() }
+        }
 
         fun toggleLeadDay(day: Int) {
             viewModelScope.launch {

@@ -35,6 +35,7 @@ class FullScreenReminderActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        val body = intent.getStringExtra(EXTRA_BODY)
         val daysAway = intent.getIntExtra(EXTRA_DAYS_AWAY, 1)
         val bookingId = intent.getStringExtra(EXTRA_BOOKING_ID)
 
@@ -52,9 +53,13 @@ class FullScreenReminderActivity : ComponentActivity() {
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = pluralStringResource(R.plurals.booking_reminder_upcoming_days, daysAway, daysAway),
+                            // Payment/follow-up popups carry their question as a plain
+                            // body (ADR-045); upcoming-event popups keep the "in N days"
+                            // plural resolved here so it renders in the app locale.
+                            text = body ?: pluralStringResource(R.plurals.booking_reminder_upcoming_days, daysAway, daysAway),
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 16.dp),
                         )
                         Row(
@@ -85,8 +90,10 @@ class FullScreenReminderActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_BODY = "body"
         private const val EXTRA_DAYS_AWAY = "days_away"
 
+        /** Upcoming-event popup: title + localized "in N days" line. */
         fun intent(
             context: Context,
             bookingId: String,
@@ -97,6 +104,20 @@ class FullScreenReminderActivity : ComponentActivity() {
                 putExtra(EXTRA_BOOKING_ID, bookingId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_DAYS_AWAY, daysAway)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+        /** Payment/follow-up popup (ADR-045): title + the reminder question as body. */
+        fun intent(
+            context: Context,
+            bookingId: String,
+            title: String,
+            body: String,
+        ): Intent =
+            Intent(context, FullScreenReminderActivity::class.java).apply {
+                putExtra(EXTRA_BOOKING_ID, bookingId)
+                putExtra(EXTRA_TITLE, title)
+                putExtra(EXTRA_BODY, body)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
     }

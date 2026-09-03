@@ -1,10 +1,12 @@
 package com.itsluminous.samaroh.feature.booking.di
 
+import com.itsluminous.samaroh.core.data.reminders.ReminderTestFirer
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventTypesProvider
 import com.itsluminous.samaroh.feature.booking.domain.SessionBookingActorProvider
+import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderTestFirer
 import com.itsluminous.samaroh.feature.booking.reminders.DataStoreNotificationPromptPrefs
 import com.itsluminous.samaroh.feature.booking.reminders.NotificationPromptPrefs
 import com.itsluminous.samaroh.feature.booking.reminders.ReminderPostSyncHook
@@ -48,4 +50,8 @@ abstract class BookingFeatureModule {
     @Binds
     @IntoSet
     abstract fun bindReminderPostSyncHook(impl: ReminderPostSyncHook): PostSyncHook
+
+    /** Settings Test button fires a sample through the real reminder pipeline (ADR-045). */
+    @Binds
+    abstract fun bindReminderTestFirer(impl: BookingReminderTestFirer): ReminderTestFirer
 }

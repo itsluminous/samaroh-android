@@ -68,3 +68,50 @@ class ReminderPermissionsStatusTest {
         assertThat(ReminderPermissionsStatus.shouldRequestNotifications(sdkInt = 32, notificationsEnabled = false)).isFalse()
     }
 }
+
+/** Test-button gating (ADR-045): never fire a test the OS would silently demote. */
+class ReminderTestGatingTest {
+    @Test
+    fun `fullscreen style with the grant off on API 34+ blocks the test`() {
+        assertThat(
+            ReminderPermissionsStatus.blocksFullScreenTest(
+                sdkInt = 35,
+                style = ReminderStyle.FULLSCREEN,
+                canUseFullScreenIntent = false,
+            ),
+        ).isTrue()
+    }
+
+    @Test
+    fun `fullscreen style with the grant present fires the test`() {
+        assertThat(
+            ReminderPermissionsStatus.blocksFullScreenTest(
+                sdkInt = 35,
+                style = ReminderStyle.FULLSCREEN,
+                canUseFullScreenIntent = true,
+            ),
+        ).isFalse()
+    }
+
+    @Test
+    fun `notification style never blocks regardless of the grant`() {
+        assertThat(
+            ReminderPermissionsStatus.blocksFullScreenTest(
+                sdkInt = 35,
+                style = ReminderStyle.NOTIFICATION,
+                canUseFullScreenIntent = false,
+            ),
+        ).isFalse()
+    }
+
+    @Test
+    fun `below API 34 the grant does not exist, so the test always fires`() {
+        assertThat(
+            ReminderPermissionsStatus.blocksFullScreenTest(
+                sdkInt = 33,
+                style = ReminderStyle.FULLSCREEN,
+                canUseFullScreenIntent = false,
+            ),
+        ).isFalse()
+    }
+}

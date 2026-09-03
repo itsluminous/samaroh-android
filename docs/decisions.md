@@ -1371,3 +1371,56 @@ notifications disabled learned nothing until the save moment.
 deleted); they are simply invisible and uncounted until the type changes back — then
 everything reappears, mirroring ADR-041's "the preset is the single source of kind
 truth". Web should mirror the same card/summary/reminder exclusions.
+
+## ADR-045 — Reminder style honored by every reminder kind + Test button (2026-09-03)
+
+**Status:** accepted.
+
+**Context (the "full-screen popup shows a normal notification" report).** Three
+candidate causes were investigated on an API 35 emulator:
+
+- **(a) Android 14+ full-screen-intent grant.** When `canUseFullScreenIntent()` is
+  false the OS silently demotes the full-screen notification to a heads-up. ADR-043's
+  status row + deep link exist and work, but the row was quiet (small error-colored
+  caption + text button) and nothing warned at the moment of demotion.
+- **(b) Android DESIGN, not a bug.** While the device is ON and UNLOCKED the system
+  deliberately shows a full-screen-intent notification as a heads-up banner; the
+  activity takes over only when the screen is off/locked. An owner testing with the
+  phone in hand always sees "a normal notification" — expectation mismatch.
+- **(c) Style not applied at fire time.** REAL BUG: only the UPCOMING-EVENT pass read
+  `booking_reminder_style`; payment confirmations and tentative-booking follow-ups
+  ALWAYS posted plain notifications regardless of the selected style. An owner who
+  chose "Full-screen popup" and then received a (payment) reminder as a plain
+  notification had no way to tell the kinds apart.
+
+**Decision.**
+1. **Every reminder kind honors the style.** `ReminderEngine.runDailyPass` resolves
+   the prefs ONCE and passes style+sound to all three passes.
+   `postPaymentReminder`/`postFollowUpReminder` take `style`/`soundUri` (no defaults —
+   the compiler forces every call site to decide) and, for FULLSCREEN, attach a
+   full-screen intent to a generalized `FullScreenReminderActivity` (new body-text
+   variant) with MAX priority, ALARM category and the chosen sound (per-sound payment
+   channel variant, same immutable-channel workaround as upcoming). Payment/follow-up
+   full-screen notifications post directly from the 09:00 pass — no extra alarm hop —
+   while upcoming keeps its exact-alarm path.
+2. **Cross-feature test-fire contract (additive).** New `core:data` interface
+   `reminders.ReminderTestFirer` — implemented by `feature:booking`'s
+   `BookingReminderTestFirer`, consumed by `feature:menu` (same pattern as
+   `SyncStatus`). A "Test" button beside the style selector fires ONE sample reminder
+   through the EXACT production pipeline: Simple → `postUpcomingReminder`; Full-screen
+   → `UpcomingReminderAlarmReceiver.scheduleExactAt(now + 3 s)` so the sample travels
+   the identical AlarmManager → receiver → full-screen-notification path (the 3 s also
+   let the owner lock the screen and see the true takeover).
+3. **No silent demotion on test.** Pure `ReminderPermissionsStatus.blocksFullScreenTest`
+   gates the button: full-screen style + API 34+ + grant off → a fix-it dialog
+   deep-linking to `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` instead of a test that
+   quietly lies.
+4. **Expectation-setting copy + loud rows.** A localized hint under the style options
+   states the system behavior (screen on → banner; screen off/locked → takeover), and
+   DENIED permission rows are loud: error-container background, warning icon, filled
+   Allow button.
+
+**Consequences.** The full-screen style now means "alarm-style for ALL booking
+reminders", matching what the owner expected. Post-sync re-posts keep
+`setOnlyAlertOnce`, so style changes re-render quietly. Verdict on the report:
+(c) fixed in code; (b) documented in-product; (a) made loud and test-guarded.
