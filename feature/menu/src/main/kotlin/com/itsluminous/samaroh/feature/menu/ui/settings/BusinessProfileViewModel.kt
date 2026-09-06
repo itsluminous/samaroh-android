@@ -2,10 +2,11 @@ package com.itsluminous.samaroh.feature.menu.ui.settings
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
+import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
@@ -69,8 +70,8 @@ class BusinessProfileViewModel
 
         /**
          * Stores the square bitmap confirmed in the interactive cropper as the business
-         * logo: scaled to ≤[MAX_LOGO_DIMENSION_PX], WebP-compressed into app storage
-         * (parity with the onboarding logo pipeline — the old code copied raw bytes).
+         * logo via the shared pipeline at the LOGO level (WebP ≤320px, ADR-050 — parity
+         * with the onboarding logo; the old code duplicated the encode inline).
          */
         fun setLogo(image: Bitmap) {
             val current = business.value ?: return
@@ -85,16 +86,11 @@ class BusinessProfileViewModel
                                 } else {
                                     Bitmap.createBitmap(image, (image.width - side) / 2, (image.height - side) / 2, side, side)
                                 }
-                            val scaled =
-                                if (side > MAX_LOGO_DIMENSION_PX) {
-                                    Bitmap.createScaledBitmap(squared, MAX_LOGO_DIMENSION_PX, MAX_LOGO_DIMENSION_PX, true)
-                                } else {
-                                    squared
-                                }
                             val dir = File(appContext.filesDir, LOGO_DIR).apply { mkdirs() }
                             // Timestamped name: a changed path invalidates path-keyed previews.
                             val target = File(dir, "logo-${current.id}-${System.currentTimeMillis()}.webp")
-                            target.outputStream().use { out -> scaled.compress(webpFormat(), WEBP_QUALITY, out) }
+                            ImageCompression.encodeToFile(squared, CompressionSpec.Logo, target)
+                            if (squared !== image) squared.recycle()
                             // Best-effort cleanup of the previously stored logo file.
                             current.logoPath?.let { old ->
                                 val oldFile = File(old)
@@ -108,17 +104,7 @@ class BusinessProfileViewModel
             }
         }
 
-        private fun webpFormat(): Bitmap.CompressFormat =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Bitmap.CompressFormat.WEBP_LOSSY
-            } else {
-                @Suppress("DEPRECATION")
-                Bitmap.CompressFormat.WEBP
-            }
-
         private companion object {
             const val LOGO_DIR = "business-logos"
-            const val MAX_LOGO_DIMENSION_PX = 320
-            const val WEBP_QUALITY = 85
         }
     }
