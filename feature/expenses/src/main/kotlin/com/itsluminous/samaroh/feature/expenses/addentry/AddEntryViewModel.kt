@@ -1,5 +1,8 @@
 package com.itsluminous.samaroh.feature.expenses.addentry
 
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -7,6 +10,10 @@ import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
+import com.itsluminous.samaroh.core.data.sync.SyncScheduler
+import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
@@ -18,10 +25,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -56,8 +65,10 @@ data class AddEntryState(
     val notes: String = "",
     val attachments: List<StagedAttachment> = emptyList(),
     val saving: Boolean = false,
-    /** Set after save when attachments exist but Google is not linked (§4.2 prompt stub). */
+    /** Set after save when attachments exist but no Google account is linked (§4.2 prompt). */
     val showGooglePrompt: Boolean = false,
+    /** The prompt's Link button is running the account-picker/consent flow. */
+    val linking: Boolean = false,
 )
 
 sealed interface AddEntryEvent {
@@ -66,6 +77,9 @@ sealed interface AddEntryEvent {
     data object AttachmentLimitReached : AddEntryEvent
 
     data object AttachmentFailed : AddEntryEvent
+
+    /** The link-Google flow launched from the prompt failed (not a cancel). */
+    data object GoogleLinkFailed : AddEntryEvent
 }
 
 @HiltViewModel
@@ -78,6 +92,8 @@ class AddEntryViewModel
         private val uploadQueue: AttachmentUploadQueue,
         private val compressor: AttachmentCompressor,
         private val session: ExpensesSession,
+        private val googleAccountLinker: GoogleAccountLinker,
+        private val syncScheduler: SyncScheduler,
         private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
@@ -114,11 +130,17 @@ class AddEntryViewModel
         val events: SharedFlow<AddEntryEvent> = _events.asSharedFlow()
 
         /**
-         * Google-link state stub (§4.2): `core:google` (W1-F) is an empty shell, so link
-         * status has no source yet — treat as not linked; attachments stay visibly pending
-         * either way, which is the honest state.
+         * Live Google link state (§4.2): the post-save prompt shows only for
+         * [GoogleLinkState.NotLinked] — when Google is not configured at all, linking is
+         * impossible, so the flow just finishes (attachments stay visibly pending).
+         * `null` until the first emission; treated as "don't prompt" to never block a save.
          */
-        private val googleLinked = false
+        private val linkState: StateFlow<GoogleLinkState?> =
+            googleAccountLinker.linkState.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        /** Pending Google scope-consent sheet the screen must launch, then call [completeGoogleConsent]. */
+        private val _consentIntent = MutableStateFlow<PendingIntent?>(null)
+        val consentIntent: StateFlow<PendingIntent?> = _consentIntent.asStateFlow()
 
         fun onAmountChange(text: String) {
             _state.update { it.copy(amountText = text, amountError = false) }
@@ -229,7 +251,7 @@ class AddEntryViewModel
                     ledgerRepository.saveAttachment(attachment, staged.file.absolutePath)
                     uploadQueue.enqueue(staged.file.absolutePath, expense.id)
                 }
-                if (current.attachments.isNotEmpty() && !googleLinked) {
+                if (current.attachments.isNotEmpty() && linkState.value is GoogleLinkState.NotLinked) {
                     _state.update { it.copy(saving = false, showGooglePrompt = true) }
                 } else {
                     _events.emit(AddEntryEvent.Saved)
@@ -237,9 +259,56 @@ class AddEntryViewModel
             }
         }
 
-        /** "Later" (or the not-yet-wired connect action) on the Google prompt — finish the flow. */
+        /** "Later" on the Google prompt — attachments stay local-pending; finish the flow. */
         fun dismissGooglePrompt() {
             _state.update { it.copy(showGooglePrompt = false) }
             _events.tryEmit(AddEntryEvent.Saved)
+        }
+
+        /**
+         * "Connect Google" on the prompt: runs the Settings link flow in place (§4.4
+         * linker). [activityContext] MUST be an Activity context — Credential Manager
+         * shows UI. On success the queued attachments upload on the sync pass we nudge.
+         */
+        fun linkGoogle(activityContext: Context) {
+            if (_state.value.linking) return
+            _state.update { it.copy(linking = true) }
+            viewModelScope.launch {
+                googleAccountLinker
+                    .link(activityContext)
+                    .onSuccess { onLinked() }
+                    .onFailure(::handleLinkFailure)
+            }
+        }
+
+        /** Completes the link after the scope-consent sheet returned [resultIntent]. */
+        fun completeGoogleConsent(resultIntent: Intent?) {
+            _consentIntent.value = null
+            viewModelScope.launch {
+                googleAccountLinker
+                    .completeLink(resultIntent)
+                    .onSuccess { onLinked() }
+                    .onFailure(::handleLinkFailure)
+            }
+        }
+
+        private fun onLinked() {
+            // The metadata rows + outbox ops were persisted before the prompt; a sync
+            // nudge is all the uploads need (queue contract, ADR-018).
+            syncScheduler.requestImmediateSync()
+            _state.update { it.copy(showGooglePrompt = false, linking = false) }
+            _events.tryEmit(AddEntryEvent.Saved)
+        }
+
+        private fun handleLinkFailure(error: Throwable) {
+            when (error) {
+                is GoogleLinkException.NeedsScopeConsent -> {
+                    _consentIntent.value = error.pendingIntent
+                    return // keep `linking`; the consent sheet continues the flow
+                }
+                is GoogleLinkException.Cancelled -> Unit // keep the dialog; Later still works
+                else -> _events.tryEmit(AddEntryEvent.GoogleLinkFailed)
+            }
+            _state.update { it.copy(linking = false) }
         }
     }

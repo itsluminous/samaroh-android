@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
+import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
@@ -54,6 +56,11 @@ data class PartyLedgerState(
     val canViewAmounts: Boolean = true,
     /** Active business display name for the edit-party "Associated with {business}?" pill. */
     val businessName: String = "",
+    /**
+     * Google is configured but the signed-in user has no linked account — pending
+     * attachment badges point at the Settings link flow instead of a bare "waiting".
+     */
+    val googleUnlinked: Boolean = false,
     val loaded: Boolean = false,
 )
 
@@ -84,6 +91,7 @@ class PartyLedgerViewModel
         private val expensesRepository: ExpensesRepository,
         private val ledgerRepository: ExpensesLedgerRepository,
         private val session: ExpensesSession,
+        private val googleAccountLinker: GoogleAccountLinker,
         private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
@@ -99,7 +107,7 @@ class PartyLedgerViewModel
         private val _events = MutableSharedFlow<PartyLedgerEvent>(extraBufferCapacity = 1)
         val events: SharedFlow<PartyLedgerEvent> = _events.asSharedFlow()
 
-        /** All permission gates as one flow (keeps the state combine at 5 sources). */
+        /** All permission gates + Google link state as one flow (keeps the state combine at 5 sources). */
         private val gates =
             combine(
                 combine(
@@ -112,7 +120,10 @@ class PartyLedgerViewModel
                     Gates(canEdit, canCreate, canDeleteEntry, canManage, canDeleteParty)
                 },
                 session.canViewAmounts,
-            ) { base, viewAmounts -> base.copy(viewAmounts = viewAmounts) }
+                googleAccountLinker.linkState,
+            ) { base, viewAmounts, link ->
+                base.copy(viewAmounts = viewAmounts, googleUnlinked = link is GoogleLinkState.NotLinked)
+            }
 
         val state: StateFlow<PartyLedgerState> =
             combine(
@@ -135,11 +146,12 @@ class PartyLedgerViewModel
                     canDeleteParty = gate.deleteParties,
                     canViewAmounts = gate.viewAmounts,
                     businessName = businessName,
+                    googleUnlinked = gate.googleUnlinked,
                     loaded = true,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PartyLedgerState())
 
-        /** The §3 gates the ledger screen renders from. */
+        /** The §3 gates the ledger screen renders from (+ Google link state, same combine). */
         private data class Gates(
             val editEntries: Boolean,
             val createEntries: Boolean,
@@ -147,6 +159,7 @@ class PartyLedgerViewModel
             val manageParties: Boolean,
             val deleteParties: Boolean,
             val viewAmounts: Boolean = true,
+            val googleUnlinked: Boolean = false,
         )
 
         /** Tombstone delete (§4.2); the row disappears locally and the delete syncs as a tombstone. */

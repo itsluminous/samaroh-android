@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -211,6 +212,7 @@ fun PartyLedgerScreen(
                         LedgerEntryRow(
                             row = row,
                             attachments = state.attachmentsByExpense[row.expense.id].orEmpty(),
+                            googleUnlinked = state.googleUnlinked,
                             canEdit = state.canEditEntries,
                             canDelete = state.canDeleteEntries,
                             masked = !state.canViewAmounts,
@@ -370,6 +372,7 @@ private fun NetBalanceHeader(
 private fun LedgerEntryRow(
     row: LedgerRow,
     attachments: List<AttachmentWithLocalState>,
+    googleUnlinked: Boolean,
     canEdit: Boolean,
     canDelete: Boolean,
     masked: Boolean,
@@ -392,7 +395,7 @@ private fun LedgerEntryRow(
                 // Scrollable single line: several 56dp thumbs overflow the entry column
                 // on narrow screens (the trailing amount column shrinks the space further).
                 ChipRow(modifier = Modifier.padding(top = 8.dp)) {
-                    attachments.forEach { AttachmentThumbnail(it) }
+                    attachments.forEach { AttachmentThumbnail(it, googleUnlinked = googleUnlinked) }
                 }
             }
             AssistChip(
@@ -468,6 +471,7 @@ private fun EntryMenu(
 @Composable
 private fun AttachmentThumbnail(
     attachment: AttachmentWithLocalState,
+    googleUnlinked: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.size(56.dp)) {
@@ -495,9 +499,16 @@ private fun AttachmentThumbnail(
         }
         if (attachment.isPendingUpload) {
             // Visible pending badge (§4.2): the file has not reached Google Drive yet.
+            // Unlinked users get a distinct icon + hint pointing at the Settings link flow —
+            // without a linked account "waiting to upload" would wait forever.
             ExplainableIcon(
-                icon = Icons.Filled.CloudUpload,
-                explanationRes = R.string.expenses_ledger_pending_upload,
+                icon = if (googleUnlinked) Icons.Filled.CloudOff else Icons.Filled.CloudUpload,
+                explanationRes =
+                    if (googleUnlinked) {
+                        R.string.expenses_ledger_pending_upload_unlinked
+                    } else {
+                        R.string.expenses_ledger_pending_upload
+                    },
                 tint = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.align(Alignment.TopEnd).size(24.dp),
             )

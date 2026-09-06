@@ -7,11 +7,15 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
+import com.itsluminous.samaroh.core.data.sync.SyncScheduler
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
+import com.itsluminous.samaroh.feature.expenses.FakeGoogleAccountLinker
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
 import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
@@ -21,12 +25,14 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneOffset
 
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AddEntryViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
@@ -42,11 +48,24 @@ class AddEntryViewModelTest {
         }
     }
 
+    private class RecordingSyncScheduler : SyncScheduler {
+        var immediateSyncs = 0
+            private set
+
+        override fun requestImmediateSync() {
+            immediateSyncs++
+        }
+
+        override fun ensurePeriodicSync() = Unit
+    }
+
     private val partyId = "party-1"
     private lateinit var context: Context
     private lateinit var expensesRepository: FakeExpensesRepository
     private lateinit var ledgerRepository: FakeExpensesLedgerRepository
     private lateinit var uploadQueue: RecordingUploadQueue
+    private lateinit var linker: FakeGoogleAccountLinker
+    private lateinit var syncScheduler: RecordingSyncScheduler
 
     @Before
     fun setUp() {
@@ -54,6 +73,8 @@ class AddEntryViewModelTest {
         expensesRepository = FakeExpensesRepository()
         ledgerRepository = FakeExpensesLedgerRepository()
         uploadQueue = RecordingUploadQueue()
+        linker = FakeGoogleAccountLinker()
+        syncScheduler = RecordingSyncScheduler()
     }
 
     private fun viewModel(direction: ExpenseDirection = ExpenseDirection.PAID) =
@@ -64,6 +85,8 @@ class AddEntryViewModelTest {
             uploadQueue = uploadQueue,
             compressor = AttachmentCompressor(context, ioDispatcher = mainDispatcherRule.dispatcher),
             session = fakeExpensesSession(),
+            googleAccountLinker = linker,
+            syncScheduler = syncScheduler,
             clock = Clock.fixed(Fixtures.NOW, ZoneOffset.UTC),
         )
 
@@ -131,6 +154,94 @@ class AddEntryViewModelTest {
 
             viewModel.onAttachmentPicked(imageUri(), "image/png", "one-too-many.png")
             assertThat(viewModel.state.value.attachments).hasSize(MAX_ATTACHMENTS)
+        }
+
+    @Test
+    fun `no Google prompt when an account is already linked`() =
+        runTest {
+            linker.state.value = GoogleLinkState.Linked("owner@example.com", emptyList())
+            val viewModel = viewModel()
+            viewModel.onAmountChange("100")
+            viewModel.onAttachmentPicked(imageUri(), "image/png", "bill.png")
+
+            viewModel.save()
+
+            assertThat(viewModel.state.value.showGooglePrompt).isFalse()
+            assertThat(uploadQueue.enqueued).hasSize(1)
+        }
+
+    @Test
+    fun `no Google prompt when Google is not configured`() =
+        runTest {
+            linker.state.value = GoogleLinkState.NotConfigured
+            val viewModel = viewModel()
+            viewModel.onAmountChange("100")
+            viewModel.onAttachmentPicked(imageUri(), "image/png", "bill.png")
+
+            viewModel.save()
+
+            assertThat(viewModel.state.value.showGooglePrompt).isFalse()
+        }
+
+    @Test
+    fun `connect on the prompt links, nudges sync and finishes`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.onAmountChange("100")
+            viewModel.onAttachmentPicked(imageUri(), "image/png", "bill.png")
+            viewModel.save()
+            assertThat(viewModel.state.value.showGooglePrompt).isTrue()
+
+            viewModel.linkGoogle(context)
+
+            assertThat(linker.linkCalls).isEqualTo(1)
+            assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
+            assertThat(viewModel.state.value.showGooglePrompt).isFalse()
+            assertThat(viewModel.state.value.linking).isFalse()
+        }
+
+    @Test
+    fun `cancelled link keeps the prompt so Later still works`() =
+        runTest {
+            linker.linkResult = Result.failure(GoogleLinkException.Cancelled())
+            val viewModel = viewModel()
+            viewModel.onAmountChange("100")
+            viewModel.onAttachmentPicked(imageUri(), "image/png", "bill.png")
+            viewModel.save()
+
+            viewModel.linkGoogle(context)
+
+            assertThat(viewModel.state.value.showGooglePrompt).isTrue()
+            assertThat(viewModel.state.value.linking).isFalse()
+            assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
+        }
+
+    @Test
+    fun `scope consent failure surfaces the pending intent and completes the link`() =
+        runTest {
+            val pendingIntent =
+                android.app.PendingIntent.getActivity(
+                    context,
+                    0,
+                    android.content.Intent(),
+                    android.app.PendingIntent.FLAG_IMMUTABLE,
+                )
+            linker.linkResult = Result.failure(GoogleLinkException.NeedsScopeConsent(pendingIntent))
+            val viewModel = viewModel()
+            viewModel.onAmountChange("100")
+            viewModel.onAttachmentPicked(imageUri(), "image/png", "bill.png")
+            viewModel.save()
+
+            viewModel.linkGoogle(context)
+            assertThat(viewModel.consentIntent.value).isEqualTo(pendingIntent)
+            assertThat(viewModel.state.value.linking).isTrue() // flow continues via the sheet
+
+            linker.linkResult = Result.success(GoogleLinkState.Linked("owner@example.com", emptyList()))
+            viewModel.completeGoogleConsent(android.content.Intent())
+
+            assertThat(viewModel.consentIntent.value).isNull()
+            assertThat(viewModel.state.value.showGooglePrompt).isFalse()
+            assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
         }
 
     private fun imageUri(): Uri {

@@ -1,7 +1,9 @@
 package com.itsluminous.samaroh.feature.expenses.addentry
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -81,10 +83,12 @@ fun AddEntryScreen(
     viewModel: AddEntryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val consentIntent by viewModel.consentIntent.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val limitText = stringResource(R.string.expenses_entry_attach_limit, MAX_ATTACHMENTS.toString())
     val failedText = stringResource(R.string.expenses_entry_attach_failed)
+    val linkFailedText = stringResource(R.string.expenses_google_prompt_link_failed)
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -92,8 +96,22 @@ fun AddEntryScreen(
                 AddEntryEvent.Saved -> onDone()
                 AddEntryEvent.AttachmentLimitReached -> snackbarHostState.showSnackbar(limitText)
                 AddEntryEvent.AttachmentFailed -> snackbarHostState.showSnackbar(failedText)
+                AddEntryEvent.GoogleLinkFailed -> snackbarHostState.showSnackbar(linkFailedText)
             }
         }
+    }
+
+    // Google scope-consent sheet for the prompt's link flow (mirrors Settings §4.4).
+    val consentLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                viewModel.completeGoogleConsent(result.data)
+            } else {
+                viewModel.completeGoogleConsent(null)
+            }
+        }
+    LaunchedEffect(consentIntent) {
+        consentIntent?.let { consentLauncher.launch(IntentSenderRequest.Builder(it.intentSender).build()) }
     }
 
     var captureFile by remember { mutableStateOf<File?>(null) }
@@ -230,14 +248,14 @@ fun AddEntryScreen(
     }
 
     if (state.showGooglePrompt) {
-        // Prompt-to-link-Google stub (§4.2): linking arrives with Settings (W1-F);
-        // attachments stay queued locally with a visible pending badge either way.
+        // Link-Google prompt (§4.2): Connect runs the Settings link flow right here;
+        // Later keeps the attachments queued locally with the visible pending badge.
         AlertDialog(
             onDismissRequest = viewModel::dismissGooglePrompt,
             title = { Text(stringResource(R.string.expenses_google_prompt_title)) },
             text = { Text(stringResource(R.string.expenses_google_prompt_message)) },
             confirmButton = {
-                TextButton(onClick = viewModel::dismissGooglePrompt) {
+                TextButton(onClick = { viewModel.linkGoogle(context) }, enabled = !state.linking) {
                     Text(stringResource(R.string.expenses_google_prompt_connect))
                 }
             },

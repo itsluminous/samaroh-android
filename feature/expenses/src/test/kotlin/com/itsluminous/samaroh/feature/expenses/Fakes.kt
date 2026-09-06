@@ -152,3 +152,42 @@ fun fakeExpensesSession(
                 override fun isOwner(businessId: String) = kotlinx.coroutines.flow.MutableStateFlow(isOwner)
             },
     )
+
+/** Google linker fake: settable link state; link/completeLink resolve from [linkResult]. */
+class FakeGoogleAccountLinker(
+    initialState: com.itsluminous.samaroh.core.google.auth.GoogleLinkState =
+        com.itsluminous.samaroh.core.google.auth.GoogleLinkState.NotLinked,
+) : com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker {
+    val state = kotlinx.coroutines.flow.MutableStateFlow(initialState)
+
+    /** What the next [link]/[completeLink] call returns; success also updates [state]. */
+    var linkResult: Result<com.itsluminous.samaroh.core.google.auth.GoogleLinkState.Linked> =
+        Result.success(
+            com.itsluminous.samaroh.core.google.auth.GoogleLinkState
+                .Linked("test@example.com", emptyList()),
+        )
+
+    var linkCalls = 0
+        private set
+
+    override val linkState: kotlinx.coroutines.flow.Flow<com.itsluminous.samaroh.core.google.auth.GoogleLinkState> = state
+
+    override suspend fun link(
+        activityContext: android.content.Context,
+    ): Result<com.itsluminous.samaroh.core.google.auth.GoogleLinkState.Linked> {
+        linkCalls++
+        linkResult.onSuccess { state.value = it }
+        return linkResult
+    }
+
+    override suspend fun completeLink(
+        resultIntent: android.content.Intent?,
+    ): Result<com.itsluminous.samaroh.core.google.auth.GoogleLinkState.Linked> {
+        linkResult.onSuccess { state.value = it }
+        return linkResult
+    }
+
+    override suspend fun unlink() {
+        state.value = com.itsluminous.samaroh.core.google.auth.GoogleLinkState.NotLinked
+    }
+}

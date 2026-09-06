@@ -3,12 +3,14 @@ package com.itsluminous.samaroh.feature.expenses.ledger
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
+import com.itsluminous.samaroh.feature.expenses.FakeGoogleAccountLinker
 import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -23,11 +25,13 @@ class PartyLedgerViewModelTest {
     private val party = Fixtures.party(name = "test-party")
     private lateinit var expensesRepository: FakeExpensesRepository
     private lateinit var ledgerRepository: FakeExpensesLedgerRepository
+    private lateinit var linker: FakeGoogleAccountLinker
 
     @Before
     fun setUp() {
         expensesRepository = FakeExpensesRepository()
         ledgerRepository = FakeExpensesLedgerRepository()
+        linker = FakeGoogleAccountLinker()
         expensesRepository.parties.value = listOf(party)
         ledgerRepository.parties.value = listOf(party)
     }
@@ -38,6 +42,7 @@ class PartyLedgerViewModelTest {
             expensesRepository = expensesRepository,
             ledgerRepository = ledgerRepository,
             session = fakeExpensesSession(),
+            googleAccountLinker = linker,
             clock = java.time.Clock.fixed(com.itsluminous.samaroh.core.testing.Fixtures.NOW, java.time.ZoneOffset.UTC),
         )
 
@@ -153,6 +158,7 @@ class PartyLedgerViewModelTest {
                     savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
                     expensesRepository = expensesRepository,
                     ledgerRepository = ledgerRepository,
+                    googleAccountLinker = linker,
                     session =
                         fakeExpensesSession(
                             userId = "member-1",
@@ -186,6 +192,7 @@ class PartyLedgerViewModelTest {
                     savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
                     expensesRepository = expensesRepository,
                     ledgerRepository = ledgerRepository,
+                    googleAccountLinker = linker,
                     session =
                         fakeExpensesSession(
                             userId = "member-1",
@@ -218,6 +225,7 @@ class PartyLedgerViewModelTest {
                     savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
                     expensesRepository = expensesRepository,
                     ledgerRepository = ledgerRepository,
+                    googleAccountLinker = linker,
                     session =
                         fakeExpensesSession(
                             userId = "member-1",
@@ -379,4 +387,30 @@ class PartyLedgerViewModelTest {
             if (predicate(item)) return item
         }
     }
+
+    @Test
+    fun `googleUnlinked reflects the link state`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.state.test {
+                var state = awaitItem()
+                while (!state.loaded) state = awaitItem()
+                assertThat(state.googleUnlinked).isTrue() // fake starts NotLinked
+
+                linker.state.value = GoogleLinkState.Linked("owner@example.com", emptyList())
+                assertThat(awaitItem().googleUnlinked).isFalse()
+            }
+        }
+
+    @Test
+    fun `googleUnlinked is false when Google is not configured`() =
+        runTest {
+            linker.state.value = GoogleLinkState.NotConfigured
+            val viewModel = viewModel()
+            viewModel.state.test {
+                var state = awaitItem()
+                while (!state.loaded) state = awaitItem()
+                assertThat(state.googleUnlinked).isFalse()
+            }
+        }
 }
