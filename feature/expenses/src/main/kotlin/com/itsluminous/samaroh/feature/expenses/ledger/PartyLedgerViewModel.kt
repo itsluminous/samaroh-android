@@ -16,6 +16,7 @@ import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentContentResolver
+import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentDeleter
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentOpenResult
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
 import com.itsluminous.samaroh.feature.expenses.domain.LedgerRow
@@ -93,7 +94,12 @@ sealed interface PartyLedgerEvent {
     data class OpenAttachment(
         val file: File,
         val mimeType: String,
+        /** The tapped row — the viewer's download/delete actions need its metadata (ADR-053). */
+        val attachment: AttachmentWithLocalState,
     ) : PartyLedgerEvent
+
+    /** A bill image was deleted from the viewer — the screen closes it and confirms. */
+    data object AttachmentDeleted : PartyLedgerEvent
 
     /** Tapped attachment has neither a local file nor a Drive copy yet (pending on another device). */
     data object AttachmentUnavailable : PartyLedgerEvent
@@ -115,6 +121,7 @@ class PartyLedgerViewModel
         private val session: ExpensesSession,
         private val googleAccountLinker: GoogleAccountLinker,
         private val attachmentResolver: AttachmentContentResolver,
+        private val attachmentDeleter: AttachmentDeleter,
         private val syncScheduler: SyncScheduler,
         private val clock: Clock,
     ) : ViewModel() {
@@ -226,12 +233,24 @@ class PartyLedgerViewModel
             viewModelScope.launch {
                 when (val result = attachmentResolver.resolve(attachment)) {
                     is AttachmentOpenResult.Ready ->
-                        _events.emit(PartyLedgerEvent.OpenAttachment(result.file, result.mimeType))
+                        _events.emit(PartyLedgerEvent.OpenAttachment(result.file, result.mimeType, attachment))
                     AttachmentOpenResult.NeedsGoogleLink -> attachmentAwaitingLink.value = attachment
                     AttachmentOpenResult.NotAvailable -> _events.emit(PartyLedgerEvent.AttachmentUnavailable)
                     AttachmentOpenResult.DownloadFailed -> _events.emit(PartyLedgerEvent.AttachmentDownloadFailed)
                 }
                 _openingAttachmentId.value = null
+            }
+        }
+
+        /**
+         * Confirmed viewer delete (ADR-053): tombstone + outbox via the repository, local
+         * cache file removed, best-effort Drive `files.delete` — the [AttachmentDeleter]
+         * owns the cascade. The ledger's Room flow drops the thumbnail reactively.
+         */
+        fun deleteAttachment(attachment: AttachmentWithLocalState) {
+            viewModelScope.launch {
+                attachmentDeleter.delete(attachment)
+                _events.emit(PartyLedgerEvent.AttachmentDeleted)
             }
         }
 

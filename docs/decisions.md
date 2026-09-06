@@ -1801,3 +1801,64 @@ the generic icon to the image preview reactively (Room flow re-emits on the
 `local_cache_path` update). Cache-path stamping deliberately bypasses the outbox: the
 column never syncs. There is no separate entry-detail surface; the ledger rows are the
 attachment surface (add/edit only stages new local files).
+
+## ADR-053 — Image-viewer actions + user-tunable compression quality (2026-09-06)
+
+**Status:** accepted. Owner-directed; additive only (new DataStore keys, new shared
+component, constructor extensions on non-frozen classes). Extends ADR-050 (compression
+levels) and ADR-052 (attachment viewer/resolver).
+
+**Context.** The ADR-052 image viewer was a bare tap-to-close dialog: no way to save a
+bill to the device, no way to delete a wrong bill without deleting the whole entry, and
+no distraction-free view. Separately, the ADR-050 compression levels were fixed
+constants; the owner wants the squeeze tunable per use case from Settings.
+
+**Decision.**
+1. **One shared viewer** — `ImageViewerDialog` (`core:designsystem/component`), used by
+   the expenses ledger AND both inventory expand dialogs (stock list + item detail).
+   Actions are `ExplainableIcon`s in a top chrome bar:
+   - *Full screen*: immersive mode on the DIALOG's own window (system bars + chrome
+     hidden); tapping the image restores. Outside immersive mode a tap still CLOSES the
+     viewer — the pre-existing expand-dialog gesture.
+   - *Download*: copies the shown file into public Downloads via `MediaStoreImageSaver`
+     — `MediaStore.Downloads` + `IS_PENDING` on API 29+ (no permission), legacy
+     public-dir write + scan behind a runtime `WRITE_EXTERNAL_STORAGE` request on 26–28
+     (`maxSdkVersion="28"`). Success snackbar names the location (`Download/Samaroh`).
+   - *Delete* (optional `ImageViewerDeleteAction`): confirmation dialog, semantics owned
+     by the feature.
+2. **Expenses delete cascade** (`AttachmentDeleter`): tombstone the
+   `expense_attachments` row + outbox DELETE (authoritative), remove the local cache
+   file, then BEST-EFFORT Drive `files.delete` (the pre-existing `DriveService.deleteFile`;
+   `drive.file` scope covers app-created files) only when a `drive_file_id` exists and
+   Google is linked. A Drive failure is logged and swallowed — the metadata tombstone
+   wins on every device; the orphan merely lingers in the owner's Drive. Gating follows
+   the entry-row convention: the action shows for `expenses.delete` OR `expenses.edit`.
+   The viewer closes on delete; ledger thumbnails drop reactively via the Room flow.
+3. **Inventory viewer scope: fullscreen + download ONLY.** Download is offered only when
+   the photo resolves to a LOCAL file (a remote Storage photo is an authenticated Coil
+   request, not bytes on disk — saving it would mean a second download pipeline for no
+   demonstrated need). Delete is NOT in the inventory viewer: clearing an item's photo
+   is a masterlist EDIT (existing "Remove photo" in the editor dialog, with its own
+   permission gate); the expand dialog also appears in read-only stock contexts, and
+   wiring a photo-clear from there would duplicate the editor's save path rather than
+   compose with it.
+4. **Compression quality is a preference** (`ImageQualityPreferences`, `core:data`, keys
+   `image_quality_bills` / `image_quality_item_photos` in the shared `"settings"`
+   DataStore). Settings → *Image quality* offers three plain-language chips per use
+   case with a size hint; the chip values map to encoder qualities —
+   bills high/balanced/low = 90/75/60 (band 60–100, default 90), item photos = 75/50/30
+   (band 30–90, default 50). Values are coerced into the band on read AND write, so a
+   corrupt store can never produce an unreadable bill. **Max dimensions and formats stay
+   fixed per ADR-050** — only `quality` is user-tunable.
+5. **Call sites read the pref, not a constant.** `AttachmentCompressor` takes a
+   `specProvider` resolved at prepare time (`DocumentLight.copy(quality = pref)`), and
+   `LocalItemImageStore` injects the preferences (`ItemPhoto.copy(quality = pref)`) —
+   a Settings change applies to the NEXT encode, no restart. Defaults preserve ADR-050
+   behavior byte-for-byte when the keys are unset.
+
+**Consequences.** Bills can be exported to the device and deleted individually; a wrong
+bill no longer forces deleting the entry. The viewer is one component, so future image
+surfaces inherit the actions. Compression is owner-tunable within safe bands;
+`SamarohAttach` byte logs make the effect observable. Drive-side deletion is
+opportunistic by design — devices that never link simply leave the file, exactly like
+the pre-existing party-cascade behavior (ADR-028).

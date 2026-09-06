@@ -61,7 +61,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -70,7 +69,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,6 +79,8 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDeleteAction
+import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
@@ -114,8 +114,8 @@ fun PartyLedgerScreen(
     var showEditParty by remember { mutableStateOf(false) }
     var confirmDeleteParty by remember { mutableStateOf(false) }
 
-    /** File of the tapped IMAGE attachment shown in the full-screen in-app viewer (ADR-052). */
-    var expandedImageFile by remember { mutableStateOf<File?>(null) }
+    /** The tapped IMAGE attachment shown in the full-screen in-app viewer (ADR-052/053). */
+    var expandedImage by remember { mutableStateOf<ExpandedAttachmentImage?>(null) }
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val deletedNoticeTemplate = stringResource(R.string.expenses_party_deleted_notice)
@@ -123,6 +123,7 @@ fun PartyLedgerScreen(
     val downloadFailedText = stringResource(R.string.expenses_attachment_view_download_failed)
     val noViewerAppText = stringResource(R.string.expenses_attachment_view_no_viewer_app)
     val linkFailedText = stringResource(R.string.expenses_google_prompt_link_failed)
+    val attachmentDeletedText = stringResource(R.string.expenses_attachment_view_deleted)
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -134,10 +135,14 @@ fun PartyLedgerScreen(
                 }
                 is PartyLedgerEvent.OpenAttachment ->
                     if (event.mimeType.startsWith("image/")) {
-                        expandedImageFile = event.file
+                        expandedImage = ExpandedAttachmentImage(event.file, event.attachment)
                     } else if (!openWithExternalApp(context, event.file, event.mimeType)) {
                         snackbarHostState.showSnackbar(noViewerAppText)
                     }
+                PartyLedgerEvent.AttachmentDeleted -> {
+                    expandedImage = null
+                    snackbarHostState.showSnackbar(attachmentDeletedText)
+                }
                 PartyLedgerEvent.AttachmentUnavailable -> snackbarHostState.showSnackbar(notAvailableText)
                 PartyLedgerEvent.AttachmentDownloadFailed -> snackbarHostState.showSnackbar(downloadFailedText)
                 PartyLedgerEvent.GoogleLinkFailed -> snackbarHostState.showSnackbar(linkFailedText)
@@ -334,21 +339,29 @@ fun PartyLedgerScreen(
         }
     }
 
-    // Full-screen in-app viewer for IMAGE attachments (ADR-052; same tap-to-expand
-    // dialog pattern as inventory item photos). Tap anywhere on the image to close.
-    expandedImageFile?.let { file ->
-        Dialog(onDismissRequest = { expandedImageFile = null }) {
-            AsyncImage(
-                model = file,
-                contentDescription = stringResource(R.string.expenses_ledger_attachment_expanded),
-                contentScale = ContentScale.Fit,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { expandedImageFile = null },
-            )
-        }
+    // Full-screen in-app viewer for IMAGE attachments (ADR-052/053): fullscreen toggle,
+    // save-to-Downloads, and — gated by expenses.delete/edit, the entry-row convention —
+    // delete-with-confirmation ("the bill will be removed").
+    expandedImage?.let { expanded ->
+        val deleteAction =
+            if (state.canDeleteEntries || state.canEditEntries) {
+                ImageViewerDeleteAction(
+                    confirmTitle = stringResource(R.string.expenses_attachment_view_delete_title),
+                    confirmMessage = stringResource(R.string.expenses_attachment_view_delete_message),
+                    onConfirmed = { viewModel.deleteAttachment(expanded.attachment) },
+                )
+            } else {
+                null
+            }
+        ImageViewerDialog(
+            model = expanded.file,
+            contentDescription = stringResource(R.string.expenses_ledger_attachment_expanded),
+            onDismiss = { expandedImage = null },
+            downloadSource = expanded.file,
+            downloadFileName = expanded.attachment.attachment.fileName,
+            downloadMimeType = expanded.attachment.attachment.mimeType,
+            deleteAction = deleteAction,
+        )
     }
 
     if (showAttachmentLinkPrompt) {
@@ -372,6 +385,12 @@ fun PartyLedgerScreen(
         )
     }
 }
+
+/** The image the full-screen viewer is showing: the resolved local file + its row. */
+private data class ExpandedAttachmentImage(
+    val file: File,
+    val attachment: AttachmentWithLocalState,
+)
 
 /**
  * Hands a non-image attachment (PDF) to an external viewer via the expenses

@@ -106,7 +106,11 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
         attachments.value = attachments.value + AttachmentWithLocalState(attachment, localCachePath)
     }
 
+    /** Attachment ids tombstoned via [deleteAttachment] (viewer delete cascade, ADR-053). */
+    val deletedAttachmentIds = mutableListOf<String>()
+
     override suspend fun deleteAttachment(id: String) {
+        deletedAttachmentIds += id
         attachments.value = attachments.value.filter { it.attachment.id != id }
     }
 
@@ -243,7 +247,15 @@ class FakeDriveService : com.itsluminous.samaroh.core.google.drive.DriveService 
         target.writeBytes(downloadBytes)
     }
 
-    override suspend fun deleteFile(fileId: String) = Unit
+    /** When set, [deleteFile] throws it (best-effort delete failure path). */
+    var deleteError: Exception? = null
+
+    val deletedFileIds = mutableListOf<String>()
+
+    override suspend fun deleteFile(fileId: String) {
+        deleteError?.let { throw it }
+        deletedFileIds += fileId
+    }
 }
 
 /** Records immediate-sync nudges (link-to-view flow asserts one after a successful link). */

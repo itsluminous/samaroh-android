@@ -66,6 +66,13 @@ class PartyLedgerViewModelTest {
                     ledgerRepository = ledgerRepository,
                     ioDispatcher = mainDispatcherRule.dispatcher,
                 ),
+            attachmentDeleter =
+                com.itsluminous.samaroh.feature.expenses.attachments.AttachmentDeleter(
+                    ledgerRepository = ledgerRepository,
+                    driveService = driveService,
+                    googleAccountLinker = linker,
+                    ioDispatcher = mainDispatcherRule.dispatcher,
+                ),
             syncScheduler = syncScheduler,
             clock = java.time.Clock.fixed(com.itsluminous.samaroh.core.testing.Fixtures.NOW, java.time.ZoneOffset.UTC),
         )
@@ -446,6 +453,38 @@ class PartyLedgerViewModelTest {
                 ),
             localCachePath = localCachePath,
         )
+
+    @Test
+    fun `viewer delete cascades - tombstone, cache file, best-effort drive delete`() =
+        runTest {
+            val cached = tempFolder.newFile("bill-to-delete.jpg")
+            val attachment =
+                AttachmentWithLocalState(
+                    attachment =
+                        ExpenseAttachment(
+                            id = "att-1",
+                            expenseId = "exp-1",
+                            businessId = party.businessId,
+                            driveFileId = "drive-7",
+                            mimeType = "image/jpeg",
+                            fileName = "bill.jpg",
+                            createdAt = Fixtures.NOW,
+                        ),
+                    localCachePath = cached.absolutePath,
+                )
+            ledgerRepository.attachments.value = listOf(attachment)
+            linker.state.value = GoogleLinkState.Linked("owner@example.com", emptyList())
+            val viewModel = viewModel()
+
+            viewModel.events.test {
+                viewModel.deleteAttachment(attachment)
+                assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.AttachmentDeleted)
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(ledgerRepository.deletedAttachmentIds).containsExactly("att-1")
+            assertThat(cached.exists()).isFalse()
+            assertThat(driveService.deletedFileIds).containsExactly("drive-7")
+        }
 
     @Test
     fun `tapping a locally cached attachment emits OpenAttachment`() =
