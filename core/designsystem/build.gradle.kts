@@ -51,6 +51,8 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.coil.compose)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
