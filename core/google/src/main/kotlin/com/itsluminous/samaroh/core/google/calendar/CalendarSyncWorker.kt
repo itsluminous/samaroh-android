@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.itsluminous.samaroh.core.google.GoogleServicesConfig
+import com.itsluminous.samaroh.core.google.drive.DriveNotAvailableException
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -50,10 +51,7 @@ class CalendarSyncWorker(
             }
         return result.fold(
             onSuccess = { Result.success() },
-            onFailure = {
-                Log.w(CalendarSyncEngine.TAG, "calendar sync attempt $runAttemptCount failed", it)
-                if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
-            },
+            onFailure = { resolveFailure(it, runAttemptCount) },
         )
     }
 
@@ -63,6 +61,27 @@ class CalendarSyncWorker(
         const val ACTION_SYNC = "sync"
         const val ACTION_DISABLE_CLEANUP = "disable_cleanup"
         const val MAX_ATTEMPTS = 5
+
+        /**
+         * Maps an engine failure to the worker verdict. [DriveNotAvailableException]
+         * (not signed in / no Google account linked / no silent token on this device) is
+         * a PERMANENT local state, not a transient fault — retrying can never succeed and
+         * every booking mutation would burn [MAX_ATTEMPTS] stack traces. Skip quietly as
+         * success; the link flow (Settings §4.4 / the expenses prompt) kicks a fresh sync
+         * on success, and the periodic catch-up covers the rest. Anything else (network,
+         * HTTP 401/5xx) retries with backoff up to [MAX_ATTEMPTS].
+         */
+        internal fun resolveFailure(
+            error: Throwable,
+            runAttemptCount: Int,
+        ): Result {
+            if (error is DriveNotAvailableException) {
+                Log.i(CalendarSyncEngine.TAG, "calendar sync skipped: ${error.message}")
+                return Result.success()
+            }
+            Log.w(CalendarSyncEngine.TAG, "calendar sync attempt $runAttemptCount failed", error)
+            return if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+        }
 
         fun periodicWorkName(businessId: String) = "samaroh-gcal-periodic-$businessId"
 

@@ -1596,3 +1596,43 @@ equals the business name after one PATCH (tested: rename happens once, third pas
 **Consequences.** Owner action once: run `scripts/alter-gcal-calendar-id.sql` in the
 Supabase SQL editor (until then the registry also rides the google_accounts mirror).
 `settings_gcal_calendar_name` stays as the blank-name fallback only.
+
+## ADR-049 — Attachment-import fix, real link-Google prompt, calendar skip when unlinked (2026-09-06)
+
+**Status:** accepted. Field-evidence-driven (owner phone capture 2026-09-06); additive —
+no frozen-contract changes.
+
+**Context (field evidence).** (a) EVERY image attachment failed with "Couldn't add that
+file" and ZERO logcat: `AttachmentCompressor.compressImage` null-checked the return of
+the `inJustDecodeBounds` pass, which is null BY CONTRACT on device — the elvis fired on
+every image (gallery AND camera). Unit tests stayed green because legacy Robolectric
+shadows return a Bitmap from that pass. (b) The post-save "connect Google" dialog was a
+stub: link status hardcoded `false`, Connect just dismissed. (c) On a device whose
+signed-in user has no local Google link, EVERY booking mutation burned the calendar
+worker's full 5 retries on `DriveNotAvailableException` — a permanent local state, with
+a stack trace per attempt.
+
+**Decision.**
+1. **Bounds pass never null-checks the decode result** (only the stream open); prepare
+   failures now leave a `SamarohAttach` logcat breadcrumb. Compressor/add-entry tests run
+   under `@GraphicsMode(NATIVE)` so Robolectric decodes like a device — the faithful
+   regression for this whole class of bug.
+2. **`feature:expenses` gains a `core:google` dependency** (precedent: `feature:menu`)
+   to complete the §4.2 prompt: `AddEntryViewModel` reads real
+   `GoogleAccountLinker.linkState` (prompt only on `NotLinked`; `NotConfigured` finishes
+   quietly), and Connect runs the full link flow in place — account picker, incremental
+   scope-consent sheet, then a data-sync nudge so queued uploads start immediately.
+   The ledger's pending badge switches to a "link your Google account" hint (CloudOff)
+   while unlinked. New keys `expenses.ledger.pending_upload_unlinked`,
+   `expenses.google_prompt.link_failed`.
+3. **Calendar worker verdict semantics:** `DriveNotAvailableException` (not signed in /
+   no link row / no silent token) maps to a quiet SUCCESS-skip (one info line), not
+   retry/failure — retrying cannot succeed, and both link flows kick a fresh push on
+   success while the 6-hour periodic covers the rest. Transient faults keep
+   retry-with-backoff up to 5 attempts (`CalendarSyncWorker.resolveFailure`, unit-tested).
+
+**Consequences.** Attachments import again (root cause of the field bug); unlinked users
+get an actionable path to Drive storage instead of a dead-end dialog; booking mutations
+on unlinked devices cost one log line instead of five stack traces. Emulator-verified:
+booking create/cancel → debounced push → skip → `Worker result SUCCESS`; remote pull
+trigger unchanged.
