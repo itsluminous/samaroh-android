@@ -2,7 +2,8 @@ package com.itsluminous.samaroh.feature.inventory.image
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.os.Build
+import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
+import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,8 +13,6 @@ import javax.inject.Singleton
 
 /** Longest allowed side of a stored item photo (spec §1.1/§4.3: ≤320px WebP). */
 const val ITEM_IMAGE_MAX_DIMENSION_PX = 320
-
-private const val WEBP_QUALITY = 80
 
 /** Prepares and stores item photos locally; the sync engine mirrors them upstream later. */
 interface ItemImageStore {
@@ -57,15 +56,12 @@ class LocalItemImageStore
                                 side,
                             )
                         }
-                    val scaled =
-                        if (side > ITEM_IMAGE_MAX_DIMENSION_PX) {
-                            Bitmap.createScaledBitmap(cropped, ITEM_IMAGE_MAX_DIMENSION_PX, ITEM_IMAGE_MAX_DIMENSION_PX, true)
-                        } else {
-                            cropped
-                        }
                     val dir = File(context.filesDir, "inventory-images").apply { mkdirs() }
                     val file = File(dir, "$itemId.webp")
-                    file.outputStream().use { out -> scaled.compress(webpFormat(), WEBP_QUALITY, out) }
+                    // Shared pipeline at the ITEM level (~50% compression, ADR-050):
+                    // thumbnails render small, so heavy squeeze at the existing ≤320px.
+                    ImageCompression.encodeToFile(cropped, CompressionSpec.ItemPhoto, file)
+                    if (cropped !== source) cropped.recycle()
                     file.absolutePath
                 }.getOrNull()
             }
@@ -75,12 +71,4 @@ class LocalItemImageStore
                 File(File(context.filesDir, "inventory-images"), "$itemId.webp").delete()
             }
         }
-
-        private fun webpFormat(): Bitmap.CompressFormat =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Bitmap.CompressFormat.WEBP_LOSSY
-            } else {
-                @Suppress("DEPRECATION")
-                Bitmap.CompressFormat.WEBP
-            }
     }
