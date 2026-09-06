@@ -13,9 +13,9 @@ import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
 import com.itsluminous.samaroh.core.google.GoogleServicesConfig
 import com.itsluminous.samaroh.core.google.drive.DriveNotAvailableException
 import com.itsluminous.samaroh.core.google.rest.GoogleApiException
-import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Booking
+import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -350,22 +350,13 @@ class CalendarSyncEngine
         private fun buildEvent(
             booking: Booking,
             paidPaise: Long,
-        ): GcalEvent {
-            val duePaise = (booking.totalAmountPaise - paidPaise).coerceAtLeast(0)
-            val description =
-                context.getString(
-                    R.string.settings_gcal_event_description,
-                    AmountFormatter.format(booking.totalAmountPaise),
-                    AmountFormatter.format(paidPaise),
-                    AmountFormatter.format(duePaise),
-                ) + "\n" + context.getString(R.string.settings_gcal_event_managed_by)
-            return GcalEventMapper.toEvent(
+        ): GcalEvent =
+            GcalEventMapper.toEvent(
                 booking = booking,
                 tentativeSuffix = context.getString(R.string.settings_gcal_tentative_suffix),
-                description = description,
+                description = GcalEventMapper.description(booking, paidPaise, descriptionStrings(context)),
                 zoneId = ZoneId.systemDefault(),
             )
-        }
 
         private suspend fun requireLink(): GoogleAccountLinkEntity {
             val session = sessionHolder.session.first() ?: throw DriveNotAvailableException("not signed in")
@@ -418,3 +409,40 @@ class CalendarSyncEngine
             const val TAG = "SamarohGcal"
         }
     }
+
+/**
+ * Resolves the localized [GcalDescriptionStrings] from [context]'s current locale
+ * (ADR-047). Top-level so the en/hi description tests exercise the exact resource
+ * wiring the engine uses, via locale-overridden contexts.
+ */
+internal fun descriptionStrings(context: Context): GcalDescriptionStrings =
+    GcalDescriptionStrings(
+        customerNameLabel = context.getString(R.string.booking_form_customer_name),
+        customerPhoneLabel = context.getString(R.string.booking_form_customer_phone),
+        eventTypeLabel = context.getString(R.string.booking_form_event_type),
+        statusLabel = context.getString(R.string.booking_form_status),
+        totalLabel = context.getString(R.string.booking_card_total_label),
+        securityDepositLabel = context.getString(R.string.booking_card_deposit_label),
+        advanceLabel = context.getString(R.string.booking_form_advance),
+        dueLabel = context.getString(R.string.booking_card_due_label),
+        invoiceNumberLabel = context.getString(R.string.booking_form_invoice_number),
+        sourceLabel = context.getString(R.string.booking_form_source),
+        notesLabel = context.getString(R.string.booking_form_notes),
+        statusNames =
+            mapOf(
+                BookingStatus.TENTATIVE to context.getString(R.string.booking_status_tentative),
+                BookingStatus.CONFIRMED to context.getString(R.string.booking_status_confirmed),
+                BookingStatus.COMPLETED to context.getString(R.string.booking_status_completed),
+                BookingStatus.CANCELLED to context.getString(R.string.booking_status_cancelled),
+            ),
+        sourceNames =
+            mapOf(
+                BookingSource.WALK_IN to context.getString(R.string.booking_source_walk_in),
+                BookingSource.PHONE to context.getString(R.string.booking_source_phone),
+                BookingSource.REFERRAL to context.getString(R.string.booking_source_referral),
+                BookingSource.REPEAT to context.getString(R.string.booking_source_repeat),
+                BookingSource.OTHER to context.getString(R.string.booking_source_other),
+            ),
+        line = { label, value -> context.getString(R.string.settings_gcal_description_line, label, value) },
+        managedBy = context.getString(R.string.settings_gcal_event_managed_by),
+    )

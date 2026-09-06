@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
+import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.model.Booking
@@ -172,6 +173,7 @@ fun syncEngine(
     uploader: AttachmentUploader? = null,
     imageMirror: ItemImageMirror = FakeItemImageMirror(),
     postSyncHooks: Set<PostSyncHook> = emptySet(),
+    remoteChangeListeners: Set<RemoteChangeListener> = emptySet(),
     clock: Clock = FIXED_CLOCK,
 ): SyncEngine =
     SyncEngine(
@@ -202,6 +204,7 @@ fun syncEngine(
         conflictNotifier = notifier,
         syncMetaStore = metaStore,
         postSyncHooks = postSyncHooks,
+        remoteChangeListeners = remoteChangeListeners,
         clock = clock,
     )
 

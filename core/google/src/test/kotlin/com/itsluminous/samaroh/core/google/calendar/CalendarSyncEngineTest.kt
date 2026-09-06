@@ -540,4 +540,83 @@ class CalendarSyncEngineTest {
             assertThat(service.events["cal-1"].orEmpty()).isEmpty()
             assertThat(bookings.bookingsById["b-1"]?.gcalEventId).isNull()
         }
+
+    // --- ADR-047: description-format migration + trigger-loop convergence ---
+
+    @Test
+    fun `fingerprint format bump re-pushes every recorded event exactly once as an update`() =
+        runTest {
+            val service = FakeCalendarService()
+            service.calendars["cal-1"] = "Samaroh"
+            service.seedEvent("cal-1", "ev-1", GcalEvent(summary = "old", description = "single-line"))
+            service.seedEvent("cal-1", "ev-2", GcalEvent(summary = "old", description = "single-line"))
+            val b1 = Fixtures.booking(id = "b-1")
+            val b2 = Fixtures.booking(id = "b-2")
+            val bookings = FakeBookingRepository(listOf(b1, b2))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = "cal-1"))
+            // Recorded state carries PRE-v2 fingerprints (as an older build left them).
+            stateStore.write(
+                BIZ,
+                mapOf(
+                    "b-1" to SyncedEventState(eventId = "ev-1", fingerprint = "legacy-1"),
+                    "b-2" to SyncedEventState(eventId = "ev-2", fingerprint = "legacy-2"),
+                ),
+            )
+
+            engine(service, bookings, linkDao).syncBusiness(BIZ).getOrThrow()
+
+            // Exactly one UPDATE per recorded event, no inserts → no duplicates.
+            assertThat(service.updates).containsExactly("cal-1" to "ev-1", "cal-1" to "ev-2")
+            assertThat(service.inserts).isEmpty()
+            assertThat(service.events["cal-1"].orEmpty()).hasSize(2)
+            // The re-pushed events carry the rich multi-line description.
+            assertThat(service.events["cal-1"]!!["ev-1"]!!.description).contains("\n")
+
+            // Second pass: fingerprints now current → true no-op (no HTTP at all).
+            service.updates.clear()
+            engine(service, bookings, linkDao).syncBusiness(BIZ).getOrThrow()
+            assertThat(service.updates).isEmpty()
+            assertThat(service.inserts).isEmpty()
+        }
+
+    @Test
+    fun `gcal_event_id write cycle converges - bounded passes, final pass makes no calls`() =
+        runTest {
+            val service = FakeCalendarService()
+            service.calendars["cal-1"] = "Samaroh"
+            // A remote pull just applied a brand-new booking (another member created it):
+            // RemoteBookingCalendarTrigger requests the first pass.
+            val booking = Fixtures.booking(id = "b-1")
+            val bookings = FakeBookingRepository(listOf(booking))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = "cal-1"))
+            val eng = engine(service, bookings, linkDao)
+
+            // Model BOTH re-trigger paths conservatively: ANY booking write by the engine
+            // (recordEventId) re-fires a pass — locally via the outbox listener and again
+            // via the pulled server echo. The loop must still terminate.
+            var passes = 0
+            var rerunRequested = true
+            var callsInLastPass = -1
+            while (rerunRequested) {
+                assertThat(passes).isLessThan(MAX_CONVERGENCE_PASSES) // no infinite loop
+                val savesBefore = bookings.saved.size
+                val callsBefore = service.inserts.size + service.updates.size + service.deletes.size
+                eng.syncBusiness(BIZ).getOrThrow()
+                passes++
+                callsInLastPass = service.inserts.size + service.updates.size + service.deletes.size - callsBefore
+                // recordEventId wrote the booking → both triggers fire again (debounce
+                // collapses them into ONE follow-up pass, modeled as one iteration).
+                rerunRequested = bookings.saved.size > savesBefore
+            }
+
+            // Pass 1 creates the event + records its id; pass 2 (the echo) plans empty.
+            assertThat(passes).isEqualTo(2)
+            assertThat(callsInLastPass).isEqualTo(0)
+            assertThat(service.events["cal-1"].orEmpty()).hasSize(1)
+        }
+
+    private companion object {
+        /** Convergence bound: pass 1 mutates, pass 2 must no-op; anything above 4 is a loop. */
+        const val MAX_CONVERGENCE_PASSES = 4
+    }
 }

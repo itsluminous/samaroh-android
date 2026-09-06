@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.google.calendar
 
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.TENTATIVE_ICON
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -73,7 +74,7 @@ class GcalEventMapperTest {
     }
 
     @Test
-    fun `fingerprint changes with event fields and paid amount, stable otherwise`() {
+    fun `fingerprint changes with every description-visible field, stable otherwise`() {
         val booking = Fixtures.booking(id = "b-1")
         val base = GcalEventMapper.fingerprint(booking, paidPaise = 0)
 
@@ -83,8 +84,109 @@ class GcalEventMapperTest {
         assertThat(GcalEventMapper.fingerprint(booking.copy(status = BookingStatus.TENTATIVE), paidPaise = 0))
             .isNotEqualTo(base)
         assertThat(GcalEventMapper.fingerprint(booking, paidPaise = 50_000_00L)).isNotEqualTo(base)
-        // Fields that do NOT affect the event leave the fingerprint alone.
-        assertThat(GcalEventMapper.fingerprint(booking.copy(notes = "internal note"), paidPaise = 0)).isEqualTo(base)
+        // ADR-047: the description now carries phone/invoice/source/notes — all fingerprinted.
+        assertThat(GcalEventMapper.fingerprint(booking.copy(customerPhone = "9876543210"), paidPaise = 0))
+            .isNotEqualTo(base)
+        assertThat(GcalEventMapper.fingerprint(booking.copy(invoiceNumber = "INV-1"), paidPaise = 0))
+            .isNotEqualTo(base)
+        assertThat(GcalEventMapper.fingerprint(booking.copy(source = BookingSource.PHONE), paidPaise = 0))
+            .isNotEqualTo(base)
+        assertThat(GcalEventMapper.fingerprint(booking.copy(notes = "note"), paidPaise = 0)).isNotEqualTo(base)
+    }
+
+    @Test
+    fun `fingerprint ignores gcalEventId and audit timestamps - the convergence invariant`() {
+        // ADR-047: the engine's own recordEventId write (gcal_event_id + updated_at)
+        // re-enters the trigger paths; the follow-up pass MUST fingerprint identical or
+        // the calendar loop would never converge.
+        val booking = Fixtures.booking(id = "b-1")
+        val base = GcalEventMapper.fingerprint(booking, paidPaise = 0)
+        val afterRecord =
+            booking.copy(gcalEventId = "ev-99", updatedAt = booking.updatedAt.plusSeconds(60))
+        assertThat(GcalEventMapper.fingerprint(afterRecord, paidPaise = 0)).isEqualTo(base)
+    }
+
+    // --- rich description (ADR-047) ---
+
+    private val strings =
+        GcalDescriptionStrings(
+            customerNameLabel = "Customer name",
+            customerPhoneLabel = "Phone number",
+            eventTypeLabel = "Event type",
+            statusLabel = "Status",
+            totalLabel = "Total",
+            securityDepositLabel = "Security deposit",
+            advanceLabel = "Advance paid",
+            dueLabel = "Due",
+            invoiceNumberLabel = "Invoice number",
+            sourceLabel = "Booking source",
+            notesLabel = "Notes",
+            statusNames =
+                mapOf(
+                    BookingStatus.TENTATIVE to "Tentative",
+                    BookingStatus.CONFIRMED to "Confirmed",
+                    BookingStatus.COMPLETED to "Completed",
+                    BookingStatus.CANCELLED to "Cancelled",
+                ),
+            sourceNames =
+                mapOf(
+                    BookingSource.WALK_IN to "Walk-in",
+                    BookingSource.PHONE to "Phone",
+                    BookingSource.REFERRAL to "Referral",
+                    BookingSource.REPEAT to "Repeat",
+                    BookingSource.OTHER to "Other",
+                ),
+            line = { label, value -> "$label: $value" },
+            managedBy = "Managed by Samaroh",
+        )
+
+    @Test
+    fun `description renders the full booking picture one field per line`() {
+        val booking =
+            Fixtures
+                .booking(totalAmountPaise = 1_50_000_00L, securityDepositPaise = 10_000_00L)
+                .copy(
+                    customerPhone = "9876543210",
+                    invoiceNumber = "INV-2026-01",
+                    source = BookingSource.REFERRAL,
+                    notes = "stage setup\nby 4 pm",
+                )
+        val lines = GcalEventMapper.description(booking, paidPaise = 50_000_00L, strings = strings).split("\n")
+        assertThat(lines)
+            .containsExactly(
+                "Customer name: fixture-customer",
+                "Phone number: 9876543210",
+                "Event type: wedding",
+                "Status: Confirmed",
+                // AmountFormatter Indian grouping (ADR-002).
+                "Total: ₹1,50,000",
+                "Security deposit: ₹10,000",
+                "Advance paid: ₹50,000",
+                "Due: ₹1,00,000",
+                "Invoice number: INV-2026-01",
+                "Booking source: Referral",
+                // Notes verbatim (multi-line allowed), LAST before the footer.
+                "Notes: stage setup",
+                "by 4 pm",
+                "Managed by Samaroh",
+            ).inOrder()
+    }
+
+    @Test
+    fun `description omits unset optional fields instead of rendering blanks`() {
+        val description = GcalEventMapper.description(Fixtures.booking(), paidPaise = 0, strings = strings)
+        assertThat(description).doesNotContain("Phone number")
+        assertThat(description).doesNotContain("Invoice number")
+        assertThat(description).doesNotContain("Booking source")
+        assertThat(description).doesNotContain("Notes")
+        assertThat(description).endsWith("Managed by Samaroh")
+    }
+
+    @Test
+    fun `description due never goes negative on overpayment`() {
+        val booking = Fixtures.booking(totalAmountPaise = 1_000_00L)
+        val description = GcalEventMapper.description(booking, paidPaise = 2_000_00L, strings = strings)
+        assertThat(description).contains("Due: ₹0")
     }
 
     @Test

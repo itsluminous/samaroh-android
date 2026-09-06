@@ -1486,3 +1486,64 @@ were on link; now also when the engine sets them). The engine no longer checks
 `GoogleServicesConfig.isConfigured` (the worker gates it) so it stays unit-testable.
 Owner action required once per Google Cloud project: add `calendar.app.created` under
 Google Auth Platform → Data Access, then re-link in Settings.
+
+## ADR-047 — Rich calendar event description, PATCH updates, remote-pull calendar trigger (2026-09-06)
+
+**Status:** accepted. Extends ADR-046 additively (`RemoteChangeListener` in the frozen
+sync contract; `GcalEventMapper` description/fingerprint format).
+
+**Context (three owner reports).**
+1. *The event description shows only amounts.* The owner wants the booking's full
+   picture in Google Calendar — customer, phone, event type, status, all amounts,
+   invoice number, source and notes — without opening the app.
+2. *Everything is on one line.* The old `settings.gcal.event_description` key rendered
+   `Total · Paid · Due` in a single line.
+3. *Another member's edit doesn't reach my calendar.* The ADR-046 trigger rides the
+   OUTBOX (`LocalMutationListener`), which only local mutations touch. A booking edited
+   by another member arrives via the sync PULL (`LocalApplier` writes DAOs directly) and
+   the calendar only caught up on the 6-hour periodic.
+
+**Decision.**
+1. **Rich multi-line description.** `GcalEventMapper.description` renders one field per
+   line — customer name, phone (when set), event type, status, total, security deposit,
+   advance paid, due, invoice number (when assigned), source (when set), notes
+   (verbatim, LAST before the footer) and the localized "Managed by Samaroh" footer.
+   Labels reuse the existing `booking.*` catalog keys; the only new key is
+   `settings.gcal.description_line` (`"{label}: {value}"`). Amounts render via
+   `AmountFormatter` (Indian grouping, ADR-002). Locale = the app's current locale at
+   push time.
+2. **One-time re-push via a fingerprint format version.** The push fingerprint now
+   includes every description-visible field (phone, invoice number, source, notes) plus
+   a `FORMAT_VERSION` salt. Bumping the version invalidates every stored fingerprint at
+   once, so the next pass re-pushes each recorded event exactly ONCE — as an UPDATE of
+   the recorded event id (planner update path / ADR-046 adoption), never a create, so
+   the format migration cannot duplicate events.
+3. **Updates PATCH.** `RestCalendarService.updateEvent` sends PATCH (via
+   `X-HTTP-Method-Override` on POST — `HttpURLConnection` cannot send PATCH natively)
+   instead of PUT: a full-resource PUT clears writable fields the body omits (user-set
+   reminders, colour); PATCH touches only the app-owned fields. The event body nulls
+   the unused start/end date variant explicitly so timed ↔ all-day switches still clear
+   the stale pair under PATCH semantics.
+4. **Remote-pull calendar trigger.** New additive `core:data` contract
+   `RemoteChangeListener` (multibound set, `@Multibinds` default empty): after a sync
+   run whose pull applied rows, `SyncEngine` reports the applied business-scoped tables
+   as `table → business ids`; listener failures never fail the run. `core:google`
+   contributes `RemoteBookingCalendarTrigger`: applied `bookings`/`booking_payments`
+   for a gcal-enabled business enqueue the SAME debounced calendar one-shot as the
+   local trigger. Remote edits now reach the calendar within one sync cycle.
+
+**Loop convergence (the gcal_event_id write cycle).** The calendar engine records
+pushed event ids on the booking row (`recordEventId` → outbox UPSERT). That write
+re-enters BOTH triggers: locally via `LocalMutationListener`, and — after the server
+echoes the row — via the pull → `RemoteChangeListener`. The cycle converges because the
+fingerprint deliberately EXCLUDES `gcal_event_id` and the audit timestamps: the
+follow-up pass plans empty and returns before any network call or write, so no new
+mutation is produced and the chain stops (one free no-op pass per echo, debounce
+collapses bursts). Guarded by `CalendarSyncEngineTest's convergence test` (bounded-runs assertion)
+and a mapper test pinning fingerprint stability across `gcalEventId` changes; a comment
+on `GcalEventMapper.fingerprint` forbids adding either field.
+
+**Consequences.** Existing events get one PATCH re-push with the new description after
+this build first syncs. `settings.gcal.event_description` is no longer referenced by
+Android (kept in the catalog for the web track). The sync engine's constructor gains a
+multibound set — Hilt injects it automatically; tests default it empty.

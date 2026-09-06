@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
+import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
@@ -53,6 +54,9 @@ abstract class SyncModule {
 
     /** Feature modules contribute [PostSyncHook]s via `@IntoSet`; valid even when none do (ADR-024). */
     @Multibinds abstract fun postSyncHooks(): Set<PostSyncHook>
+
+    /** Modules contribute [RemoteChangeListener]s via `@IntoSet`; valid even when none do (ADR-047). */
+    @Multibinds abstract fun remoteChangeListeners(): Set<RemoteChangeListener>
 
     /** Mirrors local item photos to Supabase Storage before their row op pushes (ADR-023). */
     @Binds abstract fun bindItemImageMirror(impl: StorageItemImageMirror): ItemImageMirror

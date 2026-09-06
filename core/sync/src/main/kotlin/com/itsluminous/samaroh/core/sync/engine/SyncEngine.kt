@@ -5,6 +5,7 @@ import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
+import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
 import com.itsluminous.samaroh.core.database.dao.BusinessDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
@@ -76,6 +77,8 @@ class SyncEngine
         private val syncMetaStore: SyncMetaStore,
         /** Feature-contributed reactions to applied pulls (ADR-024) — e.g. reminder re-planning. */
         private val postSyncHooks: Set<@JvmSuppressWildcards PostSyncHook>,
+        /** Told WHICH tables/businesses a pull changed (ADR-047) — e.g. the calendar push on remote booking edits. */
+        private val remoteChangeListeners: Set<@JvmSuppressWildcards RemoteChangeListener>,
         private val clock: Clock,
     ) {
         private val json = Json { ignoreUnknownKeys = true }
@@ -94,12 +97,19 @@ class SyncEngine
                     pushed = pushResult.first
                     itemErrors = pushResult.second
                     val pullResult = pull(remote)
-                    pulled = pullResult.first
-                    conflicts = pullResult.second
+                    pulled = pullResult.applied
+                    conflicts = pullResult.conflicts
                     syncMetaStore.recordSyncTime(clock.instant())
                     if (pulled > 0) {
                         // A hook failure must never fail the sync run (§8: per-item errors don't block).
                         postSyncHooks.forEach { hook -> runCatching { hook.onSyncApplied() } }
+                    }
+                    if (pullResult.appliedTables.isNotEmpty()) {
+                        // ADR-047: remote edits (another member's booking change) must reach
+                        // reactions like the calendar push without waiting for a periodic.
+                        remoteChangeListeners.forEach { listener ->
+                            runCatching { listener.onRemoteChangesApplied(pullResult.appliedTables) }
+                        }
                     }
                 } catch (_: RemoteUnavailableException) {
                     networkFailed = true
@@ -254,9 +264,10 @@ class SyncEngine
          * after each pass guarantees one sync run fetches everything, capped at
          * [MAX_PULL_PASSES] so a pathological stream of new businesses cannot spin forever.
          */
-        private suspend fun pull(remote: RemoteStore): Pair<Int, Int> {
+        private suspend fun pull(remote: RemoteStore): PullResult {
             var applied = 0
             var conflicts = 0
+            val appliedTables = mutableMapOf<String, MutableSet<String>>()
             val (globalTables, scopedTables) = SyncTables.ALL.partition { !it.businessScoped }
             val coveredBusinessIds = mutableSetOf<String>()
             for (pass in 1..MAX_PULL_PASSES) {
@@ -277,12 +288,21 @@ class SyncEngine
                         val result = pullTableGuarded(remote, spec, businessId)
                         applied += result.first
                         conflicts += result.second
+                        if (result.first > 0) appliedTables.getOrPut(spec.name) { mutableSetOf() } += businessId
                     }
                 }
                 coveredBusinessIds += newBusinessIds
             }
-            return applied to conflicts
+            return PullResult(applied, conflicts, appliedTables)
         }
+
+        /** One pull's outcome (ADR-047 adds [appliedTables] for the remote-change listeners). */
+        private data class PullResult(
+            val applied: Int,
+            val conflicts: Int,
+            /** Business-scoped tables whose rows were applied this run: table → business ids. */
+            val appliedTables: Map<String, Set<String>>,
+        )
 
         /**
          * A REJECTED pull of ONE table (e.g. the server does not have `event_types` yet

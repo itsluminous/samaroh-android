@@ -87,3 +87,17 @@ interface PostSyncHook {
     /** Called after a sync run whose pull applied at least one row. */
     suspend fun onSyncApplied()
 }
+
+/**
+ * Observes WHICH tables a sync pull changed (ADR-047, additive contract extension).
+ * The sync engine invokes each multibound listener after a run whose pull applied at
+ * least one row, with the applied business-scoped tables and the business ids whose
+ * rows changed (`table name → business ids`). This is the remote twin of
+ * [LocalMutationListener]: a booking edited by ANOTHER member arrives via the pull and
+ * never touches the outbox, so without this signal `core:google` could not push it to
+ * the calendar until the 6-hour periodic. Listener failures are logged and never fail
+ * the sync run. Global (non-business-scoped) tables are not reported.
+ */
+fun interface RemoteChangeListener {
+    suspend fun onRemoteChangesApplied(appliedTables: Map<String, Set<String>>)
+}

@@ -5,6 +5,7 @@ import com.itsluminous.samaroh.core.google.drive.DriveNotAvailableException
 import com.itsluminous.samaroh.core.google.rest.GoogleApiException
 import com.itsluminous.samaroh.core.google.rest.GoogleApiHttp
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -114,9 +115,12 @@ class RestCalendarService
             eventId: String,
             event: GcalEvent,
         ) {
+            // PATCH, not PUT (ADR-047): a full-resource PUT clears every writable field
+            // the body omits (user-set reminders, colour, visibility); PATCH updates
+            // only the fields the app owns.
             val response =
                 http.request(
-                    "PUT",
+                    "PATCH",
                     "$BASE_URL/calendars/${encode(calendarId)}/events/${encode(eventId)}",
                     token(),
                     contentType = "application/json; charset=UTF-8",
@@ -227,15 +231,29 @@ internal fun GcalEvent.toRequestBody(): String =
     buildJsonObject {
         put("summary", summary)
         put("description", description)
+        // The unused date variant is EXPLICITLY nulled: a PATCH (ADR-047) only clears
+        // fields the body names, so a booking switching timed ↔ all-day must null the
+        // other pair or the event keeps both and the API rejects it. Inserts ignore
+        // the nulls.
         if (isAllDay) {
-            putJsonObject("start") { put("date", startDate.toString()) }
-            putJsonObject("end") { put("date", endDateExclusive.toString()) }
+            putJsonObject("start") {
+                put("date", startDate.toString())
+                put("dateTime", JsonNull)
+                put("timeZone", JsonNull)
+            }
+            putJsonObject("end") {
+                put("date", endDateExclusive.toString())
+                put("dateTime", JsonNull)
+                put("timeZone", JsonNull)
+            }
         } else {
             putJsonObject("start") {
+                put("date", JsonNull)
                 put("dateTime", startDateTime.toString())
                 put("timeZone", timeZone)
             }
             putJsonObject("end") {
+                put("date", JsonNull)
                 put("dateTime", endDateTime.toString())
                 put("timeZone", timeZone)
             }

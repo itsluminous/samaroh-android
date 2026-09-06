@@ -41,7 +41,15 @@ class GoogleApiHttp
             withContext(Dispatchers.IO) {
                 val connection = URL(url).openConnection() as HttpURLConnection
                 try {
-                    connection.requestMethod = method
+                    // HttpURLConnection rejects PATCH as a request method; Google APIs
+                    // accept the standard override header on a POST instead (ADR-047 —
+                    // event updates PATCH so user-set fields like reminders survive).
+                    if (method == "PATCH") {
+                        connection.requestMethod = "POST"
+                        connection.setRequestProperty("X-HTTP-Method-Override", "PATCH")
+                    } else {
+                        connection.requestMethod = method
+                    }
                     connection.connectTimeout = TIMEOUT_MS
                     connection.readTimeout = TIMEOUT_MS
                     connection.setRequestProperty("Authorization", "Bearer $accessToken")
