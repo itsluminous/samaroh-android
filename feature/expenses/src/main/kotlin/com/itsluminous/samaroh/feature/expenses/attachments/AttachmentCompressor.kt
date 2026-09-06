@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,13 +41,19 @@ class AttachmentCompressor(
         displayName: String,
     ): Prepared? =
         withContext(ioDispatcher) {
-            runCatching {
-                if (mimeType.startsWith("image/")) {
-                    compressImage(uri, displayName)
-                } else {
-                    copyUntouched(uri, mimeType, displayName)
-                }
-            }.getOrNull()
+            val prepared =
+                runCatching {
+                    if (mimeType.startsWith("image/")) {
+                        compressImage(uri, displayName)
+                    } else {
+                        copyUntouched(uri, mimeType, displayName)
+                    }
+                }.onFailure { Log.w(TAG, "attachment prepare threw (mime=$mimeType, name=$displayName)", it) }
+                    .getOrNull()
+            // The phone-evidence run proved a silent null here is undiagnosable from logcat —
+            // always leave a breadcrumb when an import fails (no PII beyond the picked name).
+            if (prepared == null) Log.w(TAG, "attachment prepare failed (mime=$mimeType, name=$displayName)")
+            prepared
         }
 
     /** Compresses an already-local capture (camera flow) in place of the raw file. */
@@ -63,7 +70,11 @@ class AttachmentCompressor(
         displayName: String,
     ): Prepared? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        // NOTE: with inJustDecodeBounds the decode call returns null BY CONTRACT — only the
+        // stream-open may be null-checked here. Checking the decode result made every image
+        // import fail silently ("Couldn't add that file", v0.8.2 field bug).
+        val boundsStream = context.contentResolver.openInputStream(uri) ?: return null
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         // Coarse power-of-two subsampling first (memory-safe), exact scale second.
@@ -129,5 +140,8 @@ class AttachmentCompressor(
         const val MIME_JPEG = "image/jpeg"
         const val MIME_PDF = "application/pdf"
         private const val DIR_NAME = "expense_attachments"
+
+        /** Logcat breadcrumb tag for attachment-import failures (evidence run 2026-09-06). */
+        private const val TAG = "SamarohAttach"
     }
 }

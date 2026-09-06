@@ -11,9 +11,14 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
+// NATIVE graphics is REQUIRED for fidelity: legacy shadows return a Bitmap from the
+// inJustDecodeBounds pass where real Android returns null — exactly the divergence that
+// let the v0.8.2 "Couldn't add that file" bug ship with green tests.
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AttachmentCompressorTest {
     private lateinit var context: Context
     private lateinit var compressor: AttachmentCompressor
@@ -63,6 +68,23 @@ class AttachmentCompressorTest {
             assertThat(prepared!!.mimeType).isEqualTo(AttachmentCompressor.MIME_PDF)
             assertThat(prepared.file.readBytes()).isEqualTo(bytes)
             assertThat(prepared.fileName).endsWith(".pdf")
+        }
+
+    @Test
+    fun `camera capture is compressed via the same image path`() =
+        runTest {
+            // Regression: prepareCapturedImage funnels into compressImage, whose bounds
+            // pass must never null-check the decode result (null by contract on device).
+            val capture = compressor.newCaptureFile()
+            val bitmap = Bitmap.createBitmap(320, 240, Bitmap.Config.ARGB_8888)
+            capture.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            bitmap.recycle()
+
+            val prepared = compressor.prepareCapturedImage(capture)
+
+            assertThat(prepared).isNotNull()
+            assertThat(prepared!!.mimeType).isEqualTo(AttachmentCompressor.MIME_JPEG)
+            assertThat(decodeBounds(prepared.file)).isEqualTo(320 to 240)
         }
 
     @Test
