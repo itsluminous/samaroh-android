@@ -59,6 +59,23 @@ interface SyncScheduler {
 }
 
 /**
+ * Observes every queued local mutation (ADR-046, additive contract extension).
+ * [OutboxWriter] implementations notify each listener right after the outbox row is
+ * written — the same moment the debounced data sync is nudged (ADR-036) — so other
+ * modules can react to specific entity mutations promptly (e.g. `core:google` enqueues
+ * the Google Calendar push when a booking changes) without polling or a 6-hour periodic
+ * wait. Listener failures are logged and never fail the enqueuing write.
+ */
+fun interface LocalMutationListener {
+    suspend fun onLocalMutation(
+        entityType: String,
+        entityId: String,
+        operation: OutboxOperation,
+        payloadJson: String,
+    )
+}
+
+/**
  * Reacts to a sync run that APPLIED pulled rows to Room (ADR-024). Feature modules
  * contribute implementations via Hilt `@IntoSet`; the engine invokes each one after a
  * successful pull so pulled data becomes actionable immediately — e.g. `feature:booking`

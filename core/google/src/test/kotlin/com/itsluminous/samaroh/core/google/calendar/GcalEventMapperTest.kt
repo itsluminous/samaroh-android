@@ -86,4 +86,24 @@ class GcalEventMapperTest {
         // Fields that do NOT affect the event leave the fingerprint alone.
         assertThat(GcalEventMapper.fingerprint(booking.copy(notes = "internal note"), paidPaise = 0)).isEqualTo(base)
     }
+
+    @Test
+    fun `every event carries the booking id and managed marker as private properties`() {
+        val event = map(Fixtures.booking(id = "b-42"))
+        assertThat(event.privateProperties)
+            .containsExactly(
+                GcalEventMapper.PROP_BOOKING_ID,
+                "b-42",
+                GcalEventMapper.PROP_MANAGED,
+                GcalEventMapper.PROP_MANAGED_VALUE,
+            )
+    }
+
+    @Test
+    fun `request body embeds the private extended properties`() {
+        val body = map(Fixtures.booking(id = "b-42")).toRequestBody()
+        assertThat(body).contains("\"extendedProperties\"")
+        assertThat(body).contains("\"samarohBookingId\":\"b-42\"")
+        assertThat(body).contains("\"samarohManaged\":\"1\"")
+    }
 }

@@ -24,7 +24,9 @@ interface GoogleAccessTokenProvider {
 /**
  * Play services implementation: a silent authorization for already-granted scopes returns
  * a fresh access token without any UI. A result that needs resolution means consent was
- * revoked — the Settings link flow is the recovery path.
+ * revoked — the Settings link flow is the recovery path. Tries the full scope set first,
+ * then falls back to the legacy (pre-ADR-046) scopes so accounts linked before the
+ * `calendar.app.created` scope existed keep working until they re-link.
  */
 @Singleton
 class PlayServicesAccessTokenProvider
@@ -34,11 +36,16 @@ class PlayServicesAccessTokenProvider
     ) : GoogleAccessTokenProvider {
         override suspend fun accessToken(): String? {
             if (!GoogleServicesConfig.isConfigured) return null
-            return try {
+            return authorizeSilently(GoogleServicesConfig.requestedScopes)
+                ?: authorizeSilently(GoogleServicesConfig.legacyScopes)
+        }
+
+        private suspend fun authorizeSilently(scopes: List<String>): String? =
+            try {
                 val request =
                     AuthorizationRequest
                         .builder()
-                        .setRequestedScopes(GoogleServicesConfig.requestedScopes.map(::Scope))
+                        .setRequestedScopes(scopes.map(::Scope))
                         .build()
                 val result = Identity.getAuthorizationClient(context).authorize(request).await()
                 if (result.hasResolution()) null else result.accessToken
@@ -47,5 +54,4 @@ class PlayServicesAccessTokenProvider
             } catch (e: Exception) {
                 null
             }
-        }
     }

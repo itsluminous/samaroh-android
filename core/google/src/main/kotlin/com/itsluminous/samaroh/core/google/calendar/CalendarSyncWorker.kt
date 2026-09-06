@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.google.calendar
 
 import android.content.Context
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -49,7 +50,10 @@ class CalendarSyncWorker(
             }
         return result.fold(
             onSuccess = { Result.success() },
-            onFailure = { if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure() },
+            onFailure = {
+                Log.w(CalendarSyncEngine.TAG, "calendar sync attempt $runAttemptCount failed", it)
+                if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            },
         )
     }
 
@@ -63,6 +67,16 @@ class CalendarSyncWorker(
         fun periodicWorkName(businessId: String) = "samaroh-gcal-periodic-$businessId"
 
         fun oneShotWorkName(businessId: String) = "samaroh-gcal-now-$businessId"
+
+        /** Debounced booking-mutation trigger (ADR-046) — own name so REPLACE never eats [oneShotWorkName]. */
+        fun onChangeWorkName(businessId: String) = "samaroh-gcal-change-$businessId"
+
+        /**
+         * Disable-cleanup gets its OWN unique name (ADR-046): it used to share
+         * [oneShotWorkName], so a pending cleanup silently swallowed the enable-time
+         * bulk push (KEEP policy) — the "enable did nothing" race.
+         */
+        fun cleanupWorkName(businessId: String) = "samaroh-gcal-cleanup-$businessId"
     }
 }
 
@@ -75,13 +89,41 @@ class CalendarSyncScheduler
     ) {
         private val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
-        /** One-shot push — call on enable (bulk push) and after booking mutations. */
+        /** One-shot push — call on enable (bulk push). Also cancels any pending disable-cleanup. */
         fun requestSync(businessId: String) {
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            val workManager = WorkManager.getInstance(context)
+            // Re-enabling must beat a still-pending disable-cleanup, or the cleanup
+            // would delete the events the enable-time push just (re)created.
+            workManager.cancelUniqueWork(CalendarSyncWorker.cleanupWorkName(businessId))
+            workManager.enqueueUniqueWork(
                 CalendarSyncWorker.oneShotWorkName(businessId),
                 ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<CalendarSyncWorker>()
                     .setConstraints(constraints)
+                    .setInputData(
+                        workDataOf(
+                            CalendarSyncWorker.KEY_BUSINESS_ID to businessId,
+                            CalendarSyncWorker.KEY_ACTION to CalendarSyncWorker.ACTION_SYNC,
+                        ),
+                    ).build(),
+            )
+        }
+
+        /**
+         * Debounced push after a local booking mutation (ADR-046, mirrors the ADR-036
+         * data-sync debounce): every booking/payment outbox write lands here, so
+         * create/edit/cancel/delete reach the calendar within seconds instead of the
+         * 6-hour periodic. REPLACE + a short initial delay collapse an edit burst into
+         * one run after the last write; offline, the CONNECTED constraint holds it.
+         */
+        fun requestSyncOnLocalChange(businessId: String) {
+            Log.i(CalendarSyncEngine.TAG, "debounced calendar push requested for $businessId")
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                CalendarSyncWorker.onChangeWorkName(businessId),
+                ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<CalendarSyncWorker>()
+                    .setConstraints(constraints)
+                    .setInitialDelay(ON_CHANGE_DEBOUNCE_SECONDS, TimeUnit.SECONDS)
                     .setInputData(
                         workDataOf(
                             CalendarSyncWorker.KEY_BUSINESS_ID to businessId,
@@ -114,9 +156,11 @@ class CalendarSyncScheduler
         ) {
             val workManager = WorkManager.getInstance(context)
             workManager.cancelUniqueWork(CalendarSyncWorker.periodicWorkName(businessId))
+            workManager.cancelUniqueWork(CalendarSyncWorker.oneShotWorkName(businessId))
+            workManager.cancelUniqueWork(CalendarSyncWorker.onChangeWorkName(businessId))
             if (removeEvents) {
                 workManager.enqueueUniqueWork(
-                    CalendarSyncWorker.oneShotWorkName(businessId),
+                    CalendarSyncWorker.cleanupWorkName(businessId),
                     ExistingWorkPolicy.REPLACE,
                     OneTimeWorkRequestBuilder<CalendarSyncWorker>()
                         .setConstraints(constraints)
@@ -128,5 +172,9 @@ class CalendarSyncScheduler
                         ).build(),
                 )
             }
+        }
+
+        private companion object {
+            const val ON_CHANGE_DEBOUNCE_SECONDS = 3L
         }
     }

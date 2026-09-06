@@ -108,6 +108,9 @@ class CredentialManagerGoogleAccountLinker
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Typical cause when this fails right after a scope addition: the consent
+                // screen (Google Auth Platform → Data Access) lacks a requested scope.
+                android.util.Log.w("SamarohGcal", "scope authorization failed", e)
                 Result.failure(GoogleLinkException.Failed(e))
             }
         }

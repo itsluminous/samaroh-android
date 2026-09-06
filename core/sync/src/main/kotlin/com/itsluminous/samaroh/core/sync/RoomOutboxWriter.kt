@@ -1,5 +1,7 @@
 package com.itsluminous.samaroh.core.sync
 
+import android.util.Log
+import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
@@ -7,6 +9,7 @@ import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import java.time.Clock
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
@@ -14,10 +17,13 @@ import javax.inject.Singleton
  * row id; the sync engine (W1-E) drains the queue oldest-first.
  *
  * Every enqueue also nudges the debounced on-change sync (ADR-036), so ALL features get
- * push-within-seconds for free — no per-ViewModel wiring. Loop-safe by construction: the
- * sync engine applies pulled rows via the DAOs directly ([engine.LocalApplier]) and
- * drains/rewrites the queue via [OutboxDao], never through this writer, so a sync run
- * can never re-trigger itself.
+ * push-within-seconds for free — no per-ViewModel wiring. The multibound
+ * [LocalMutationListener]s are notified on the same path (ADR-046) so other modules can
+ * react to specific mutations (e.g. `core:google` schedules the calendar push on booking
+ * changes); a listener failure is logged and never fails the write. Loop-safe by
+ * construction: the sync engine applies pulled rows via the DAOs directly
+ * ([engine.LocalApplier]) and drains/rewrites the queue via [OutboxDao], never through
+ * this writer, so a sync run can never re-trigger itself.
  */
 @Singleton
 class RoomOutboxWriter
@@ -25,6 +31,8 @@ class RoomOutboxWriter
     constructor(
         private val outboxDao: OutboxDao,
         private val syncScheduler: SyncScheduler,
+        /** Provider-injected: listeners depend on repositories which depend on this writer (cycle). */
+        private val listeners: Provider<Set<@JvmSuppressWildcards LocalMutationListener>>,
         private val clock: Clock,
     ) : OutboxWriter {
         override suspend fun enqueue(
@@ -43,5 +51,9 @@ class RoomOutboxWriter
                 ),
             )
             syncScheduler.requestSyncOnLocalChange()
+            for (listener in listeners.get()) {
+                runCatching { listener.onLocalMutation(entityType, entityId, operation, payloadJson) }
+                    .onFailure { Log.w(SyncWorker.TAG, "local-mutation listener failed", it) }
+            }
         }
     }

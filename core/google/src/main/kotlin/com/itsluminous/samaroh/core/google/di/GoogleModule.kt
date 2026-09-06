@@ -3,10 +3,12 @@ package com.itsluminous.samaroh.core.google.di
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
 import com.itsluminous.samaroh.core.google.auth.CredentialManagerGoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleAccessTokenProvider
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.PlayServicesAccessTokenProvider
+import com.itsluminous.samaroh.core.google.calendar.BookingMutationCalendarTrigger
 import com.itsluminous.samaroh.core.google.calendar.CalendarService
 import com.itsluminous.samaroh.core.google.calendar.GcalSyncStateStore
 import com.itsluminous.samaroh.core.google.calendar.RestCalendarService
@@ -45,4 +47,9 @@ abstract class GoogleModule {
     @Binds
     @IntoSet
     abstract fun bindGcalSessionScopedStore(impl: GcalSyncStateStore): SessionScopedStore
+
+    /** Booking mutations promptly trigger the calendar push (ADR-046). */
+    @Binds
+    @IntoSet
+    abstract fun bindBookingMutationCalendarTrigger(impl: BookingMutationCalendarTrigger): LocalMutationListener
 }

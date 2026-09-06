@@ -1424,3 +1424,65 @@ candidate causes were investigated on an API 35 emulator:
 reminders", matching what the owner expected. Post-sync re-posts keep
 `setOnlyAlertOnce`, so style changes re-render quietly. Verdict on the report:
 (c) fixed in code; (b) documented in-product; (a) made loud and test-guarded.
+
+## ADR-046 — Dedicated "Samaroh" calendar, prompt calendar pushes, duplicate repair (2026-09-06)
+
+**Status:** accepted. Supersedes ADR-015's "primary calendar" decision; extends the
+frozen sync contract additively (`LocalMutationListener`).
+
+**Context (three owner reports).**
+1. *Calendar events lag hours behind booking changes.* The only calendar triggers were
+   a 6-hour periodic and an enable-time one-shot; booking mutations never enqueued the
+   calendar worker (the ADR-036 debounce only fed the DATA sync).
+2. *Events land on the primary calendar.* ADR-015 chose `primary` because
+   `calendar.events` cannot create calendars. Google now offers
+   `https://www.googleapis.com/auth/calendar.app.created` — "Make secondary Google
+   calendars, and see, create, change, and delete events on them" (scope table, updated
+   2026-08) — which removes exactly that blocker with least privilege.
+3. *An edit produced a second event.* Root causes found in the old engine:
+   - the planner keyed ONLY on the device-local fingerprint store and ignored the
+     synced `bookings.gcal_event_id`; any state miss (sign-out wipe ADR-040, reinstall,
+     an interrupted pass, a second device) re-CREATED already-pushed events;
+   - the state-store write in the engine's `finally` ran in a cancelled coroutine
+     context when WorkManager cancelled the worker (REPLACE/constraint loss), throwing
+     and LOSING the just-pushed event ids;
+   - the enable-time one-shot and the periodic's immediate first run could execute the
+     engine concurrently over the same empty state (double bulk-push), and
+     disable-cleanup shared the one-shot's unique work name, so a pending cleanup
+     silently swallowed (KEEP) the enable-time push — the "enable did nothing" race.
+
+**Decision.**
+1. **Prompt pushes via the outbox path.** New `core:data` contract
+   `LocalMutationListener` (multibound set, notified by `RoomOutboxWriter` after every
+   enqueue — same moment as the ADR-036 debounce nudge; listener failures never fail
+   the write). `core:google` contributes `BookingMutationCalendarTrigger`: mutations of
+   `bookings`/`booking_payments` for a gcal-enabled business enqueue a DEBOUNCED
+   calendar one-shot (3 s, REPLACE, own unique work name). Create/edit/cancel/delete
+   and payment changes now reach Google Calendar within seconds.
+2. **Dedicated calendar.** Link-time scopes become `drive.file` + `calendar.events` +
+   `calendar.app.created`. With the new scope granted, the engine finds-or-creates the
+   "Samaroh" calendar: the SYNCED `google_accounts.calendar_id` is the cross-device
+   registry (the scope has no calendar-list access); a cached id is verified and
+   re-created if the user deleted the calendar. On the first pass after the grant the
+   engine MIGRATES recorded primary-calendar events via `events.move` (ids preserved;
+   delete+recreate fallback on 403) and deletes stray app-created events left on
+   primary — matched by the new extended-property marker or the localized
+   "Managed by Samaroh" description line (en+hi), never touching other events.
+   Accounts still on the legacy grant keep pushing to primary (graceful fallback); the
+   silent token fetch falls back to the legacy scope set, and Settings shows a
+   localized re-link hint (`settings.gcal.relink_hint`).
+3. **Duplicate-proofing.** Every pushed event carries private extended properties
+   (`samarohBookingId`, `samarohManaged=1`). The planner ADOPTS a booking whose state
+   entry is missing but whose synced `gcal_event_id` is set — planned as an update of
+   that event, never a create; an update whose event vanished (404/410) re-creates it.
+   Engine passes are serialized by an in-process mutex; the state store write is
+   `NonCancellable`; disable-cleanup got its own unique work name and enabling cancels
+   any pending cleanup. A repair pass (only on passes that created/adopted) lists
+   managed events by extended property and deletes any second event claiming an
+   already-recorded booking.
+
+**Consequences.** `google_accounts.calendar_id` changes are outbox-synced (they always
+were on link; now also when the engine sets them). The engine no longer checks
+`GoogleServicesConfig.isConfigured` (the worker gates it) so it stays unit-testable.
+Owner action required once per Google Cloud project: add `calendar.app.created` under
+Google Auth Platform → Data Access, then re-link in Settings.

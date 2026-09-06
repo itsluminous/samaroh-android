@@ -90,4 +90,40 @@ class CalendarSyncPlannerTest {
         assertThat(plan.updates.map { it.first.id }).containsExactly("b-edit")
         assertThat(plan.deletes.keys).containsExactly("b-cancel")
     }
+
+    // --- ADR-046 adoption: a state miss must never duplicate an already-pushed event ---
+
+    @Test
+    fun `state miss with a synced gcalEventId plans an update of that event, never a create`() {
+        val booking = Fixtures.booking(id = "b-1").copy(gcalEventId = "ev-recorded")
+        val plan = CalendarSyncPlanner.plan(listOf(booking), emptyMap(), ::fingerprintOf)
+        assertThat(plan.creates).isEmpty()
+        assertThat(plan.updates.map { it.first.id }).containsExactly("b-1")
+        assertThat(
+            plan.updates
+                .single()
+                .second.eventId,
+        ).isEqualTo("ev-recorded")
+        assertThat(
+            plan.updates
+                .single()
+                .second.fingerprint,
+        ).isEqualTo(CalendarSyncPlanner.ADOPTED_FINGERPRINT)
+    }
+
+    @Test
+    fun `state entry wins over the synced gcalEventId when both exist`() {
+        val booking = Fixtures.booking(id = "b-1").copy(gcalEventId = "ev-stale")
+        val state = mapOf("b-1" to SyncedEventState(eventId = "ev-live", fingerprint = fingerprintOf(booking)))
+        val plan = CalendarSyncPlanner.plan(listOf(booking), state, ::fingerprintOf)
+        assertThat(plan.isEmpty).isTrue() // fingerprint unchanged — nothing to push
+    }
+
+    @Test
+    fun `cancelled booking with only a synced gcalEventId becomes a delete`() {
+        val booking = Fixtures.booking(id = "b-1", status = BookingStatus.CANCELLED).copy(gcalEventId = "ev-1")
+        val plan = CalendarSyncPlanner.plan(listOf(booking), emptyMap(), ::fingerprintOf)
+        assertThat(plan.deletes.keys).containsExactly("b-1")
+        assertThat(plan.deletes.getValue("b-1").eventId).isEqualTo("ev-1")
+    }
 }

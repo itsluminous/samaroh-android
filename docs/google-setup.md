@@ -1,7 +1,8 @@
 # Google Setup (Sign-In, Drive, Calendar)
 
 Samaroh uses Google for account linking, Drive backups/attachments (`drive.file` scope)
-and one-way Calendar sync (`calendar.events` scope). All of it is driven by one value:
+and one-way Calendar sync into a dedicated **"Samaroh" calendar** (`calendar.events` +
+`calendar.app.created` scopes, ADR-046). All of it is driven by one value:
 
 ```
 GOOGLE_WEB_CLIENT_ID   (local.properties, git-ignored → BuildConfig)
@@ -21,13 +22,20 @@ state for CI and fresh checkouts (spec §6 security).
 
 ## 2. Configure the OAuth consent screen
 
-1. **APIs & Services → OAuth consent screen** → User type **External** → Create.
+(The console has rebranded these pages as **Google Auth Platform** — *Branding /
+Audience / Data Access / Clients*; the old "OAuth consent screen" links redirect.)
+
+1. **Google Auth Platform → Branding** → User type **External** → Create.
 2. App name `Samaroh`, support email, developer contact → Save.
-3. **Scopes → Add or remove scopes**, add:
+3. **Data Access** (was "Scopes") → Add or remove scopes, add ALL THREE:
    - `https://www.googleapis.com/auth/drive.file` (per-file access to app-created files)
    - `https://www.googleapis.com/auth/calendar.events`
-4. While the app is in *Testing* publishing status, add your Google account under
-   **Test users** (only test users can complete the consent flow).
+   - `https://www.googleapis.com/auth/calendar.app.created` (create + manage the
+     dedicated "Samaroh" calendar, ADR-046 — without it the authorize call fails and
+     events fall back to the primary calendar)
+4. While the app is in *Testing* publishing status (**Audience** page), add your Google
+   account under **Test users** (only test users can complete the consent flow). Note:
+   test-user grants expire after 7 days — relink weekly, or publish to production.
 
 ## 3. Get the debug keystore SHA-1
 
@@ -67,7 +75,11 @@ GOOGLE_WEB_CLIENT_ID=1234567890-abcdefg.apps.googleusercontent.com
 
 Rebuild. Settings → Google account now shows **Link Google account**; linking runs the
 Credential Manager account picker followed by the incremental consent for the
-`drive.file` + `calendar.events` scopes.
+`drive.file` + `calendar.events` + `calendar.app.created` scopes. On the first calendar
+sync after the grant the app creates the dedicated **Samaroh** calendar, migrates any
+events it previously pushed to the primary calendar, and pushes all bookings there
+(ADR-046). Accounts linked before the third scope existed keep working against the
+primary calendar; Settings shows a re-link hint under the calendar-sync toggle.
 
 ## Troubleshooting
 
@@ -77,3 +89,6 @@ Credential Manager account picker followed by the incremental consent for the
 - Consent screen loops or `access_denied` → your account is not in **Test users**.
 - Token fetch returns null after linking → the grant was revoked at
   <https://myaccount.google.com/permissions>; relink from Settings.
+- Linking fails right at the consent sheet after this update → the
+  `calendar.app.created` scope is missing under **Google Auth Platform → Data Access**
+  (step 2.3). Add it and relink; until then events keep landing on the primary calendar.

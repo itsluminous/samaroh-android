@@ -21,12 +21,26 @@ data class GcalEvent(
     val startDateTime: LocalDateTime? = null,
     val endDateTime: LocalDateTime? = null,
     val timeZone: String? = null,
+    /**
+     * Private extended properties stamped on every pushed event (ADR-046): the source
+     * booking id + an app marker. They make app-created events findable/attributable
+     * server-side, which is what the duplicate-repair pass keys on.
+     */
+    val privateProperties: Map<String, String> = emptyMap(),
 ) {
     val isAllDay: Boolean get() = startDate != null
 }
 
 /** Pure Booking → [GcalEvent] mapping (§4.1) — no I/O, unit-tested. */
 object GcalEventMapper {
+    /** Private extended-property key carrying the source booking id (ADR-046). */
+    const val PROP_BOOKING_ID = "samarohBookingId"
+
+    /** Private extended-property marker identifying events created by this app (ADR-046). */
+    const val PROP_MANAGED = "samarohManaged"
+
+    const val PROP_MANAGED_VALUE = "1"
+
     /**
      * @param tentativeSuffix localized `" (Tentative)"` suffix appended for tentative bookings.
      * @param description pre-formatted localized description (amounts summary + managed-by line).
@@ -40,6 +54,11 @@ object GcalEventMapper {
         // §4.1: event title = the booking's formatted title "{icon} {EventType} - {Customer}".
         val baseTitle = "${booking.displayIcon} ${booking.eventType} - ${booking.customerName}"
         val summary = if (booking.status == BookingStatus.TENTATIVE) baseTitle + tentativeSuffix else baseTitle
+        val privateProperties =
+            mapOf(
+                PROP_BOOKING_ID to booking.id,
+                PROP_MANAGED to PROP_MANAGED_VALUE,
+            )
         val startTime = booking.startTime
         val endTime = booking.endTime
         return if (startTime != null && endTime != null) {
@@ -49,6 +68,7 @@ object GcalEventMapper {
                 startDateTime = LocalDateTime.of(booking.startDate, startTime),
                 endDateTime = LocalDateTime.of(booking.endDate, endTime),
                 timeZone = zoneId.id,
+                privateProperties = privateProperties,
             )
         } else {
             GcalEvent(
@@ -56,6 +76,7 @@ object GcalEventMapper {
                 description = description,
                 startDate = booking.startDate,
                 endDateExclusive = booking.endDate.plusDays(1),
+                privateProperties = privateProperties,
             )
         }
     }

@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.data.repository.RoomMemberRepository
 import com.itsluminous.samaroh.core.data.session.DefaultSignOutCleaner
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.session.SignOutCleaner
+import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -43,6 +44,9 @@ abstract class DataModule {
 
     /** Modules contribute [SessionScopedStore]s via `@IntoSet`; valid when none do (ADR-040). */
     @Multibinds abstract fun sessionScopedStores(): Set<SessionScopedStore>
+
+    /** Modules contribute [LocalMutationListener]s via `@IntoSet`; valid when none do (ADR-046). */
+    @Multibinds abstract fun localMutationListeners(): Set<LocalMutationListener>
 
     companion object {
         @Provides fun provideClock(): Clock = Clock.systemUTC()

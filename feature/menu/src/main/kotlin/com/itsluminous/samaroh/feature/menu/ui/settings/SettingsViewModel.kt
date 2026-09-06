@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.google.GoogleServicesConfig
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
@@ -44,6 +45,11 @@ data class SettingsUiState(
     /** `settings.gcal_sync` permission or owner (§3). */
     val canToggleGcalSync: Boolean = false,
     val gcalSyncEnabled: Boolean = false,
+    /**
+     * Linked before the `calendar.app.created` scope existed (ADR-046): events keep
+     * landing on the primary calendar until the user re-links — show a localized hint.
+     */
+    val gcalNeedsRelink: Boolean = false,
     /** Backups are owner-only — the whole section hides otherwise (§4.4). */
     val isOwner: Boolean = false,
     /** Owner or `settings.manage_business` — gates the Event types row (ADR-032). */
@@ -90,6 +96,10 @@ class SettingsViewModel
                                 canToggleGcalSync = isOwner || permissions.settings.gcalSync,
                                 canManageEventTypes = isOwner || permissions.settings.manageBusiness,
                                 gcalSyncEnabled = settings?.gcalSyncEnabled == true,
+                                gcalNeedsRelink =
+                                    settings?.gcalSyncEnabled == true &&
+                                        link is GoogleLinkState.Linked &&
+                                        GoogleServicesConfig.SCOPE_CALENDAR_APP_CREATED !in link.grantedScopes,
                                 isOwner = isOwner,
                                 backupFrequency = BackupFrequency.fromWire(settings?.backupFrequency ?: BackupFrequency.WEEKLY.wire),
                                 lastBackupAt = settings?.lastBackupAt,
@@ -143,15 +153,31 @@ class SettingsViewModel
 
         fun linkGoogle(activityContext: Context) {
             viewModelScope.launch {
-                googleAccountLinker.link(activityContext).onFailure(::handleLinkFailure)
+                googleAccountLinker
+                    .link(activityContext)
+                    .onSuccess { syncCalendarIfEnabled() }
+                    .onFailure(::handleLinkFailure)
             }
         }
 
         fun completeGoogleConsent(resultIntent: Intent?) {
             _consentIntent.value = null
             viewModelScope.launch {
-                googleAccountLinker.completeLink(resultIntent).onFailure(::handleLinkFailure)
+                googleAccountLinker
+                    .completeLink(resultIntent)
+                    .onSuccess { syncCalendarIfEnabled() }
+                    .onFailure(::handleLinkFailure)
             }
+        }
+
+        /**
+         * A fresh (re)link may have granted the dedicated-calendar scope (ADR-046) —
+         * kick a push so the calendar migration runs right away, not at the next edit.
+         */
+        private fun syncCalendarIfEnabled() {
+            val state = uiState.value
+            val businessId = state.businessId ?: return
+            if (state.gcalSyncEnabled) calendarSyncScheduler.requestSync(businessId)
         }
 
         fun unlinkGoogle() {

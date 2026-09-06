@@ -25,8 +25,19 @@ data class GcalSyncPlan(
  * Pure diffing of local bookings against the last-pushed state — no I/O, unit-tested.
  * "Bulk-push on enable" falls out naturally: with an empty [state] every pushable
  * booking becomes a create.
+ *
+ * ADOPTION (ADR-046, duplicate fix): the device-local state store is a per-device
+ * optimization that can go missing (reinstall, sign-out wipe ADR-040, an interrupted
+ * pass, a second device) while the SYNCED `bookings.gcal_event_id` column still records
+ * the pushed event. A booking with no state entry but a recorded `gcalEventId` is
+ * therefore planned as an UPDATE of that event — never a create — so a state miss can no
+ * longer duplicate an already-pushed event. The [ADOPTED_FINGERPRINT] sentinel never
+ * matches a real fingerprint, forcing one reconciling push.
  */
 object CalendarSyncPlanner {
+    /** Sentinel fingerprint for adopted events — intentionally matches no real fingerprint. */
+    const val ADOPTED_FINGERPRINT = ""
+
     fun plan(
         bookings: List<Booking>,
         state: Map<String, SyncedEventState>,
@@ -39,7 +50,9 @@ object CalendarSyncPlanner {
 
         for (booking in bookings) {
             seenIds += booking.id
-            val pushed = state[booking.id]
+            val pushed =
+                state[booking.id]
+                    ?: booking.gcalEventId?.let { SyncedEventState(eventId = it, fingerprint = ADOPTED_FINGERPRINT) }
             val pushable = booking.status != BookingStatus.CANCELLED && booking.deletedAt == null
             when {
                 !pushable -> pushed?.let { deletes[booking.id] = it }

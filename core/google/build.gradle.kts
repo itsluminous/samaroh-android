@@ -85,6 +85,7 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core.ktx)
+    testImplementation(libs.androidx.work.testing)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
 }

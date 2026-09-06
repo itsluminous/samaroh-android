@@ -215,6 +215,15 @@ fun SettingsScreen(
                     )
                 },
             )
+            // ADR-046: linked before the dedicated-calendar scope existed — offer a re-link.
+            if (state.gcalNeedsRelink) {
+                TextButton(
+                    onClick = { viewModel.linkGoogle(context) },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Text(stringResource(R.string.settings_gcal_relink_hint))
+                }
+            }
         }
         HorizontalDivider()
 
