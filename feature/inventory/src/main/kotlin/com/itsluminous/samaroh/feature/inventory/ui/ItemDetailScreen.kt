@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -53,13 +52,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
@@ -71,6 +70,7 @@ import com.itsluminous.samaroh.feature.inventory.SavedTransaction
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.roundToLong
 
 /**
@@ -252,19 +252,16 @@ fun ItemDetailScreen(
         MasterItemDeleteDialogs(request = request, viewModel = masterlistViewModel, onDeleted = onBack)
     }
 
+    // ADR-053 viewer: fullscreen + save-to-Downloads (local-file photos only); photo
+    // removal lives in the masterlist editor, not here.
     expandedImagePath?.let { path ->
-        Dialog(onDismissRequest = { expandedImagePath = null }) {
-            AsyncImage(
-                model = rememberItemImageModel(path),
-                contentDescription = stringResource(R.string.inventory_image_expanded),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { expandedImagePath = null },
-            )
-        }
+        ImageViewerDialog(
+            model = rememberItemImageModel(path),
+            contentDescription = stringResource(R.string.inventory_image_expanded),
+            onDismiss = { expandedImagePath = null },
+            downloadSource = File(path).takeIf { it.exists() },
+            downloadMimeType = "image/webp",
+        )
     }
 }
 

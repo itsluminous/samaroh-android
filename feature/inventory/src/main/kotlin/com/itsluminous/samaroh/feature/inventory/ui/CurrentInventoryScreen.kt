@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -44,13 +43,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
@@ -58,6 +57,7 @@ import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * Current Inventory screen (§4.3): searchable per-item stock list (in-stock items only)
@@ -169,19 +169,17 @@ fun CurrentInventoryScreen(
         )
     }
 
+    // ADR-053 viewer: fullscreen + save-to-Downloads. Download only offers when the photo
+    // is a local file (remote Storage photos resolve to an authenticated request, not
+    // bytes on disk); delete stays in the masterlist editor's "Remove photo".
     expandedImagePath?.let { path ->
-        Dialog(onDismissRequest = { expandedImagePath = null }) {
-            AsyncImage(
-                model = rememberItemImageModel(path),
-                contentDescription = stringResource(R.string.inventory_image_expanded),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { expandedImagePath = null },
-            )
-        }
+        ImageViewerDialog(
+            model = rememberItemImageModel(path),
+            contentDescription = stringResource(R.string.inventory_image_expanded),
+            onDismiss = { expandedImagePath = null },
+            downloadSource = File(path).takeIf { it.exists() },
+            downloadMimeType = "image/webp",
+        )
     }
 }
 
