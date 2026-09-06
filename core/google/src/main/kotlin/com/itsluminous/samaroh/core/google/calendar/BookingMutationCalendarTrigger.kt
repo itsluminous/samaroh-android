@@ -15,8 +15,9 @@ import javax.inject.Singleton
  * Immediate calendar push on booking mutations (ADR-046, REQ: no 6-hour wait). Rides the
  * ADR-036 on-local-change path: [com.itsluminous.samaroh.core.sync.RoomOutboxWriter]
  * notifies this listener for every queued mutation; when the mutation touches a booking
- * or a booking payment (payments change the event description's amounts) of a business
- * with calendar sync enabled, the debounced calendar one-shot is enqueued.
+ * or a booking payment (payments change the event description's amounts) — or renames
+ * the business itself (the calendar carries the business name, ADR-048) — for a
+ * business with calendar sync enabled, the debounced calendar one-shot is enqueued.
  *
  * The calendar engine's own `recordEventId` writes re-enter here once per pass; the
  * follow-up run plans empty and makes no network calls, so the loop converges.
@@ -61,11 +62,13 @@ class BookingMutationCalendarTrigger
             }.getOrNull()?.let { return it }
             return when (entityType) {
                 "bookings" -> bookingRepository.booking(entityId)?.businessId
+                // A businesses-row mutation IS the business (rename → calendar re-title).
+                "businesses" -> entityId
                 else -> null
             }
         }
 
         private companion object {
-            val CALENDAR_RELEVANT_TYPES = setOf("bookings", "booking_payments")
+            val CALENDAR_RELEVANT_TYPES = setOf("bookings", "booking_payments", "businesses")
         }
     }

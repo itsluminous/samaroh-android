@@ -85,6 +85,20 @@ class RemoteBookingCalendarTriggerTest {
         }
 
     @Test
+    fun `applied businesses row also enqueues - a remote rename re-titles the calendar`() =
+        runTest {
+            trigger().onRemoteChangesApplied(mapOf("businesses" to setOf(BIZ)))
+            assertThat(pendingOnChangeWork()).isEqualTo(1)
+        }
+
+    @Test
+    fun `applied business_settings do not enqueue - the engine's own registry echo stays free`() =
+        runTest {
+            trigger().onRemoteChangesApplied(mapOf("business_settings" to setOf(BIZ)))
+            assertThat(pendingOnChangeWork()).isEqualTo(0)
+        }
+
+    @Test
     fun `irrelevant tables do not enqueue`() =
         runTest {
             trigger().onRemoteChangesApplied(mapOf("expenses" to setOf(BIZ), "master_items" to setOf(BIZ)))

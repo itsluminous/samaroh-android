@@ -88,6 +88,44 @@ class SyncEngineRemoteChangeTest {
             put("deleted_at", JsonNull)
         }
 
+    private fun remoteBusinessRow(
+        id: String,
+        name: String,
+        updatedAt: String,
+    ): JsonObject =
+        buildJsonObject {
+            put("id", id)
+            put("name", name)
+            put("business_type", "Marriage Hall")
+            put("address", JsonNull)
+            put("owner_name", "fixture-owner")
+            put("logo_path", JsonNull)
+            put("currency", "INR")
+            put("invoice_prefix", "INV")
+            put("invoice_counter", 0)
+            put("owner_user_id", Fixtures.USER_ID)
+            put("created_at", updatedAt)
+            put("updated_at", updatedAt)
+        }
+
+    @Test
+    fun `applied businesses row is reported with the row id as the business id`() =
+        runTest {
+            // ADR-048: a remote business rename must reach the calendar re-title reaction —
+            // the global businesses table reports applied row ids.
+            seedBusiness()
+            remote.servePage(
+                "businesses",
+                listOf(remoteBusinessRow(Fixtures.BUSINESS_ID, "Four Season Marriage Hall", "2026-09-06T10:00:00+00:00")),
+            )
+            val listener = RecordingListener()
+
+            syncEngine(db, remote, remoteChangeListeners = setOf(listener)).runSync()
+
+            assertThat(listener.notifications).hasSize(1)
+            assertThat(listener.notifications.single()["businesses"]).containsExactly(Fixtures.BUSINESS_ID)
+        }
+
     @Test
     fun `applied booking pull notifies listeners with the table and business id`() =
         runTest {

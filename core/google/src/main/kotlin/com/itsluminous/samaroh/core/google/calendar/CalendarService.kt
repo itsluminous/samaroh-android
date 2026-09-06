@@ -45,11 +45,25 @@ interface CalendarService {
         eventId: String,
     )
 
-    /** Whether the calendar still exists and is accessible (ADR-046 find-or-create). */
-    suspend fun calendarExists(calendarId: String): Boolean
+    /**
+     * The calendar's display name (summary), or null when it no longer exists or is
+     * inaccessible (ADR-046 find-or-create + ADR-048 rename detection).
+     */
+    suspend fun calendarSummary(calendarId: String): String?
 
     /** Creates a secondary calendar named [summary] and returns its id (`calendar.app.created`). */
     suspend fun createCalendar(summary: String): String
+
+    /**
+     * Renames an app-created calendar (Calendar v3 `calendars.patch`, ADR-048 — the
+     * calendar carries the business name). Throws [GoogleApiException] on rejection
+     * (e.g. 403 when the grant does not cover calendar metadata) — callers fall back
+     * to create-new + migrate.
+     */
+    suspend fun renameCalendar(
+        calendarId: String,
+        summary: String,
+    )
 
     /**
      * Lists events on [calendarId], optionally filtered by one private extended property
@@ -141,11 +155,32 @@ class RestCalendarService
             }
         }
 
-        override suspend fun calendarExists(calendarId: String): Boolean {
+        override suspend fun calendarSummary(calendarId: String): String? {
             val response = http.request("GET", "$BASE_URL/calendars/${encode(calendarId)}", token())
-            if (response.isSuccess) return true
-            if (response.code == 404 || response.code == 410 || response.code == 403) return false
-            throw GoogleApiException(response.code, response.body)
+            if (response.code == 404 || response.code == 410 || response.code == 403) return null
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
+            return json
+                .parseToJsonElement(response.body)
+                .jsonObject["summary"]
+                ?.jsonPrimitive
+                ?.content
+                .orEmpty()
+        }
+
+        override suspend fun renameCalendar(
+            calendarId: String,
+            summary: String,
+        ) {
+            val body = buildJsonObject { put("summary", summary) }.toString()
+            val response =
+                http.request(
+                    "PATCH",
+                    "$BASE_URL/calendars/${encode(calendarId)}",
+                    token(),
+                    contentType = "application/json; charset=UTF-8",
+                    body = body.toByteArray(),
+                )
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
         }
 
         override suspend fun createCalendar(summary: String): String {

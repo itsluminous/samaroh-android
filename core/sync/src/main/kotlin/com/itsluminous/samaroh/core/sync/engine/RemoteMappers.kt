@@ -68,7 +68,8 @@ internal fun BusinessMember.toEntity() =
         deletedAt,
     )
 
-internal fun BusinessSettings.toEntity() = BusinessSettingsEntity(businessId, gcalSyncEnabled, backupFrequency, lastBackupAt, updatedAt)
+internal fun BusinessSettings.toEntity() =
+    BusinessSettingsEntity(businessId, gcalSyncEnabled, gcalCalendarId, backupFrequency, lastBackupAt, updatedAt)
 
 internal fun GoogleAccountLink.toEntity() = GoogleAccountLinkEntity(userId, email, scopes, driveRootFolderId, calendarId, updatedAt)
 

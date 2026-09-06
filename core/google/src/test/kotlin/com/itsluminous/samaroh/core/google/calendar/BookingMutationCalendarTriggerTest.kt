@@ -169,6 +169,13 @@ class BookingMutationCalendarTriggerTest {
         }
 
     @Test
+    fun `business rename mutation enqueues - the calendar carries the business name`() =
+        runTest {
+            trigger().onLocalMutation("businesses", BIZ, OutboxOperation.UPSERT, """{"id":"$BIZ","name":"New Name"}""")
+            assertThat(pendingOnChangeWork()).isEqualTo(1)
+        }
+
+    @Test
     fun `nothing is enqueued when calendar sync is disabled`() =
         runTest {
             trigger(enabled = false).onLocalMutation("bookings", "b-1", OutboxOperation.UPSERT, """{"business_id":"$BIZ"}""")

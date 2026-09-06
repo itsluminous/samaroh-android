@@ -66,7 +66,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -203,6 +203,23 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE event_types ADD COLUMN kind TEXT NOT NULL DEFAULT 'booking'",
+                    )
+                }
+            }
+
+        /**
+         * v7 → v8 (ADR-048): `business_settings.gcal_calendar_id` — the per-business
+         * app-created Google Calendar (named after the business). Mirrors the shared
+         * schema's additive column (`scripts/alter-gcal-calendar-id.sql`). Servers not
+         * yet carrying the column are tolerated: pulls decode via the defaulted model
+         * field, pushes hold per-item (PGRST204) until the owner applies the alter —
+         * the ADR-027/030 self-healing pattern.
+         */
+        val MIGRATION_7_8: Migration =
+            object : Migration(7, 8) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE business_settings ADD COLUMN gcal_calendar_id TEXT",
                     )
                 }
             }

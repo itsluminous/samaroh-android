@@ -17,6 +17,7 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.NonCancellable
@@ -37,13 +38,17 @@ import javax.inject.Singleton
  * One-way Google Calendar push (§4.1): local bookings are created/updated/deleted on the
  * linked account's calendar; Google-side edits are never read back.
  *
- * Target calendar (ADR-046, supersedes ADR-015): with the `calendar.app.created` scope
- * granted the engine finds-or-creates a dedicated app calendar (localized
- * `settings_gcal_calendar_name`, "Samaroh"), migrates previously pushed events off the
- * primary calendar (Calendar v3 `events.move`, delete+recreate fallback), and pushes
- * there; `google_accounts.calendar_id` records the id and SYNCS so other devices reuse
- * the same calendar. Without the scope (pre-ADR-046 grant) the engine keeps targeting
- * the primary calendar until the user re-links — Settings shows a localized hint.
+ * Target calendar (ADR-048, refines ADR-046 which superseded ADR-015): with the
+ * `calendar.app.created` scope granted, EVERY enabled business gets its own dedicated
+ * app calendar NAMED AFTER THE BUSINESS. The synced `business_settings.gcal_calendar_id`
+ * is the per-business registry; the pre-ADR-048 `google_accounts.calendar_id` slot is
+ * kept only as the legacy fallback — its calendar is ADOPTED (and renamed) by the first
+ * business that syncs, and mirrored on create so pre-alter servers still carry a synced
+ * registry. Business renames re-title the calendar (`calendars.patch`; 403 falls back to
+ * create-new + migrate). Events previously pushed to primary migrate over (Calendar v3
+ * `events.move`, delete+recreate fallback). Without the scope (pre-ADR-046 grant) the
+ * engine keeps targeting the primary calendar until the user re-links — Settings shows
+ * a localized hint.
  *
  * Change detection: [GcalSyncStateStore] keeps the last-pushed fingerprint per booking.
  * An empty store (fresh enable) makes every live booking a create — the §4.1 bulk-push.
@@ -79,6 +84,13 @@ class CalendarSyncEngine
                 syncMutex.withLock {
                     val settings = businessRepository.settings(businessId).first()
                     if (settings?.gcalSyncEnabled != true) return@withLock
+                    // The calendar carries the business's own name (ADR-048); the localized
+                    // "Samaroh" is only the blank-name fallback.
+                    val calendarDisplayName =
+                        businessRepository
+                            .business(businessId)
+                            ?.name
+                            ?.takeIf { it.isNotBlank() } ?: calendarName()
 
                     val today = LocalDate.now(clock)
                     val bookings =
@@ -93,17 +105,33 @@ class CalendarSyncEngine
                     var plan = CalendarSyncPlanner.plan(bookings, state, ::fingerprintOf)
 
                     val link = requireLink()
-                    val migrationPending =
-                        link.scopes.contains(GoogleServicesConfig.SCOPE_CALENDAR_APP_CREATED) &&
-                            (link.calendarId == null || link.calendarId == PRIMARY_CALENDAR_ID)
+                    val hasAppCreatedScope = link.scopes.contains(GoogleServicesConfig.SCOPE_CALENDAR_APP_CREATED)
+                    // A pass is needed beyond booking changes when the per-business
+                    // registration is still pending (adopt the legacy ADR-046 calendar or
+                    // create/migrate one), or the business was renamed since this device
+                    // last verified the calendar title (ADR-048).
+                    val adoptionPending = hasAppCreatedScope && settings.gcalCalendarId == null
+                    val renamePending =
+                        hasAppCreatedScope &&
+                            settings.gcalCalendarId != null &&
+                            stateStore.readCalendarName(businessId) != calendarDisplayName
                     // No HTTP at all on a true no-op pass (the on-change debounce retriggers
                     // once after every mutating pass — that echo must stay free).
-                    if (plan.isEmpty && !migrationPending) return@withLock
+                    if (plan.isEmpty && !adoptionPending && !renamePending) return@withLock
 
                     val bookingsById = bookings.associateBy { it.id }
                     try {
                         val target =
-                            ensureCalendarTarget(link, bookings, paidByBooking, state, ::fingerprintOf)
+                            ensureCalendarTarget(
+                                businessId,
+                                calendarDisplayName,
+                                settings,
+                                link,
+                                bookings,
+                                paidByBooking,
+                                state,
+                                ::fingerprintOf,
+                            )
                         if (target.stateInvalidated) {
                             // The dedicated calendar was deleted remotely — replan against the
                             // cleared state so its events are recreated on the new calendar.
@@ -176,7 +204,10 @@ class CalendarSyncEngine
                 syncMutex.withLock {
                     val state = stateStore.read(businessId).toMutableMap()
                     if (state.isEmpty()) return@withLock
-                    val calendarId = requireLink().calendarId ?: PRIMARY_CALENDAR_ID
+                    val calendarId =
+                        businessRepository.settings(businessId).first()?.gcalCalendarId
+                            ?: requireLink().calendarId
+                            ?: PRIMARY_CALENDAR_ID
                     try {
                         for ((bookingId, pushed) in state.toMap()) {
                             calendarService.deleteEvent(calendarId, pushed.eventId)
@@ -198,12 +229,17 @@ class CalendarSyncEngine
         )
 
         /**
-         * Resolves the push-target calendar (ADR-046 find-or-create). The synced
-         * `google_accounts.calendar_id` row is the cross-device registry — the
-         * `calendar.app.created` scope has no calendar-list access, so the cached id is
-         * the only way to find "our" calendar again.
+         * Resolves the push-target calendar (ADR-048 per-business find-or-create). The
+         * synced `business_settings.gcal_calendar_id` is the registry — the
+         * `calendar.app.created` scope has no calendar-list access, so a stored id is
+         * the only way to find "our" calendar again. The legacy
+         * `google_accounts.calendar_id` (ADR-046, one calendar per account) is adopted
+         * by the first business that syncs and renamed after it.
          */
         private suspend fun ensureCalendarTarget(
+            businessId: String,
+            displayName: String,
+            settings: BusinessSettings,
             link: GoogleAccountLinkEntity,
             bookings: List<Booking>,
             paidByBooking: Map<String, Long>,
@@ -217,43 +253,156 @@ class CalendarSyncEngine
                 return CalendarTarget(link.calendarId ?: PRIMARY_CALENDAR_ID)
             }
 
-            val cached = link.calendarId?.takeIf { it != PRIMARY_CALENDAR_ID }
-            if (cached != null) {
-                if (calendarService.calendarExists(cached)) return CalendarTarget(cached)
-                Log.w(TAG, "dedicated calendar $cached is gone — recreating")
-                val recreated = calendarService.createCalendar(calendarName())
-                persistCalendarId(link, recreated)
-                // Events died with the old calendar: drop stale push records so the plan
-                // recreates everything on the new calendar (adoption hits the 404 path).
-                state.clear()
-                return CalendarTarget(recreated, stateInvalidated = true)
+            // 1. Registered per-business calendar (ADR-048).
+            settings.gcalCalendarId?.let { registered ->
+                val summary = calendarService.calendarSummary(registered)
+                if (summary != null) {
+                    return alignCalendarName(
+                        businessId,
+                        registered,
+                        summary,
+                        displayName,
+                        settings,
+                        bookings,
+                        paidByBooking,
+                        state,
+                        fingerprintOf,
+                    )
+                }
+                Log.w(TAG, "dedicated calendar $registered is gone — recreating")
+                return recreateCalendar(businessId, displayName, settings, state)
             }
 
-            // First pass after the scope grant: create the calendar, then migrate the
-            // events previously pushed to primary.
-            val created = calendarService.createCalendar(calendarName())
+            // 2. Legacy single-calendar registry (ADR-046 google_accounts.calendar_id).
+            val legacy = link.calendarId?.takeIf { it != PRIMARY_CALENDAR_ID }
+            if (legacy != null) {
+                if (claimedByOtherBusiness(businessId, legacy)) {
+                    // Another business already adopted the shared legacy calendar — this
+                    // one gets its own; its recorded events move over (ids preserved).
+                    val created = calendarService.createCalendar(displayName)
+                    Log.i(TAG, "created calendar $created for business $businessId (legacy calendar claimed)")
+                    persistBusinessCalendarId(settings, created)
+                    stateStore.writeCalendarName(businessId, displayName)
+                    migrateEvents(legacy, created, bookings, paidByBooking, state, fingerprintOf, cleanupStrays = false)
+                    return CalendarTarget(created, migrated = true)
+                }
+                val summary = calendarService.calendarSummary(legacy)
+                if (summary != null) {
+                    // ADOPT: the first business to sync claims the legacy "Samaroh"
+                    // calendar and renames it after itself (events stay in place).
+                    Log.i(TAG, "business $businessId adopts legacy calendar $legacy")
+                    persistBusinessCalendarId(settings, legacy)
+                    return alignCalendarName(
+                        businessId,
+                        legacy,
+                        summary,
+                        displayName,
+                        settings,
+                        bookings,
+                        paidByBooking,
+                        state,
+                        fingerprintOf,
+                    )
+                }
+                Log.w(TAG, "legacy calendar $legacy is gone — creating fresh")
+                return recreateCalendar(businessId, displayName, settings, state)
+            }
+
+            // 3. First pass after the scope grant: create the calendar, then migrate the
+            // events previously pushed to primary (ADR-046).
+            val created = calendarService.createCalendar(displayName)
             Log.i(TAG, "created dedicated calendar $created")
             val hadPrimaryEvents = state.isNotEmpty() || bookings.any { it.gcalEventId != null }
-            persistCalendarId(link, created)
+            persistBusinessCalendarId(settings, created)
+            stateStore.writeCalendarName(businessId, displayName)
+            // Mirror into the legacy slot too (first business only): servers without the
+            // ADR-048 column still carry a SYNCED registry via google_accounts.
+            if (link.calendarId == null || link.calendarId == PRIMARY_CALENDAR_ID) persistCalendarId(link, created)
             if (hadPrimaryEvents) {
-                migrateFromPrimary(created, bookings, paidByBooking, state, fingerprintOf)
+                migrateEvents(PRIMARY_CALENDAR_ID, created, bookings, paidByBooking, state, fingerprintOf, cleanupStrays = true)
             }
             return CalendarTarget(created, migrated = hadPrimaryEvents)
         }
 
+        /** The dedicated calendar was deleted remotely — create anew and drop stale push records. */
+        private suspend fun recreateCalendar(
+            businessId: String,
+            displayName: String,
+            settings: BusinessSettings,
+            state: MutableMap<String, SyncedEventState>,
+        ): CalendarTarget {
+            val recreated = calendarService.createCalendar(displayName)
+            persistBusinessCalendarId(settings, recreated)
+            stateStore.writeCalendarName(businessId, displayName)
+            // Events died with the old calendar: drop stale push records so the plan
+            // recreates everything on the new calendar (adoption hits the 404 path).
+            state.clear()
+            return CalendarTarget(recreated, stateInvalidated = true)
+        }
+
         /**
-         * Moves every recorded event from the primary calendar to [newCalendarId]
-         * (`events.move` keeps event ids; a move rejection falls back to
-         * delete+recreate), then deletes stray app-created events still left on primary
-         * — identified by the ADR-046 extended-property marker or, for events pushed
-         * before it existed, the localized "Managed by Samaroh" description line.
+         * Keeps the calendar's title equal to the business name (ADR-048). A rejected
+         * `calendars.patch` (403 — grant does not cover calendar metadata) falls back
+         * to create-new + migrate, the ADR-046 migration shape.
          */
-        private suspend fun migrateFromPrimary(
+        private suspend fun alignCalendarName(
+            businessId: String,
+            calendarId: String,
+            currentSummary: String,
+            wantedName: String,
+            settings: BusinessSettings,
+            bookings: List<Booking>,
+            paidByBooking: Map<String, Long>,
+            state: MutableMap<String, SyncedEventState>,
+            fingerprintOf: (Booking) -> String,
+        ): CalendarTarget {
+            if (currentSummary == wantedName) {
+                stateStore.writeCalendarName(businessId, wantedName)
+                return CalendarTarget(calendarId)
+            }
+            return try {
+                calendarService.renameCalendar(calendarId, wantedName)
+                Log.i(TAG, "renamed calendar $calendarId to \"$wantedName\"")
+                stateStore.writeCalendarName(businessId, wantedName)
+                CalendarTarget(calendarId)
+            } catch (e: GoogleApiException) {
+                if (e.code != 403) throw e
+                Log.w(TAG, "calendars.patch rejected (403) for $calendarId — creating replacement")
+                val created = calendarService.createCalendar(wantedName)
+                persistBusinessCalendarId(settings, created)
+                stateStore.writeCalendarName(businessId, wantedName)
+                migrateEvents(calendarId, created, bookings, paidByBooking, state, fingerprintOf, cleanupStrays = false)
+                CalendarTarget(created, migrated = true)
+            }
+        }
+
+        /** Whether another business already registered [calendarId] as its own (ADR-048 adoption guard). */
+        private suspend fun claimedByOtherBusiness(
+            businessId: String,
+            calendarId: String,
+        ): Boolean =
+            businessRepository.businesses().first().any { other ->
+                other.id != businessId &&
+                    businessRepository.settings(other.id).first()?.gcalCalendarId == calendarId
+            }
+
+        /**
+         * Moves every recorded event from [sourceCalendarId] to [newCalendarId]
+         * (`events.move` keeps event ids; a move rejection falls back to
+         * delete+recreate). With [cleanupStrays] (primary migration only) it then
+         * deletes stray app-created events still left on the source — identified by the
+         * ADR-046 extended-property marker or, for events pushed before it existed, the
+         * localized "Managed by Samaroh" description line. Stray cleanup is SKIPPED for
+         * a shared legacy calendar (ADR-048): other businesses' events live there.
+         */
+        private suspend fun migrateEvents(
+            sourceCalendarId: String,
             newCalendarId: String,
             bookings: List<Booking>,
             paidByBooking: Map<String, Long>,
             state: MutableMap<String, SyncedEventState>,
             fingerprintOf: (Booking) -> String,
+            cleanupStrays: Boolean,
         ) {
             val bookingsById = bookings.associateBy { it.id }
             val recorded = mutableMapOf<String, String>() // bookingId → eventId
@@ -262,7 +411,7 @@ class CalendarSyncEngine
 
             for ((bookingId, eventId) in recorded) {
                 try {
-                    calendarService.moveEvent(PRIMARY_CALENDAR_ID, eventId, newCalendarId)
+                    calendarService.moveEvent(sourceCalendarId, eventId, newCalendarId)
                     Log.i(TAG, "migrated event $eventId → $newCalendarId (booking $bookingId)")
                 } catch (e: GoogleApiException) {
                     if (e.code == 404 || e.code == 410) continue // already gone; plan recreates if needed
@@ -276,9 +425,10 @@ class CalendarSyncEngine
                     } else {
                         state.remove(bookingId)
                     }
-                    calendarService.deleteEvent(PRIMARY_CALENDAR_ID, eventId)
+                    calendarService.deleteEvent(sourceCalendarId, eventId)
                 }
             }
+            if (!cleanupStrays) return
 
             // Stray cleanup: whatever app-created events remain on primary now are
             // leftovers of the pre-ADR-046 duplicate bug. ONLY events our app created are
@@ -287,7 +437,7 @@ class CalendarSyncEngine
             val today = LocalDate.now(clock)
             val strays =
                 calendarService.listEvents(
-                    PRIMARY_CALENDAR_ID,
+                    sourceCalendarId,
                     timeMin =
                         today
                             .minusYears(1)
@@ -308,7 +458,7 @@ class CalendarSyncEngine
                         markers.any { it.isNotBlank() && event.description.contains(it) }
                 if (appCreated && event.id !in recordedIds) {
                     Log.i(TAG, "deleting stray app-created event ${event.id} from primary")
-                    calendarService.deleteEvent(PRIMARY_CALENDAR_ID, event.id)
+                    calendarService.deleteEvent(sourceCalendarId, event.id)
                 }
             }
         }
@@ -363,7 +513,23 @@ class CalendarSyncEngine
             return linkDao.linkForUser(session.userId).first() ?: throw DriveNotAvailableException("no google account linked")
         }
 
-        /** Records the target calendar on the SYNCED link row so other devices reuse it. */
+        /**
+         * Records the target calendar on the SYNCED business_settings row (ADR-048) so
+         * every device reuses it. Servers without the column hold this push per-item
+         * (PGRST204, self-healing) until the owner applies the shared alter script.
+         */
+        private suspend fun persistBusinessCalendarId(
+            settings: BusinessSettings,
+            calendarId: String,
+        ) {
+            businessRepository.saveSettings(settings.copy(gcalCalendarId = calendarId, updatedAt = clock.instant()))
+        }
+
+        /**
+         * Records a calendar id on the SYNCED google_accounts row — the pre-ADR-048
+         * LEGACY registry, kept for the no-scope primary fallback and as a mirror so
+         * pre-alter servers still sync a registry. Deprecated as the push target.
+         */
         private suspend fun persistCalendarId(
             link: GoogleAccountLinkEntity,
             calendarId: String,

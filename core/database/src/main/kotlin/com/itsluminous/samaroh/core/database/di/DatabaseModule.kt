@@ -45,6 +45,7 @@ object DatabaseModule {
                 SamarohDatabase.MIGRATION_4_5,
                 SamarohDatabase.MIGRATION_5_6,
                 SamarohDatabase.MIGRATION_6_7,
+                SamarohDatabase.MIGRATION_7_8,
             ).build()
 
     @Provides fun provideBusinessDao(db: SamarohDatabase): BusinessDao = db.businessDao()

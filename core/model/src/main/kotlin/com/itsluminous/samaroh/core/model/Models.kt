@@ -271,6 +271,12 @@ data class InventoryTransaction(
 data class BusinessSettings(
     @SerialName("business_id") val businessId: String,
     @SerialName("gcal_sync_enabled") val gcalSyncEnabled: Boolean = false,
+    /**
+     * ADR-048: the per-business app-created Google Calendar (named after the business)
+     * that bookings push to; null until the calendar engine claims/creates one.
+     * Replaces `google_accounts.calendar_id` (kept only for the primary fallback).
+     */
+    @SerialName("gcal_calendar_id") val gcalCalendarId: String? = null,
     /** 'daily' | 'weekly' | 'monthly' | 'manual'. */
     @SerialName("backup_frequency") val backupFrequency: String = "weekly",
     @SerialName("last_backup_at") @Serializable(InstantSerializer::class) val lastBackupAt: Instant? = null,

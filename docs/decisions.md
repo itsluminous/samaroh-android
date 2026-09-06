@@ -1547,3 +1547,52 @@ on `GcalEventMapper.fingerprint` forbids adding either field.
 this build first syncs. `settings.gcal.event_description` is no longer referenced by
 Android (kept in the catalog for the web track). The sync engine's constructor gains a
 multibound set — Hilt injects it automatically; tests default it empty.
+
+## ADR-048 — Per-business calendar named after the business (2026-09-06)
+
+**Status:** accepted. Refines ADR-046's dedicated-calendar decision; additive column on
+`business_settings` (frozen contract; shared baseline + `scripts/alter-gcal-calendar-id.sql`).
+
+**Context (owner report).** The dedicated calendar is named "Samaroh" (a localized
+catalog key). The owner wants it named after HIS BUSINESS ("Four Season Marriage Hall")
+— the calendar represents the venue, not the app. Structurally, calendar sync is
+enabled PER BUSINESS (`business_settings.gcal_sync_enabled`) but ADR-046 stored the
+calendar id PER USER (`google_accounts.calendar_id`): one calendar per Google account,
+shared by every business — wrong unit, and no way to give two businesses two names.
+
+**Decision.**
+1. **Registry moves to the business.** New synced column
+   `business_settings.gcal_calendar_id` (Room v8 `MIGRATION_7_8`; shared baseline
+   001 edit for fresh databases + owner-run `scripts/alter-gcal-calendar-id.sql` for
+   the live one). `google_accounts.calendar_id` is DEPRECATED as a push target: it
+   remains the no-scope primary fallback, the legacy-adoption source, and a mirror
+   (first business only) so servers without the new column still sync a registry.
+   Until the owner applies the alter, PostgREST rejects `business_settings` pushes
+   (PGRST204) — held per-item and retried, the ADR-027/030 self-healing pattern;
+   pulls select `*` and decode via the defaulted model field.
+2. **Find-or-create per enabled business; name = business name.** The engine resolves
+   the target per business: registered id → verify + keep; else adopt the legacy
+   ADR-046 calendar (first business to sync claims it — an id already claimed by
+   another business is not stolen; that business creates its own and MIGRATES its
+   recorded events over, `events.move`, no stray cleanup on a shared source); else
+   create fresh (+ ADR-046 primary migration). Blank business name falls back to the
+   localized "Samaroh".
+3. **Renames.** The owner's existing "Samaroh" calendar is renamed to the business
+   name via `calendars.patch` — VERIFIED authorized under `calendar.app.created`
+   (Calendars: patch scope table). A 403 falls back to create-new + migrate (ADR-046
+   shape). Later business-name edits re-title the calendar: `businesses` joins both
+   calendar triggers (outbox + remote pull, the row id IS the business id — the sync
+   engine now also reports applied `businesses` rows to `RemoteChangeListener`s), and
+   the engine checks a device-local last-set-name cache (`GcalSyncStateStore`) so a
+   no-op pass still makes ZERO calendar HTTP (the ADR-047 free-echo invariant holds);
+   a stale cache costs one GET+PATCH pass. Multi-business: every enabled business gets
+   its own calendar, each carrying its own name.
+
+**Convergence.** The engine's `gcal_calendar_id` write goes through the outbox and
+echoes back like any row, but neither trigger lists `business_settings`, so registry
+writes never re-fire a pass (tested); the rename pass converges because the name cache
+equals the business name after one PATCH (tested: rename happens once, third pass free).
+
+**Consequences.** Owner action once: run `scripts/alter-gcal-calendar-id.sql` in the
+Supabase SQL editor (until then the registry also rides the google_accounts mirror).
+`settings_gcal_calendar_name` stays as the blank-name fallback only.

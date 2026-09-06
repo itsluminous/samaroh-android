@@ -183,6 +183,8 @@ internal fun BusinessMemberEntity.toModel() =
 internal fun BusinessMember.toEntity() =
     BusinessMemberEntity(id, businessId, invitedEmail, userId, displayName, isOwner, status, permissions, createdAt, updatedAt, deletedAt)
 
-internal fun BusinessSettingsEntity.toModel() = BusinessSettings(businessId, gcalSyncEnabled, backupFrequency, lastBackupAt, updatedAt)
+internal fun BusinessSettingsEntity.toModel() =
+    BusinessSettings(businessId, gcalSyncEnabled, gcalCalendarId, backupFrequency, lastBackupAt, updatedAt)
 
-internal fun BusinessSettings.toEntity() = BusinessSettingsEntity(businessId, gcalSyncEnabled, backupFrequency, lastBackupAt, updatedAt)
+internal fun BusinessSettings.toEntity() =
+    BusinessSettingsEntity(businessId, gcalSyncEnabled, gcalCalendarId, backupFrequency, lastBackupAt, updatedAt)

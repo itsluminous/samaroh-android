@@ -12,9 +12,10 @@ import javax.inject.Singleton
  * sync PULL ([com.itsluminous.samaroh.core.sync.engine.LocalApplier]) — no outbox row,
  * so the ADR-046 local-mutation trigger never sees it and the event lagged until the
  * 6-hour periodic. The sync engine now reports the applied business-scoped tables per
- * run (multibound [RemoteChangeListener]); when bookings or booking payments (payments
- * change the description's paid/due amounts) of a gcal-enabled business were applied,
- * the same debounced calendar one-shot is enqueued.
+ * run (multibound [RemoteChangeListener]); when bookings, booking payments (payments
+ * change the description's paid/due amounts) or the business row itself (a rename
+ * re-titles the calendar, ADR-048) of a gcal-enabled business were applied, the same
+ * debounced calendar one-shot is enqueued.
  *
  * LOOP GUARD: the calendar engine's `recordEventId` write is outbox-pushed, echoed back
  * by the server, and re-applied by a later pull — which lands HERE again. That pass
@@ -43,6 +44,6 @@ class RemoteBookingCalendarTrigger
         }
 
         private companion object {
-            val CALENDAR_RELEVANT_TABLES = setOf("bookings", "booking_payments")
+            val CALENDAR_RELEVANT_TABLES = setOf("bookings", "booking_payments", "businesses")
         }
     }

@@ -272,9 +272,15 @@ class SyncEngine
             val coveredBusinessIds = mutableSetOf<String>()
             for (pass in 1..MAX_PULL_PASSES) {
                 for (spec in globalTables) {
-                    val result = pullTableGuarded(remote, spec, SyncCursorEntity.GLOBAL_SCOPE)
-                    applied += result.first
-                    conflicts += result.second
+                    // `businesses` rows report their own id as the business id (ADR-048):
+                    // a remote rename must reach the calendar re-title reaction.
+                    val collectIds = spec.name == "businesses"
+                    val result = pullTableGuarded(remote, spec, SyncCursorEntity.GLOBAL_SCOPE, collectIds)
+                    applied += result.applied
+                    conflicts += result.conflicts
+                    if (result.appliedIds.isNotEmpty()) {
+                        appliedTables.getOrPut(spec.name) { mutableSetOf() } += result.appliedIds
+                    }
                 }
                 val newBusinessIds =
                     businessDao
@@ -286,9 +292,9 @@ class SyncEngine
                 for (spec in scopedTables) {
                     for (businessId in newBusinessIds) {
                         val result = pullTableGuarded(remote, spec, businessId)
-                        applied += result.first
-                        conflicts += result.second
-                        if (result.first > 0) appliedTables.getOrPut(spec.name) { mutableSetOf() } += businessId
+                        applied += result.applied
+                        conflicts += result.conflicts
+                        if (result.applied > 0) appliedTables.getOrPut(spec.name) { mutableSetOf() } += businessId
                     }
                 }
                 coveredBusinessIds += newBusinessIds
@@ -300,8 +306,19 @@ class SyncEngine
         private data class PullResult(
             val applied: Int,
             val conflicts: Int,
-            /** Business-scoped tables whose rows were applied this run: table → business ids. */
+            /**
+             * Tables whose rows were applied this run: table → business ids. Business-
+             * scoped tables report their pull scope; the global `businesses` table
+             * reports applied row ids (row id = business id, ADR-048).
+             */
             val appliedTables: Map<String, Set<String>>,
+        )
+
+        /** One table's pull outcome. [appliedIds] only collected when requested (businesses). */
+        private data class TablePull(
+            val applied: Int,
+            val conflicts: Int,
+            val appliedIds: List<String> = emptyList(),
         )
 
         /**
@@ -316,20 +333,23 @@ class SyncEngine
             remote: RemoteStore,
             spec: SyncTableSpec,
             scope: String,
-        ): Pair<Int, Int> =
+            collectAppliedIds: Boolean = false,
+        ): TablePull =
             try {
-                pullTable(remote, spec, scope)
+                pullTable(remote, spec, scope, collectAppliedIds)
             } catch (_: RemoteRejectedException) {
-                0 to 0
+                TablePull(0, 0)
             }
 
         private suspend fun pullTable(
             remote: RemoteStore,
             spec: SyncTableSpec,
             scope: String,
-        ): Pair<Int, Int> {
+            collectAppliedIds: Boolean,
+        ): TablePull {
             var applied = 0
             var conflicts = 0
+            val appliedIds = mutableListOf<String>()
             val stored = cursorDao.cursor(scope, spec.name)
             var cursorAt = stored?.lastPulledAt ?: Instant.EPOCH
             // Null id = legacy/fresh cursor: the pull then INCLUDES rows at cursorAt, so
@@ -357,7 +377,10 @@ class SyncEngine
                     lastAt = remoteUpdated
                     lastId = row.getValue(spec.idColumn).jsonPrimitive.content
                     val outcome = applyWithLww(spec, row, remoteUpdated)
-                    if (outcome.first) applied++
+                    if (outcome.first) {
+                        applied++
+                        if (collectAppliedIds) appliedIds += lastId
+                    }
                     if (outcome.second) conflicts++
                 }
                 // Defensive: a page that fails to advance the position would loop forever.
@@ -367,7 +390,7 @@ class SyncEngine
                 cursorAt = lastAt
                 cursorId = lastId
             }
-            return applied to conflicts
+            return TablePull(applied, conflicts, appliedIds)
         }
 
         /** @return (rowApplied, conflictRecorded) */

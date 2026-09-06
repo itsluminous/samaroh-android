@@ -101,7 +101,20 @@ class CalendarSyncEngineTest {
             deletes += calendarId to eventId
         }
 
-        override suspend fun calendarExists(calendarId: String): Boolean = calendarId in calendars
+        var rejectRenames = false
+        val renames = mutableListOf<Pair<String, String>>() // calendarId to new summary
+
+        override suspend fun calendarSummary(calendarId: String): String? = calendars[calendarId]
+
+        override suspend fun renameCalendar(
+            calendarId: String,
+            summary: String,
+        ) {
+            if (rejectRenames) throw GoogleApiException(403, "rename forbidden")
+            if (calendarId !in calendars) throw GoogleApiException(404, "gone")
+            calendars[calendarId] = summary
+            renames += calendarId to summary
+        }
 
         override suspend fun createCalendar(summary: String): String {
             val id = "cal-${nextCalendarId++}"
@@ -223,21 +236,26 @@ class CalendarSyncEngineTest {
 
     private class FakeBusinessRepository(
         gcalEnabled: Boolean = true,
+        businesses: List<Business> = emptyList(),
+        settings: List<BusinessSettings> =
+            listOf(BusinessSettings(businessId = BIZ, gcalSyncEnabled = gcalEnabled, updatedAt = Instant.EPOCH)),
     ) : BusinessRepository {
-        private val settings =
-            MutableStateFlow<BusinessSettings?>(
-                BusinessSettings(businessId = BIZ, gcalSyncEnabled = gcalEnabled, updatedAt = Instant.EPOCH),
-            )
+        val businessesById = businesses.associateBy { it.id }.toMutableMap()
+        val settingsById = settings.associateBy { it.businessId }.toMutableMap()
+        val savedSettings = mutableListOf<BusinessSettings>()
 
-        override fun businesses(): Flow<List<Business>> = flowOf(emptyList())
+        override fun businesses(): Flow<List<Business>> = flowOf(businessesById.values.toList())
 
-        override suspend fun business(id: String): Business? = null
+        override suspend fun business(id: String): Business? = businessesById[id]
 
         override suspend fun saveBusiness(business: Business) = error("unused")
 
-        override fun settings(businessId: String): Flow<BusinessSettings?> = settings
+        override fun settings(businessId: String): Flow<BusinessSettings?> = flowOf(settingsById[businessId])
 
-        override suspend fun saveSettings(settings: BusinessSettings) = error("unused")
+        override suspend fun saveSettings(settings: BusinessSettings) {
+            settingsById[settings.businessId] = settings
+            savedSettings += settings
+        }
     }
 
     private class FakeLinkDao(
@@ -613,6 +631,144 @@ class CalendarSyncEngineTest {
             assertThat(passes).isEqualTo(2)
             assertThat(callsInLastPass).isEqualTo(0)
             assertThat(service.events["cal-1"].orEmpty()).hasSize(1)
+        }
+
+    // --- ADR-048: per-business calendar named after the business ---
+
+    @Test
+    fun `calendar is created with the business name and registered on business_settings`() =
+        runTest {
+            val service = FakeCalendarService()
+            val bookings = FakeBookingRepository(listOf(Fixtures.booking(id = "b-1")))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = null))
+            val business =
+                FakeBusinessRepository(businesses = listOf(Fixtures.business(name = "Four Season Marriage Hall")))
+
+            engine(service, bookings, linkDao, business = business).syncBusiness(BIZ).getOrThrow()
+
+            val calendarId = service.calendars.keys.single()
+            assertThat(service.calendars[calendarId]).isEqualTo("Four Season Marriage Hall")
+            // Registered on the SYNCED per-business settings row (ADR-048)…
+            assertThat(business.settingsById[BIZ]?.gcalCalendarId).isEqualTo(calendarId)
+            // …and mirrored into the legacy google_accounts slot for pre-alter servers.
+            assertThat(linkDao.link.value?.calendarId).isEqualTo(calendarId)
+        }
+
+    @Test
+    fun `legacy calendar is adopted and renamed to the business name - events stay put`() =
+        runTest {
+            val service = FakeCalendarService()
+            service.calendars["cal-legacy"] = "Samaroh"
+            service.seedEvent("cal-legacy", "ev-1", GcalEvent(summary = "old", description = ""))
+            val booking = Fixtures.booking(id = "b-1").copy(gcalEventId = "ev-1")
+            val bookings = FakeBookingRepository(listOf(booking))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = "cal-legacy"))
+            val business =
+                FakeBusinessRepository(businesses = listOf(Fixtures.business(name = "Four Season Marriage Hall")))
+            stateStore.write(BIZ, mapOf("b-1" to SyncedEventState(eventId = "ev-1", fingerprint = "stale")))
+
+            engine(service, bookings, linkDao, business = business).syncBusiness(BIZ).getOrThrow()
+
+            // Adopted, not re-created: still exactly one calendar, renamed in place.
+            assertThat(service.calendars.keys).containsExactly("cal-legacy")
+            assertThat(service.renames).containsExactly("cal-legacy" to "Four Season Marriage Hall")
+            assertThat(business.settingsById[BIZ]?.gcalCalendarId).isEqualTo("cal-legacy")
+            assertThat(service.moves).isEmpty()
+            assertThat(service.events["cal-legacy"].orEmpty().keys).containsExactly("ev-1")
+        }
+
+    @Test
+    fun `business rename re-titles the calendar on an otherwise empty pass and converges`() =
+        runTest {
+            val service = FakeCalendarService()
+            val bookings = FakeBookingRepository(listOf(Fixtures.booking(id = "b-1")))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = null))
+            val business = FakeBusinessRepository(businesses = listOf(Fixtures.business(name = "Old Name")))
+            val eng = engine(service, bookings, linkDao, business = business)
+            eng.syncBusiness(BIZ).getOrThrow()
+            val calendarId = service.calendars.keys.single()
+            assertThat(service.calendars[calendarId]).isEqualTo("Old Name")
+
+            // The owner renames the business → the businesses-table trigger fires a pass.
+            business.businessesById[BIZ] = Fixtures.business(name = "Four Season Marriage Hall")
+            val callsBefore = service.inserts.size + service.updates.size + service.deletes.size
+            eng.syncBusiness(BIZ).getOrThrow()
+
+            assertThat(service.calendars[calendarId]).isEqualTo("Four Season Marriage Hall")
+            assertThat(service.renames).containsExactly(calendarId to "Four Season Marriage Hall")
+            // No event traffic on the rename pass…
+            assertThat(service.inserts.size + service.updates.size + service.deletes.size).isEqualTo(callsBefore)
+
+            // …and the echo pass is completely free (name cache converged).
+            eng.syncBusiness(BIZ).getOrThrow()
+            assertThat(service.renames).hasSize(1)
+        }
+
+    @Test
+    fun `rejected rename falls back to create-new and migrates the events`() =
+        runTest {
+            val service = FakeCalendarService()
+            service.calendars["cal-legacy"] = "Samaroh"
+            service.rejectRenames = true
+            service.seedEvent("cal-legacy", "ev-1", GcalEvent(summary = "old", description = ""))
+            val booking = Fixtures.booking(id = "b-1").copy(gcalEventId = "ev-1")
+            val bookings = FakeBookingRepository(listOf(booking))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = "cal-legacy"))
+            val business =
+                FakeBusinessRepository(businesses = listOf(Fixtures.business(name = "Four Season Marriage Hall")))
+            stateStore.write(BIZ, mapOf("b-1" to SyncedEventState(eventId = "ev-1", fingerprint = "stale")))
+
+            engine(service, bookings, linkDao, business = business).syncBusiness(BIZ).getOrThrow()
+
+            val created = service.calendars.keys.single { it != "cal-legacy" }
+            assertThat(service.calendars[created]).isEqualTo("Four Season Marriage Hall")
+            assertThat(business.settingsById[BIZ]?.gcalCalendarId).isEqualTo(created)
+            // The recorded event moved over (id preserved) — never duplicated.
+            assertThat(service.events[created].orEmpty().keys).containsExactly("ev-1")
+            assertThat(service.events["cal-legacy"].orEmpty()).isEmpty()
+        }
+
+    @Test
+    fun `second business does not steal a claimed legacy calendar - it gets its own`() =
+        runTest {
+            val service = FakeCalendarService()
+            service.calendars["cal-legacy"] = "Hall A"
+            service.seedEvent("cal-legacy", "ev-a", GcalEvent(summary = "a", description = ""))
+            service.seedEvent("cal-legacy", "ev-b", GcalEvent(summary = "b", description = ""))
+            val bookingB = Fixtures.booking(id = "b-B").copy(businessId = "biz-B", gcalEventId = "ev-b")
+            val bookings = FakeBookingRepository(listOf(bookingB))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS, SCOPE_APP_CREATED), calendarId = "cal-legacy"))
+            val business =
+                FakeBusinessRepository(
+                    businesses =
+                        listOf(
+                            Fixtures.business(id = BIZ, name = "Hall A"),
+                            Fixtures.business(id = "biz-B", name = "Hall B"),
+                        ),
+                    settings =
+                        listOf(
+                            // Business A already adopted the legacy calendar.
+                            BusinessSettings(
+                                businessId = BIZ,
+                                gcalSyncEnabled = true,
+                                gcalCalendarId = "cal-legacy",
+                                updatedAt = Instant.EPOCH,
+                            ),
+                            BusinessSettings(businessId = "biz-B", gcalSyncEnabled = true, updatedAt = Instant.EPOCH),
+                        ),
+                )
+            stateStore.write("biz-B", mapOf("b-B" to SyncedEventState(eventId = "ev-b", fingerprint = "stale")))
+
+            engine(service, bookings, linkDao, business = business).syncBusiness("biz-B").getOrThrow()
+
+            val created = service.calendars.keys.single { it != "cal-legacy" }
+            assertThat(service.calendars[created]).isEqualTo("Hall B")
+            assertThat(business.settingsById["biz-B"]?.gcalCalendarId).isEqualTo(created)
+            assertThat(business.settingsById[BIZ]?.gcalCalendarId).isEqualTo("cal-legacy")
+            // B's event moved to B's calendar; A's event untouched (no stray cleanup on a
+            // shared legacy source).
+            assertThat(service.events[created].orEmpty().keys).containsExactly("ev-b")
+            assertThat(service.events["cal-legacy"].orEmpty().keys).containsExactly("ev-a")
         }
 
     private companion object {

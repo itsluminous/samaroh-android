@@ -80,6 +80,28 @@ class GcalSyncStateStore
         suspend fun clear(businessId: String) = write(businessId, emptyMap())
 
         /**
+         * The calendar display name this device last set/verified for [businessId]
+         * (ADR-048). Device-local rename detection: a business-name edit makes the
+         * cached value stale, which is what lets a no-op pass skip ALL calendar HTTP
+         * (the free-echo invariant) while a rename still happens promptly. Another
+         * device re-verifying once (its own cache is empty) is an idempotent PATCH.
+         */
+        suspend fun readCalendarName(businessId: String): String? = dataStore.data.first()[nameKeyFor(businessId)]
+
+        suspend fun writeCalendarName(
+            businessId: String,
+            name: String?,
+        ) {
+            dataStore.edit { prefs ->
+                if (name == null) {
+                    prefs.remove(nameKeyFor(businessId))
+                } else {
+                    prefs[nameKeyFor(businessId)] = name
+                }
+            }
+        }
+
+        /**
          * Sign-out wipe (ADR-040): drops the push state of EVERY business so stale
          * fingerprints can't suppress calendar pushes for the next account on this device.
          */
@@ -88,4 +110,6 @@ class GcalSyncStateStore
         }
 
         private fun keyFor(businessId: String) = stringPreferencesKey("state_$businessId")
+
+        private fun nameKeyFor(businessId: String) = stringPreferencesKey("calendar_name_$businessId")
     }

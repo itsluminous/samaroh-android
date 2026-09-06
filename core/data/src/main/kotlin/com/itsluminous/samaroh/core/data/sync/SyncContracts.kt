@@ -96,7 +96,9 @@ interface PostSyncHook {
  * [LocalMutationListener]: a booking edited by ANOTHER member arrives via the pull and
  * never touches the outbox, so without this signal `core:google` could not push it to
  * the calendar until the 6-hour periodic. Listener failures are logged and never fail
- * the sync run. Global (non-business-scoped) tables are not reported.
+ * the sync run. Global (non-business-scoped) tables are not reported, with ONE
+ * exception: applied `businesses` rows are reported with the row id as the business id
+ * (ADR-048 — a remote business rename must re-title that business's calendar).
  */
 fun interface RemoteChangeListener {
     suspend fun onRemoteChangesApplied(appliedTables: Map<String, Set<String>>)
