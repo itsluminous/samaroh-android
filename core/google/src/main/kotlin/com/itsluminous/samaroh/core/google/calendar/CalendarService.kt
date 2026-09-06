@@ -91,6 +91,24 @@ interface CalendarService {
 
 private const val BASE_URL = "https://www.googleapis.com/calendar/v3"
 
+/**
+ * Off-by-default request-body diagnostics (extends the ADR-046 logcat-evidence idea):
+ * `adb shell setprop log.tag.SamarohGcalBody VERBOSE` makes insert/update log the full
+ * event JSON they send — the only way to inspect the pushed description on a device
+ * without Calendar API credentials. Bodies carry booking PII, hence the explicit gate.
+ */
+private const val BODY_TAG = "SamarohGcalBody"
+
+private fun logBody(
+    method: String,
+    url: String,
+    body: String,
+) {
+    if (android.util.Log.isLoggable(BODY_TAG, android.util.Log.VERBOSE)) {
+        android.util.Log.v(BODY_TAG, "$method $url\n$body")
+    }
+}
+
 /** [CalendarService] over the Calendar v3 REST endpoints. */
 @Singleton
 class RestCalendarService
@@ -108,6 +126,7 @@ class RestCalendarService
             calendarId: String,
             event: GcalEvent,
         ): String {
+            logBody("POST", "$BASE_URL/calendars/${encode(calendarId)}/events", event.toRequestBody())
             val response =
                 http.request(
                     "POST",
@@ -132,6 +151,7 @@ class RestCalendarService
             // PATCH, not PUT (ADR-047): a full-resource PUT clears every writable field
             // the body omits (user-set reminders, colour, visibility); PATCH updates
             // only the fields the app owns.
+            logBody("PATCH", "$BASE_URL/calendars/${encode(calendarId)}/events/${encode(eventId)}", event.toRequestBody())
             val response =
                 http.request(
                     "PATCH",
