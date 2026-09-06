@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.expenses.addentry
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -49,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +68,7 @@ import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -88,7 +91,10 @@ fun AddEntryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val limitText = stringResource(R.string.expenses_entry_attach_limit, MAX_ATTACHMENTS.toString())
     val failedText = stringResource(R.string.expenses_entry_attach_failed)
+    val tooLargeText = stringResource(R.string.expenses_entry_attach_too_large)
+    val cameraMissingText = stringResource(R.string.common_camera_missing)
     val linkFailedText = stringResource(R.string.expenses_google_prompt_link_failed)
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -96,6 +102,7 @@ fun AddEntryScreen(
                 AddEntryEvent.Saved -> onDone()
                 AddEntryEvent.AttachmentLimitReached -> snackbarHostState.showSnackbar(limitText)
                 AddEntryEvent.AttachmentFailed -> snackbarHostState.showSnackbar(failedText)
+                AddEntryEvent.AttachmentTooLarge -> snackbarHostState.showSnackbar(tooLargeText)
                 AddEntryEvent.GoogleLinkFailed -> snackbarHostState.showSnackbar(linkFailedText)
             }
         }
@@ -209,9 +216,17 @@ fun AddEntryScreen(
                                 .apply { mkdirs() }
                                 .let { dir -> File(dir, "capture-${System.currentTimeMillis()}.jpg") }
                         captureFile = file
-                        cameraLauncher.launch(
-                            FileProvider.getUriForFile(context, "${context.packageName}.expenses.fileprovider", file),
-                        )
+                        // Devices without any camera app throw instead of returning a
+                        // result — degrade to an honest snackbar, never a crash (ADR-050).
+                        try {
+                            cameraLauncher.launch(
+                                FileProvider.getUriForFile(context, "${context.packageName}.expenses.fileprovider", file),
+                            )
+                        } catch (_: ActivityNotFoundException) {
+                            captureFile = null
+                            file.delete()
+                            scope.launch { snackbarHostState.showSnackbar(cameraMissingText) }
+                        }
                     }) {
                         Icon(Icons.Filled.PhotoCamera, contentDescription = null)
                         Text(stringResource(R.string.expenses_entry_attach_camera), modifier = Modifier.padding(start = 4.dp))

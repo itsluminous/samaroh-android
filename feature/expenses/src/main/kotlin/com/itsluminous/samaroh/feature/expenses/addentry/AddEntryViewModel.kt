@@ -78,6 +78,9 @@ sealed interface AddEntryEvent {
 
     data object AttachmentFailed : AddEntryEvent
 
+    /** The picked document exceeds the attachment size cap (distinct, actionable message). */
+    data object AttachmentTooLarge : AddEntryEvent
+
     /** The link-Google flow launched from the prompt failed (not a cancel). */
     data object GoogleLinkFailed : AddEntryEvent
 }
@@ -165,12 +168,7 @@ class AddEntryViewModel
                 return
             }
             viewModelScope.launch {
-                val prepared = compressor.prepare(uri, mimeType, displayName)
-                if (prepared == null) {
-                    _events.emit(AddEntryEvent.AttachmentFailed)
-                } else {
-                    stage(prepared)
-                }
+                acceptPrepared(compressor.prepare(uri, mimeType, displayName))
             }
         }
 
@@ -181,13 +179,18 @@ class AddEntryViewModel
                 return
             }
             viewModelScope.launch {
-                val prepared = compressor.prepareCapturedImage(file)
+                val result = compressor.prepareCapturedImage(file)
                 file.delete() // raw capture superseded by the compressed copy
-                if (prepared == null) {
-                    _events.emit(AddEntryEvent.AttachmentFailed)
-                } else {
-                    stage(prepared)
-                }
+                acceptPrepared(result)
+            }
+        }
+
+        /** Prepare verdicts become staged chips or distinct inline errors (ADR-050). */
+        private suspend fun acceptPrepared(result: AttachmentCompressor.PrepareResult) {
+            when (result) {
+                is AttachmentCompressor.PrepareResult.Ready -> stage(result.prepared)
+                AttachmentCompressor.PrepareResult.TooLarge -> _events.emit(AddEntryEvent.AttachmentTooLarge)
+                AttachmentCompressor.PrepareResult.Unreadable -> _events.emit(AddEntryEvent.AttachmentFailed)
             }
         }
 
