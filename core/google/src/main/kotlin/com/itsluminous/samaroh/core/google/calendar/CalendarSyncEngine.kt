@@ -114,6 +114,7 @@ class CalendarSyncEngine
 
                         for (booking in plan.creates) {
                             val eventId = calendarService.insertEvent(calendarId, buildEvent(booking, paidByBooking[booking.id] ?: 0))
+                            Log.i(TAG, "created event $eventId on $calendarId for booking ${booking.id}")
                             state[booking.id] = SyncedEventState(eventId = eventId, fingerprint = fingerprintOf(booking))
                             recordEventId(booking, eventId)
                         }
@@ -139,10 +140,12 @@ class CalendarSyncEngine
                                 }
                             state[booking.id] = SyncedEventState(eventId = eventId, fingerprint = fingerprintOf(booking))
                             if (booking.gcalEventId != eventId) recordEventId(booking, eventId)
+                            Log.i(TAG, "updated event $eventId on $calendarId for booking ${booking.id}")
                         }
                         for ((bookingId, planned) in plan.deletes) {
                             val pushed = state[bookingId] ?: planned
                             calendarService.deleteEvent(calendarId, pushed.eventId)
+                            Log.i(TAG, "deleted event ${pushed.eventId} on $calendarId for booking $bookingId")
                             state.remove(bookingId)
                             bookingsById[bookingId]?.takeIf { it.gcalEventId != null }?.let { recordEventId(it, null) }
                         }
