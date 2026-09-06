@@ -1702,3 +1702,57 @@ Attachment imports are upright, honestly refused when oversized, and never bloat
 pointless re-encode. Tests for the levels/EXIF/crop-policy run under
 `@GraphicsMode(NATIVE)` (the ADR-049 lesson — legacy shadows lie about codecs). Stored
 formats and the sync/Drive mirroring contracts (ADR-023) are unchanged.
+
+## ADR-051 — Sync-noise fixes: no-op re-apply guard, calendar cancellation semantics (2026-09-06)
+
+**Status:** accepted. Field-evidence-driven (owner phone logcat + Room capture
+2026-09-06); additive `byId` DAO queries on the frozen `core:database` contract.
+
+**Context (two live-log defects).**
+1. *"debounced calendar push requested" on EVERY sync run.* Filtered logcat showed the
+   line firing on every run alongside `pushed=0 pulled=11 itemErrors=1` (the held
+   business_settings PGRST204 item, ADR-048 pending alter). The push retry itself was
+   innocent — push failures/rewrites go through `OutboxDao` directly, never
+   `RoomOutboxWriter`, so `LocalMutationListener`s never see them, and neither calendar
+   trigger lists `business_settings`. The real leak was the PULL: Room persists the
+   keyset cursor (`sync_cursors.last_pulled_at`) as epoch MILLIS while Postgres
+   `timestamptz` compares at microseconds, so `updated_at > cursor` re-matched every
+   table's boundary row on every run (≈11 tables ⇒ `pulled=11` forever). Each re-served
+   identical row counted as "applied", so `appliedTables` always contained
+   `bookings`/`businesses` and `RemoteBookingCalendarTrigger` enqueued a calendar push
+   per sync run; the spurious "applied" count also re-ran every `PostSyncHook`.
+2. *"calendar sync attempt 0 failed" + `JobCancellationException` WARN.* The on-change
+   one-shot used REPLACE: a new debounced request cancelled an in-flight worker, and the
+   engine's `runCatching` captured the coroutine's `CancellationException` into its
+   `Result`, which `resolveFailure` WARN-logged and retried as if the pass had failed —
+   noise plus a wasted retry, against structured-concurrency rules.
+
+**Decision.**
+1. **One timestamp precision — millis.** `WireConverter.parseTimestamp` truncates to
+   millis (the precision Room stores); in-memory entities, LWW comparisons and cursors
+   now agree with persistence.
+2. **No-op re-apply guard.** `LocalApplier.apply` returns whether the row CHANGED Room:
+   the incoming entity is compared (data-class equality) against the stored row and an
+   identical row skips the write. The engine counts only changed rows as applied, so
+   boundary re-pulls no longer feed `appliedTables`, the remote-change listeners or the
+   post-sync hooks. The boundary rows are still re-FETCHED each run (≤1 per table,
+   cheap, self-limiting) — fixing that would need sub-ms cursor storage (schema change)
+   for no observable win. Additive `byId` lookups added to the seven DAOs that lacked
+   one (frozen contract, additive per ADR-001).
+3. **Cancellation is not failure.** `CalendarSyncEngine.syncBusiness`/`disable` rethrow
+   `CancellationException` out of `runCatching` (`rethrowCancellation()`), and
+   `CalendarSyncWorker.resolveFailure` rethrows it defensively — a cancelled pass is
+   recorded by WorkManager as cancelled, never WARN-logged or retried. The
+   `NonCancellable` state-store write (ADR-046) still persists partial progress first.
+4. **On-change policy REPLACE → APPEND_OR_REPLACE.** An in-flight calendar pass now
+   completes and the new request chains after it instead of being killed mid-run
+   (ADR-046's mutex already serializes engine passes; the chained follow-up plans empty
+   and makes zero HTTP per the ADR-047 free-echo invariant). A failed/cancelled
+   predecessor is replaced, not inherited. The 3 s initial delay still debounces bursts
+   while the request is pending.
+
+**Consequences.** Steady-state sync runs report `pulled=0` and stay silent: no calendar
+one-shot churn, no spurious post-sync hook runs, no cancellation WARNs. The held
+business_settings item keeps retrying per ADR-048 until the owner applies the alter —
+now without side effects. Genuine local mutations, remote edits and business renames
+still trigger the calendar push exactly as before.

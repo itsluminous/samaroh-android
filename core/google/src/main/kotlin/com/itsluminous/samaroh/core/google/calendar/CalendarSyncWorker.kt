@@ -19,6 +19,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -68,13 +69,16 @@ class CalendarSyncWorker(
          * a PERMANENT local state, not a transient fault — retrying can never succeed and
          * every booking mutation would burn [MAX_ATTEMPTS] stack traces. Skip quietly as
          * success; the link flow (Settings §4.4 / the expenses prompt) kicks a fresh sync
-         * on success, and the periodic catch-up covers the rest. Anything else (network,
-         * HTTP 401/5xx) retries with backoff up to [MAX_ATTEMPTS].
+         * on success, and the periodic catch-up covers the rest. A [CancellationException]
+         * is RETHROWN (ADR-051): a cancelled worker is not a failed pass — logging it as
+         * "attempt N failed" and returning retry was pure noise plus a wasted retry.
+         * Anything else (network, HTTP 401/5xx) retries with backoff up to [MAX_ATTEMPTS].
          */
         internal fun resolveFailure(
             error: Throwable,
             runAttemptCount: Int,
         ): Result {
+            if (error is CancellationException) throw error
             if (error is DriveNotAvailableException) {
                 Log.i(CalendarSyncEngine.TAG, "calendar sync skipped: ${error.message}")
                 return Result.success()
@@ -132,14 +136,22 @@ class CalendarSyncScheduler
          * Debounced push after a local booking mutation (ADR-046, mirrors the ADR-036
          * data-sync debounce): every booking/payment outbox write lands here, so
          * create/edit/cancel/delete reach the calendar within seconds instead of the
-         * 6-hour periodic. REPLACE + a short initial delay collapse an edit burst into
-         * one run after the last write; offline, the CONNECTED constraint holds it.
+         * 6-hour periodic. The short initial delay collapses an edit burst while the
+         * request is still pending; offline, the CONNECTED constraint holds it.
+         *
+         * APPEND_OR_REPLACE, not REPLACE (ADR-051): REPLACE CANCELLED an in-flight
+         * worker mid-pass — noise ("attempt 0 failed"/JobCancellationException before
+         * the engine rethrow fix) plus a torn pass. APPEND_OR_REPLACE lets a RUNNING
+         * pass complete and chains the new request after it (a pass that finds nothing
+         * new plans empty and makes zero HTTP, so appended follow-ups are free); if the
+         * prior work failed or was cancelled the new request replaces it instead of
+         * inheriting the dead chain.
          */
         fun requestSyncOnLocalChange(businessId: String) {
             Log.i(CalendarSyncEngine.TAG, "debounced calendar push requested for $businessId")
             WorkManager.getInstance(context).enqueueUniqueWork(
                 CalendarSyncWorker.onChangeWorkName(businessId),
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 OneTimeWorkRequestBuilder<CalendarSyncWorker>()
                     .setConstraints(constraints)
                     .setInitialDelay(ON_CHANGE_DEBOUNCE_SECONDS, TimeUnit.SECONDS)

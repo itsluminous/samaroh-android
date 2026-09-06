@@ -10,6 +10,7 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 
 /**
  * The single paise ⇄ decimal-rupee wire boundary (ADR-002): outbox payloads and Room carry
@@ -69,11 +70,18 @@ object WireConverter {
     /** `"106511.61"`, `"500"`, `"500.5"` → paise. Postgres `numeric(12,2)` guarantees ≤ 2 decimals. */
     fun rupeesToPaise(decimal: String): Long = BigDecimal(decimal).movePointRight(2).longValueExact()
 
-    /** Accepts both `2026-08-25T12:00:00Z` and Postgres `2026-08-25T12:00:00.123+00:00`. */
+    /**
+     * Accepts both `2026-08-25T12:00:00Z` and Postgres `2026-08-25T12:00:00.123+00:00`.
+     *
+     * TRUNCATED TO MILLIS (ADR-051): Room persists every `Instant` as epoch millis
+     * (`Converters`), but Postgres `timestamptz` carries microseconds. Keeping sub-ms
+     * precision in memory made a pulled entity never `==` its stored twin and the keyset
+     * cursor lossy on persistence — one precision everywhere, the coarsest one we store.
+     */
     fun parseTimestamp(raw: String): Instant =
         try {
             Instant.parse(raw)
         } catch (_: DateTimeParseException) {
             OffsetDateTime.parse(raw).toInstant()
-        }
+        }.truncatedTo(ChronoUnit.MILLIS)
 }

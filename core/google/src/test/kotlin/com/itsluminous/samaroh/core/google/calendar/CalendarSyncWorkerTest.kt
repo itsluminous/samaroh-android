@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.google.calendar
 import androidx.work.ListenableWorker.Result
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.google.drive.DriveNotAvailableException
+import kotlinx.coroutines.CancellationException
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -50,5 +51,12 @@ class CalendarSyncWorkerTest {
                 runAttemptCount = CalendarSyncWorker.MAX_ATTEMPTS,
             )
         assertThat(result).isEqualTo(Result.failure())
+    }
+
+    @Test(expected = CancellationException::class)
+    fun `cancellation is rethrown - never logged or counted as a failed attempt`() {
+        // ADR-051: WorkManager cancelling the worker is not a pass failure; mapping it to
+        // a WARN + retry produced "attempt 0 failed / JobCancellationException" noise.
+        CalendarSyncWorker.resolveFailure(CancellationException("worker replaced"), runAttemptCount = 0)
     }
 }

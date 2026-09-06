@@ -20,6 +20,7 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -77,7 +78,14 @@ class CalendarSyncEngine
         private val syncMutex = Mutex()
         private val json = Json { encodeDefaults = true }
 
-        /** Pushes all pending booking changes for [businessId]. No-op when sync is off or Google unavailable. */
+        /**
+         * Pushes all pending booking changes for [businessId]. No-op when sync is off or
+         * Google unavailable. NEVER captures a coroutine cancellation into the [Result]
+         * (ADR-051): WorkManager cancelling the worker (e.g. a REPLACE while in flight)
+         * must propagate as [CancellationException] per structured concurrency — captured,
+         * it reached [CalendarSyncWorker.resolveFailure] and was WARN-logged and retried
+         * as if the pass had FAILED.
+         */
         suspend fun syncBusiness(businessId: String): Result<Unit> =
             runCatching {
                 // Configuration gating happens in CalendarSyncWorker (GoogleServicesConfig).
@@ -189,7 +197,7 @@ class CalendarSyncEngine
                         withContext(NonCancellable) { stateStore.write(businessId, state) }
                     }
                 }
-            }
+            }.rethrowCancellation()
 
         /**
          * §4.1 "on disable": leave events and stop updating; with [removeEvents] the
@@ -218,7 +226,15 @@ class CalendarSyncEngine
                         withContext(NonCancellable) { stateStore.write(businessId, state) }
                     }
                 }
-            }
+            }.rethrowCancellation()
+
+        /**
+         * Structured-concurrency guard (ADR-051): `runCatching` captures EVERYTHING,
+         * including the [CancellationException] a cancelled worker coroutine throws from
+         * its first suspension point. A cancellation is not a pass failure — it must
+         * propagate so WorkManager records the run as cancelled, not retry it.
+         */
+        private fun Result<Unit>.rethrowCancellation(): Result<Unit> = onFailure { if (it is CancellationException) throw it }
 
         private data class CalendarTarget(
             val calendarId: String,

@@ -98,7 +98,8 @@ class WireConverterTest {
                 },
             )
 
-        assertThat(local.getValue("created_at").jsonPrimitive.content).isEqualTo("2026-08-25T10:15:30.123456Z")
+        // Sub-ms digits are dropped (ADR-051): one precision everywhere — the ms Room stores.
+        assertThat(local.getValue("created_at").jsonPrimitive.content).isEqualTo("2026-08-25T10:15:30.123Z")
         assertThat(local.getValue("updated_at").jsonPrimitive.content).isEqualTo("2026-08-25T10:15:30Z")
         assertThat(local.getValue("deleted_at")).isEqualTo(JsonNull)
     }
@@ -144,5 +145,15 @@ class WireConverterTest {
     fun `timestamp parser accepts both instant and offset forms`() {
         assertThat(WireConverter.parseTimestamp("2026-08-25T09:00:00Z")).isEqualTo(Instant.parse("2026-08-25T09:00:00Z"))
         assertThat(WireConverter.parseTimestamp("2026-08-25T09:00:00+00:00")).isEqualTo(Instant.parse("2026-08-25T09:00:00Z"))
+    }
+
+    @Test
+    fun `timestamps are truncated to millis - the precision Room persists`() {
+        // ADR-051: Postgres timestamptz carries microseconds; keeping them in memory made
+        // pulled entities never equal their stored twins and the keyset cursor lossy.
+        assertThat(WireConverter.parseTimestamp("2026-09-06T10:00:00.123456+00:00"))
+            .isEqualTo(Instant.parse("2026-09-06T10:00:00.123Z"))
+        assertThat(WireConverter.parseTimestamp("2026-09-06T10:00:00.123999Z"))
+            .isEqualTo(Instant.parse("2026-09-06T10:00:00.123Z"))
     }
 }

@@ -20,6 +20,7 @@ import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.testing.Fixtures
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,10 +73,14 @@ class CalendarSyncEngineTest {
             events.getOrPut(calendarId) { mutableMapOf() }[eventId] = event
         }
 
+        /** Programmable failure hook — simulates a fault (or cancellation) mid-insert. */
+        var onInsert: (() -> Unit)? = null
+
         override suspend fun insertEvent(
             calendarId: String,
             event: GcalEvent,
         ): String {
+            onInsert?.invoke()
             val id = "ev-${nextEventId++}"
             seedEvent(calendarId, id, event)
             inserts += calendarId to id
@@ -268,6 +273,8 @@ class CalendarSyncEngineTest {
         }
 
         override fun linkForUser(userId: String): Flow<GoogleAccountLinkEntity?> = link
+
+        override suspend fun byId(userId: String): GoogleAccountLinkEntity? = link.value?.takeIf { it.userId == userId }
 
         override suspend fun unlink(userId: String) {
             link.value = null
@@ -769,6 +776,22 @@ class CalendarSyncEngineTest {
             // shared legacy source).
             assertThat(service.events[created].orEmpty().keys).containsExactly("ev-b")
             assertThat(service.events["cal-legacy"].orEmpty().keys).containsExactly("ev-a")
+        }
+
+    @Test
+    fun `worker cancellation propagates - never captured into the Result`() =
+        runTest {
+            // ADR-051: runCatching used to swallow the cancelled coroutine's
+            // CancellationException into Result.failure, which the worker WARN-logged
+            // and retried as a failed pass. It must propagate per structured concurrency.
+            val service = FakeCalendarService()
+            service.onInsert = { throw CancellationException("worker replaced mid-pass") }
+            val bookings = FakeBookingRepository(listOf(Fixtures.booking(id = "b-1")))
+            val linkDao = FakeLinkDao(link(scopes = listOf(SCOPE_EVENTS), calendarId = null))
+
+            val thrown = runCatching { engine(service, bookings, linkDao).syncBusiness(BIZ) }.exceptionOrNull()
+
+            assertThat(thrown).isInstanceOf(CancellationException::class.java)
         }
 
     private companion object {

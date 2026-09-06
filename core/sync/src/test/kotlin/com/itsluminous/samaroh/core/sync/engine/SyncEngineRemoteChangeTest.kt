@@ -165,4 +165,69 @@ class SyncEngineRemoteChangeTest {
             // Later listeners still notified after an earlier one throws.
             assertThat(listener.notifications).hasSize(1)
         }
+
+    @Test
+    fun `an identical re-served row is a no-op - listeners not notified again`() =
+        runTest {
+            // ADR-051: the ms-truncated cursor re-serves each table's boundary row every
+            // run (server compares timestamptz at µs). Re-applying an identical row must
+            // not count as applied — it fired a calendar push on EVERY sync run.
+            seedBusiness()
+            val row = remoteBookingRow("b-1", "2026-09-06T10:00:00.123456+00:00")
+            val listener = RecordingListener()
+            val engine = syncEngine(db, remote, remoteChangeListeners = setOf(listener))
+
+            remote.servePage("bookings", listOf(row))
+            val first = engine.runSync()
+            remote.servePage("bookings", listOf(row))
+            val second = engine.runSync()
+
+            assertThat(first.pulledCount).isEqualTo(1)
+            assertThat(second.pulledCount).isEqualTo(0)
+            assertThat(listener.notifications).hasSize(1)
+        }
+
+    @Test
+    fun `a held outbox retry with re-served boundary rows never re-fires listeners`() =
+        runTest {
+            // The live defect (ADR-051): a business_settings item held on PGRST204
+            // (ADR-048 pending server alter) retried every run WHILE the boundary
+            // re-serve kept "applying" rows — together producing a debounced calendar
+            // push per sync run. The retry must stay side-effect-free.
+            seedBusiness()
+            db.outboxDao().enqueue(
+                com.itsluminous.samaroh.core.database.entity.OutboxEntity(
+                    entityType = "business_settings",
+                    entityId = Fixtures.BUSINESS_ID,
+                    operation = "upsert",
+                    payloadJson =
+                        """{"business_id":"${Fixtures.BUSINESS_ID}","gcal_sync_enabled":true,""" +
+                            """"updated_at":"2026-09-06T09:00:00Z"}""",
+                    createdAt = FIXED_NOW,
+                ),
+            )
+            remote.onUpsert = { table, _ ->
+                if (table == "business_settings") {
+                    com.itsluminous.samaroh.core.sync.remote
+                        .RemoteRejectedException("Could not find the 'gcal_calendar_id' column")
+                } else {
+                    null
+                }
+            }
+            val row = remoteBookingRow("b-1", "2026-09-06T10:00:00.123456+00:00")
+            val listener = RecordingListener()
+            val engine = syncEngine(db, remote, remoteChangeListeners = setOf(listener))
+
+            remote.servePage("bookings", listOf(row))
+            val first = engine.runSync()
+            remote.servePage("bookings", listOf(row))
+            val second = engine.runSync()
+
+            // The item is retried (and re-held) on both runs…
+            assertThat(first.itemErrorCount).isEqualTo(1)
+            assertThat(second.itemErrorCount).isEqualTo(1)
+            // …but only the run that genuinely changed a booking notified the listeners.
+            assertThat(listener.notifications).hasSize(1)
+            assertThat(second.pulledCount).isEqualTo(0)
+        }
 }

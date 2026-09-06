@@ -155,6 +155,10 @@ interface DateBlockDao {
         to: LocalDate,
     ): Flow<List<DateBlockEntity>>
 
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM date_blocks WHERE id = :id")
+    suspend fun byId(id: String): DateBlockEntity?
+
     @Query("UPDATE date_blocks SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,
@@ -186,6 +190,10 @@ interface BookingPaymentDao {
      */
     @Query("SELECT * FROM booking_payments WHERE booking_id IN (:bookingIds) AND deleted_at IS NULL")
     fun paymentsForBookings(bookingIds: List<String>): Flow<List<BookingPaymentEntity>>
+
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM booking_payments WHERE id = :id")
+    suspend fun byId(id: String): BookingPaymentEntity?
 
     /**
      * Live payments received in [from]..[to] (by `paid_on`), independent of when the paid

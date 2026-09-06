@@ -46,6 +46,10 @@ interface BusinessMemberDao {
     @Query("SELECT * FROM business_members WHERE invited_email = :email COLLATE NOCASE AND deleted_at IS NULL ORDER BY created_at ASC")
     fun membershipsForEmail(email: String): Flow<List<BusinessMemberEntity>>
 
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM business_members WHERE id = :id")
+    suspend fun byId(id: String): BusinessMemberEntity?
+
     @Query("UPDATE business_members SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,
@@ -60,6 +64,10 @@ interface BusinessSettingsDao {
 
     @Query("SELECT * FROM business_settings WHERE business_id = :businessId")
     fun settingsForBusiness(businessId: String): Flow<BusinessSettingsEntity?>
+
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM business_settings WHERE business_id = :businessId")
+    suspend fun byId(businessId: String): BusinessSettingsEntity?
 }
 
 @Dao
@@ -69,6 +77,10 @@ interface GoogleAccountLinkDao {
 
     @Query("SELECT * FROM google_accounts WHERE user_id = :userId")
     fun linkForUser(userId: String): Flow<GoogleAccountLinkEntity?>
+
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM google_accounts WHERE user_id = :userId")
+    suspend fun byId(userId: String): GoogleAccountLinkEntity?
 
     @Query("DELETE FROM google_accounts WHERE user_id = :userId")
     suspend fun unlink(userId: String)

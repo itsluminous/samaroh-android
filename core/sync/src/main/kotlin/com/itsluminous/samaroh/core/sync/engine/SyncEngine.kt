@@ -402,8 +402,11 @@ class SyncEngine
             val id = row.getValue(spec.idColumn).jsonPrimitive.content
             val pending = outboxDao.pendingForEntity(spec.name, id)
             if (pending.isEmpty()) {
-                applier.apply(spec.name, row)
-                return true to false
+                // ADR-051: an identical re-served row (the ms-truncated cursor re-pulls each
+                // table's boundary row every run) is a no-op — it must not count as applied,
+                // or the remote-change listeners fire a calendar push on EVERY sync run.
+                val changed = applier.apply(spec.name, row)
+                return changed to false
             }
             val latest = pending.last()
             if (remoteUpdated <= opTimestamp(latest)) {

@@ -228,6 +228,10 @@ interface MasterItemDao {
         limit: Int = 10,
     ): List<MasterItemEntity>
 
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM master_items WHERE id = :id")
+    suspend fun byId(id: String): MasterItemEntity?
+
     @Query("UPDATE master_items SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,
@@ -283,6 +287,10 @@ interface InventoryTransactionDao {
      */
     @Query("SELECT COUNT(*) FROM inventory_transactions WHERE master_item_id = :masterItemId")
     suspend fun transactionCountForItem(masterItemId: String): Int
+
+    /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
+    @Query("SELECT * FROM inventory_transactions WHERE id = :id")
+    suspend fun byId(id: String): InventoryTransactionEntity?
 
     @Query(
         """

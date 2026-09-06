@@ -40,6 +40,12 @@ import javax.inject.Singleton
  * Applies pulled rows (already in local JSON form — paise, normalized timestamps) to Room
  * via plain REPLACE upserts. Tombstoned rows (`deleted_at` set) propagate naturally as
  * soft deletes (§8 step 2).
+ *
+ * [apply] reports whether the row actually CHANGED Room (ADR-051): the keyset cursor is
+ * ms-truncated on persistence while Postgres compares at µs, so every run re-serves each
+ * table's boundary row. Re-applying an identical row must not count as "applied" — it fed
+ * the remote-change listeners (spurious calendar pushes every sync run) and the post-sync
+ * hooks. An incoming entity equal to the stored one skips the write and returns false.
  */
 @Singleton
 class LocalApplier
@@ -62,42 +68,109 @@ class LocalApplier
     ) {
         private val json = Json { ignoreUnknownKeys = true }
 
+        /** @return true when the row changed Room; false for an identical no-op re-apply. */
         suspend fun apply(
             table: String,
             row: JsonObject,
-        ) {
+        ): Boolean =
             when (table) {
-                "businesses" -> businessDao.upsert(json.decodeFromJsonElement(Business.serializer(), row).toEntity())
+                "businesses" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(Business.serializer(), row).toEntity(),
+                        businessDao::byId,
+                        businessDao::upsert,
+                    ) { it.id }
                 "business_members" ->
-                    businessMemberDao.upsert(json.decodeFromJsonElement(BusinessMember.serializer(), row).toEntity())
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(BusinessMember.serializer(), row).toEntity(),
+                        businessMemberDao::byId,
+                        businessMemberDao::upsert,
+                    ) { it.id }
                 "business_settings" ->
-                    businessSettingsDao.upsert(json.decodeFromJsonElement(BusinessSettings.serializer(), row).toEntity())
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(BusinessSettings.serializer(), row).toEntity(),
+                        businessSettingsDao::byId,
+                        businessSettingsDao::upsert,
+                    ) { it.businessId }
                 "google_accounts" ->
-                    googleAccountLinkDao.upsert(json.decodeFromJsonElement(GoogleAccountLink.serializer(), row).toEntity())
-                "bookings" -> bookingDao.upsert(json.decodeFromJsonElement(Booking.serializer(), row).toEntity())
-                "event_types" -> eventTypeDao.upsert(json.decodeFromJsonElement(EventType.serializer(), row).toEntity())
-                "date_blocks" -> dateBlockDao.upsert(json.decodeFromJsonElement(DateBlock.serializer(), row).toEntity())
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(GoogleAccountLink.serializer(), row).toEntity(),
+                        googleAccountLinkDao::byId,
+                        googleAccountLinkDao::upsert,
+                    ) { it.userId }
+                "bookings" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(Booking.serializer(), row).toEntity(),
+                        bookingDao::byId,
+                        bookingDao::upsert,
+                    ) { it.id }
+                "event_types" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(EventType.serializer(), row).toEntity(),
+                        eventTypeDao::byId,
+                        eventTypeDao::upsert,
+                    ) { it.id }
+                "date_blocks" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(DateBlock.serializer(), row).toEntity(),
+                        dateBlockDao::byId,
+                        dateBlockDao::upsert,
+                    ) { it.id }
                 "booking_payments" ->
-                    bookingPaymentDao.upsert(json.decodeFromJsonElement(BookingPayment.serializer(), row).toEntity())
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(BookingPayment.serializer(), row).toEntity(),
+                        bookingPaymentDao::byId,
+                        bookingPaymentDao::upsert,
+                    ) { it.id }
                 "payment_reminders" -> {
                     val model = json.decodeFromJsonElement(PaymentReminder.serializer(), row)
                     // kind is Room-only state (ADR-020); preserve it across pulled updates.
                     val kind = paymentReminderDao.byId(model.id)?.kind ?: ReminderKind.PAYMENT
-                    paymentReminderDao.upsert(model.toEntity(kind))
+                    upsertIfChanged(model.toEntity(kind), paymentReminderDao::byId, paymentReminderDao::upsert) { it.id }
                 }
-                "parties" -> partyDao.upsert(json.decodeFromJsonElement(Party.serializer(), row).toEntity())
-                "expenses" -> expenseDao.upsert(json.decodeFromJsonElement(Expense.serializer(), row).toEntity())
+                "parties" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(Party.serializer(), row).toEntity(),
+                        partyDao::byId,
+                        partyDao::upsert,
+                    ) { it.id }
+                "expenses" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(Expense.serializer(), row).toEntity(),
+                        expenseDao::byId,
+                        expenseDao::upsert,
+                    ) { it.id }
                 "expense_attachments" -> {
                     val model = json.decodeFromJsonElement(ExpenseAttachment.serializer(), row)
                     // local_cache_path is Room-only state; preserve it across pulled updates.
                     val cachePath = expenseAttachmentDao.byId(model.id)?.localCachePath
-                    expenseAttachmentDao.upsert(model.toEntity(cachePath))
+                    upsertIfChanged(model.toEntity(cachePath), expenseAttachmentDao::byId, expenseAttachmentDao::upsert) { it.id }
                 }
-                "master_items" -> masterItemDao.upsert(json.decodeFromJsonElement(MasterItem.serializer(), row).toEntity())
+                "master_items" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(MasterItem.serializer(), row).toEntity(),
+                        masterItemDao::byId,
+                        masterItemDao::upsert,
+                    ) { it.id }
                 "inventory_transactions" ->
-                    inventoryTransactionDao.upsert(json.decodeFromJsonElement(InventoryTransaction.serializer(), row).toEntity())
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(InventoryTransaction.serializer(), row).toEntity(),
+                        inventoryTransactionDao::byId,
+                        inventoryTransactionDao::upsert,
+                    ) { it.id }
                 else -> error("unknown synced table: $table")
             }
+
+        /** Data-class equality against the stored row; identical rows skip the write. */
+        private suspend fun <E : Any> upsertIfChanged(
+            incoming: E,
+            read: suspend (String) -> E?,
+            write: suspend (E) -> Unit,
+            idOf: (E) -> String,
+        ): Boolean {
+            if (read(idOf(incoming)) == incoming) return false
+            write(incoming)
+            return true
         }
 
         /** Human-readable row identifier for conflict notifications and the conflict log. */
