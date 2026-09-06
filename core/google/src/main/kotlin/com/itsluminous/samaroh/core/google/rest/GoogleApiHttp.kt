@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.google.rest
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -62,6 +63,45 @@ class GoogleApiHttp
                     val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                     val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
                     GoogleApiResponse(code, text)
+                } finally {
+                    connection.disconnect()
+                }
+            }
+
+        /**
+         * GET [url] and stream the (binary) response body straight into [target] —
+         * `request` buffers bodies as text, which would corrupt media bytes (ADR-052,
+         * Drive `files.get?alt=media`). On a non-2xx response [target] is deleted and the
+         * returned body carries the error text; on success the body is empty.
+         */
+        suspend fun downloadToFile(
+            url: String,
+            accessToken: String,
+            target: File,
+        ): GoogleApiResponse =
+            withContext(Dispatchers.IO) {
+                val connection = URL(url).openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = TIMEOUT_MS
+                    connection.readTimeout = TIMEOUT_MS
+                    connection.setRequestProperty("Authorization", "Bearer $accessToken")
+                    val code = connection.responseCode
+                    if (code in 200..299) {
+                        connection.inputStream.use { input ->
+                            target.outputStream().use { input.copyTo(it) }
+                        }
+                        GoogleApiResponse(code, "")
+                    } else {
+                        target.delete()
+                        GoogleApiResponse(
+                            code,
+                            connection.errorStream
+                                ?.bufferedReader()
+                                ?.use { it.readText() }
+                                .orEmpty(),
+                        )
+                    }
                 } finally {
                     connection.disconnect()
                 }

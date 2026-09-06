@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Package visibility (API 30+): lets the ledger check for an installed PDF viewer
+         before firing ACTION_VIEW, so a missing app becomes a localized message instead
+         of an empty system chooser (ADR-052). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
+    </queries>
+
     <application>
         <!-- Grants the camera app write access to a private capture target. No CAMERA
              permission is declared anywhere, so ActivityResultContracts.TakePicture needs

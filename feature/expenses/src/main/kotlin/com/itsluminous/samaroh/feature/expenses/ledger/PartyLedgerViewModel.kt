@@ -1,15 +1,22 @@
 package com.itsluminous.samaroh.feature.expenses.ledger
 
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
+import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
+import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
+import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentContentResolver
+import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentOpenResult
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
 import com.itsluminous.samaroh.feature.expenses.domain.LedgerRow
 import com.itsluminous.samaroh.feature.expenses.domain.RunningBalanceCalculator
@@ -81,6 +88,21 @@ sealed interface PartyLedgerEvent {
     data class PartyDeleted(
         val partyName: String,
     ) : PartyLedgerEvent
+
+    /** A tapped attachment resolved to a local file — image → in-app viewer, else ACTION_VIEW (ADR-052). */
+    data class OpenAttachment(
+        val file: File,
+        val mimeType: String,
+    ) : PartyLedgerEvent
+
+    /** Tapped attachment has neither a local file nor a Drive copy yet (pending on another device). */
+    data object AttachmentUnavailable : PartyLedgerEvent
+
+    /** Drive download of a tapped attachment failed (typically offline) — friendly retry message. */
+    data object AttachmentDownloadFailed : PartyLedgerEvent
+
+    /** The link-Google flow launched from the view-attachment dialog failed (not a cancel). */
+    data object GoogleLinkFailed : PartyLedgerEvent
 }
 
 @HiltViewModel
@@ -92,6 +114,8 @@ class PartyLedgerViewModel
         private val ledgerRepository: ExpensesLedgerRepository,
         private val session: ExpensesSession,
         private val googleAccountLinker: GoogleAccountLinker,
+        private val attachmentResolver: AttachmentContentResolver,
+        private val syncScheduler: SyncScheduler,
         private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
@@ -167,6 +191,104 @@ class PartyLedgerViewModel
             viewModelScope.launch {
                 expensesRepository.deleteExpense(expenseId)
             }
+        }
+
+        // ---- View attachment (ADR-052) -------------------------------------------------
+
+        /** Attachment id currently being resolved — drives the thumbnail's loading spinner. */
+        private val _openingAttachmentId = MutableStateFlow<String?>(null)
+        val openingAttachmentId: StateFlow<String?> = _openingAttachmentId.asStateFlow()
+
+        /** Attachment waiting on a Google link; non-null shows the link-to-view dialog. */
+        private val attachmentAwaitingLink = MutableStateFlow<AttachmentWithLocalState?>(null)
+        val showAttachmentLinkPrompt: StateFlow<Boolean> =
+            attachmentAwaitingLink
+                .map { it != null }
+                .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+        /** The link-to-view dialog's Connect button is running the account-picker flow. */
+        private val _attachmentLinking = MutableStateFlow(false)
+        val attachmentLinking: StateFlow<Boolean> = _attachmentLinking.asStateFlow()
+
+        /** Pending Google scope-consent sheet the screen must launch, then call [completeGoogleConsent]. */
+        private val _consentIntent = MutableStateFlow<PendingIntent?>(null)
+        val consentIntent: StateFlow<PendingIntent?> = _consentIntent.asStateFlow()
+
+        /**
+         * Opens a tapped attachment (ADR-052): local cache → immediately; else Drive
+         * download (spinner on the thumbnail) → open; else the link dialog / the localized
+         * "not on this device yet" / offline messages. One resolution at a time — a second
+         * tap while a download runs is ignored rather than queued.
+         */
+        fun openAttachment(attachment: AttachmentWithLocalState) {
+            if (_openingAttachmentId.value != null) return
+            _openingAttachmentId.value = attachment.attachment.id
+            viewModelScope.launch {
+                when (val result = attachmentResolver.resolve(attachment)) {
+                    is AttachmentOpenResult.Ready ->
+                        _events.emit(PartyLedgerEvent.OpenAttachment(result.file, result.mimeType))
+                    AttachmentOpenResult.NeedsGoogleLink -> attachmentAwaitingLink.value = attachment
+                    AttachmentOpenResult.NotAvailable -> _events.emit(PartyLedgerEvent.AttachmentUnavailable)
+                    AttachmentOpenResult.DownloadFailed -> _events.emit(PartyLedgerEvent.AttachmentDownloadFailed)
+                }
+                _openingAttachmentId.value = null
+            }
+        }
+
+        /** "Later" on the link-to-view dialog — nothing opens; the thumbnail stays tappable. */
+        fun dismissAttachmentLinkPrompt() {
+            if (_attachmentLinking.value) return
+            attachmentAwaitingLink.value = null
+        }
+
+        /**
+         * "Connect Google" on the link-to-view dialog: runs the Settings link flow in place
+         * (§4.4 linker; same plumbing as the add-entry prompt). [activityContext] MUST be an
+         * Activity context — Credential Manager shows UI. On success the tapped attachment
+         * is re-resolved, which now downloads it from Drive.
+         */
+        fun linkGoogleToView(activityContext: Context) {
+            if (_attachmentLinking.value) return
+            _attachmentLinking.value = true
+            viewModelScope.launch {
+                googleAccountLinker
+                    .link(activityContext)
+                    .onSuccess { onLinkedForView() }
+                    .onFailure(::handleLinkFailure)
+            }
+        }
+
+        /** Completes the link after the scope-consent sheet returned [resultIntent]. */
+        fun completeGoogleConsent(resultIntent: Intent?) {
+            _consentIntent.value = null
+            viewModelScope.launch {
+                googleAccountLinker
+                    .completeLink(resultIntent)
+                    .onSuccess { onLinkedForView() }
+                    .onFailure(::handleLinkFailure)
+            }
+        }
+
+        private fun onLinkedForView() {
+            // Freshly linked: nudge sync so THIS device's pending uploads move too, then
+            // retry the tapped attachment — the resolver now takes the download path.
+            syncScheduler.requestImmediateSync()
+            val pending = attachmentAwaitingLink.value
+            attachmentAwaitingLink.value = null
+            _attachmentLinking.value = false
+            pending?.let(::openAttachment)
+        }
+
+        private fun handleLinkFailure(error: Throwable) {
+            when (error) {
+                is GoogleLinkException.NeedsScopeConsent -> {
+                    _consentIntent.value = error.pendingIntent
+                    return // keep `linking`; the consent sheet continues the flow
+                }
+                is GoogleLinkException.Cancelled -> Unit // keep the dialog; Later still works
+                else -> _events.tryEmit(PartyLedgerEvent.GoogleLinkFailed)
+            }
+            _attachmentLinking.value = false
         }
 
         /**

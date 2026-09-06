@@ -179,4 +179,35 @@ class RoomExpensesLedgerRepositoryTest {
             assertThat(outbox.records.single().entityType).isEqualTo("parties")
             assertThat(db.partyDao().byId(party.id)?.deletedAt).isEqualTo(deleteInstant)
         }
+
+    @Test
+    fun `cache-path stamp after a drive download updates the row WITHOUT an outbox op`() =
+        runTest {
+            // ADR-052: local_cache_path is device-only state — it must never sync.
+            val (_, driveBacked) = seed()
+
+            repository.updateAttachmentLocalCachePath(driveBacked.id, "/data/cache/drive-bill.jpg")
+
+            assertThat(db.expenseAttachmentDao().byId(driveBacked.id)?.localCachePath)
+                .isEqualTo("/data/cache/drive-bill.jpg")
+            assertThat(outbox.records).isEmpty()
+        }
+
+    @Test
+    fun `cache-path stamp re-emits through the attachment flows with the new local state`() =
+        runTest {
+            val (_, driveBacked) = seed()
+
+            repository.updateAttachmentLocalCachePath(driveBacked.id, "/data/cache/drive-bill.jpg")
+
+            val fromFlow =
+                repository
+                    .attachmentsForExpense(driveBacked.expenseId)
+                    .first()
+                    .single { it.attachment.id == driveBacked.id }
+            assertThat(fromFlow.localCachePath).isEqualTo("/data/cache/drive-bill.jpg")
+            // Everything else on the row is untouched.
+            assertThat(fromFlow.attachment.driveFileId).isEqualTo(driveBacked.driveFileId)
+            assertThat(fromFlow.attachment.deletedAt).isNull()
+        }
 }

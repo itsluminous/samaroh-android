@@ -199,6 +199,17 @@ interface ExpenseAttachmentDao {
     )
     suspend fun liveForParty(partyId: String): List<ExpenseAttachmentEntity>
 
+    /**
+     * ADDITIVE view-attachment support (ADR-052): stamps the device-local cache path after
+     * a Drive download. `local_cache_path` is Room-only state — callers never enqueue an
+     * outbox op for this write.
+     */
+    @Query("UPDATE expense_attachments SET local_cache_path = :path WHERE id = :id")
+    suspend fun updateLocalCachePath(
+        id: String,
+        path: String,
+    )
+
     @Query("UPDATE expense_attachments SET deleted_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,

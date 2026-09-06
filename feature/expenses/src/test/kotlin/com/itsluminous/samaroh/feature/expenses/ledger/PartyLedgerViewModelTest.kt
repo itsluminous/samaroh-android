@@ -3,46 +3,70 @@ package com.itsluminous.samaroh.feature.expenses.ledger
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
+import com.itsluminous.samaroh.feature.expenses.FakeDriveService
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.expenses.FakeGoogleAccountLinker
+import com.itsluminous.samaroh.feature.expenses.RecordingSyncScheduler
+import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentContentResolver
 import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.time.LocalDate
 
+@RunWith(RobolectricTestRunner::class)
 class PartyLedgerViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
     private val party = Fixtures.party(name = "test-party")
     private lateinit var expensesRepository: FakeExpensesRepository
     private lateinit var ledgerRepository: FakeExpensesLedgerRepository
     private lateinit var linker: FakeGoogleAccountLinker
+    private lateinit var driveService: FakeDriveService
+    private lateinit var syncScheduler: RecordingSyncScheduler
 
     @Before
     fun setUp() {
         expensesRepository = FakeExpensesRepository()
         ledgerRepository = FakeExpensesLedgerRepository()
         linker = FakeGoogleAccountLinker()
+        driveService = FakeDriveService()
+        syncScheduler = RecordingSyncScheduler()
         expensesRepository.parties.value = listOf(party)
         ledgerRepository.parties.value = listOf(party)
     }
 
-    private fun viewModel() =
+    private fun viewModel(session: com.itsluminous.samaroh.feature.expenses.ExpensesSession = fakeExpensesSession()) =
         PartyLedgerViewModel(
             savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
             expensesRepository = expensesRepository,
             ledgerRepository = ledgerRepository,
-            session = fakeExpensesSession(),
+            session = session,
             googleAccountLinker = linker,
+            attachmentResolver =
+                AttachmentContentResolver(
+                    attachmentsDir = { tempFolder.root },
+                    driveService = driveService,
+                    googleAccountLinker = linker,
+                    ledgerRepository = ledgerRepository,
+                    ioDispatcher = mainDispatcherRule.dispatcher,
+                ),
+            syncScheduler = syncScheduler,
             clock = java.time.Clock.fixed(com.itsluminous.samaroh.core.testing.Fixtures.NOW, java.time.ZoneOffset.UTC),
         )
 
@@ -154,11 +178,7 @@ class PartyLedgerViewModelTest {
     fun `entry gates follow expenses permissions for non-owners`() =
         runTest {
             val viewModel =
-                PartyLedgerViewModel(
-                    savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
-                    expensesRepository = expensesRepository,
-                    ledgerRepository = ledgerRepository,
-                    googleAccountLinker = linker,
+                viewModel(
                     session =
                         fakeExpensesSession(
                             userId = "member-1",
@@ -172,7 +192,6 @@ class PartyLedgerViewModelTest {
                                         ),
                                 ),
                         ),
-                    clock = java.time.Clock.fixed(Fixtures.NOW, java.time.ZoneOffset.UTC),
                 )
             viewModel.state.test {
                 val loaded = awaitItemMatching { it.loaded }
@@ -188,11 +207,7 @@ class PartyLedgerViewModelTest {
     fun `view-only member gets no entry write gates`() =
         runTest {
             val viewModel =
-                PartyLedgerViewModel(
-                    savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
-                    expensesRepository = expensesRepository,
-                    ledgerRepository = ledgerRepository,
-                    googleAccountLinker = linker,
+                viewModel(
                     session =
                         fakeExpensesSession(
                             userId = "member-1",
@@ -204,7 +219,6 @@ class PartyLedgerViewModelTest {
                                             .ExpensesPermissions(view = true),
                                 ),
                         ),
-                    clock = java.time.Clock.fixed(Fixtures.NOW, java.time.ZoneOffset.UTC),
                 )
             viewModel.state.test {
                 val loaded = awaitItemMatching { it.loaded }
@@ -221,11 +235,7 @@ class PartyLedgerViewModelTest {
     fun `party gates follow expenses permissions for non-owners`() =
         runTest {
             val viewModel =
-                PartyLedgerViewModel(
-                    savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to party.id)),
-                    expensesRepository = expensesRepository,
-                    ledgerRepository = ledgerRepository,
-                    googleAccountLinker = linker,
+                viewModel(
                     session =
                         fakeExpensesSession(
                             userId = "member-1",
@@ -239,7 +249,6 @@ class PartyLedgerViewModelTest {
                                         ),
                                 ),
                         ),
-                    clock = java.time.Clock.fixed(Fixtures.NOW, java.time.ZoneOffset.UTC),
                 )
             viewModel.state.test {
                 val loaded = awaitItemMatching { it.loaded }
@@ -412,5 +421,103 @@ class PartyLedgerViewModelTest {
                 while (!state.loaded) state = awaitItem()
                 assertThat(state.googleUnlinked).isFalse()
             }
+        }
+
+    // ---- View attachment (ADR-052) -------------------------------------------------
+
+    private fun attachmentWithLocalState(
+        driveFileId: String? = null,
+        localCachePath: String? = null,
+        mimeType: String = "image/jpeg",
+    ): AttachmentWithLocalState =
+        AttachmentWithLocalState(
+            attachment =
+                ExpenseAttachment(
+                    id =
+                        java.util.UUID
+                            .randomUUID()
+                            .toString(),
+                    expenseId = "expense-1",
+                    businessId = party.businessId,
+                    driveFileId = driveFileId,
+                    mimeType = mimeType,
+                    fileName = "bill.jpg",
+                    createdAt = Fixtures.NOW,
+                ),
+            localCachePath = localCachePath,
+        )
+
+    @Test
+    fun `tapping a locally cached attachment emits OpenAttachment`() =
+        runTest {
+            val cached = tempFolder.newFile("cached.jpg")
+            val viewModel = viewModel()
+            viewModel.events.test {
+                viewModel.openAttachment(attachmentWithLocalState(localCachePath = cached.absolutePath))
+                val event = awaitItem() as PartyLedgerEvent.OpenAttachment
+                assertThat(event.file).isEqualTo(cached)
+                assertThat(event.mimeType).isEqualTo("image/jpeg")
+            }
+            assertThat(viewModel.openingAttachmentId.value).isNull()
+        }
+
+    @Test
+    fun `tapping a drive-only attachment while unlinked shows the link prompt instead of opening`() =
+        runTest {
+            linker.state.value = GoogleLinkState.NotLinked
+            val viewModel = viewModel()
+
+            viewModel.openAttachment(attachmentWithLocalState(driveFileId = "drive-1"))
+
+            assertThat(viewModel.showAttachmentLinkPrompt.value).isTrue()
+            assertThat(driveService.downloadedFileIds).isEmpty()
+            viewModel.dismissAttachmentLinkPrompt()
+            assertThat(viewModel.showAttachmentLinkPrompt.value).isFalse()
+        }
+
+    @Test
+    fun `linking from the prompt downloads and opens the tapped attachment`() =
+        runTest {
+            linker.state.value = GoogleLinkState.NotLinked
+            val viewModel = viewModel()
+            val tapped = attachmentWithLocalState(driveFileId = "drive-1")
+            viewModel.openAttachment(tapped)
+            assertThat(viewModel.showAttachmentLinkPrompt.value).isTrue()
+
+            viewModel.events.test {
+                viewModel.linkGoogleToView(
+                    androidx.test.core.app.ApplicationProvider
+                        .getApplicationContext(),
+                )
+                val event = awaitItem() as PartyLedgerEvent.OpenAttachment
+                assertThat(event.file.readBytes()).isEqualTo(driveService.downloadBytes)
+            }
+            assertThat(viewModel.showAttachmentLinkPrompt.value).isFalse()
+            assertThat(syncScheduler.immediateSyncRequests).isEqualTo(1)
+            assertThat(driveService.downloadedFileIds).containsExactly("drive-1")
+            assertThat(ledgerRepository.cachePathUpdates.map { it.first }).containsExactly(tapped.attachment.id)
+        }
+
+    @Test
+    fun `attachment with neither cache nor drive copy emits unavailable`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.events.test {
+                viewModel.openAttachment(attachmentWithLocalState())
+                assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.AttachmentUnavailable)
+            }
+        }
+
+    @Test
+    fun `drive download failure emits the friendly failed event`() =
+        runTest {
+            linker.state.value = GoogleLinkState.Linked("test@example.com", emptyList())
+            driveService.downloadError = java.io.IOException("offline")
+            val viewModel = viewModel()
+            viewModel.events.test {
+                viewModel.openAttachment(attachmentWithLocalState(driveFileId = "drive-1"))
+                assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.AttachmentDownloadFailed)
+            }
+            assertThat(viewModel.openingAttachmentId.value).isNull()
         }
 }

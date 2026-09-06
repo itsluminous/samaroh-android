@@ -1,6 +1,15 @@
 package com.itsluminous.samaroh.feature.expenses.ledger
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +36,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +46,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,13 +61,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -90,11 +106,23 @@ fun PartyLedgerScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val editPartyError by viewModel.editPartyError.collectAsStateWithLifecycle()
+    val openingAttachmentId by viewModel.openingAttachmentId.collectAsStateWithLifecycle()
+    val showAttachmentLinkPrompt by viewModel.showAttachmentLinkPrompt.collectAsStateWithLifecycle()
+    val attachmentLinking by viewModel.attachmentLinking.collectAsStateWithLifecycle()
+    val consentIntent by viewModel.consentIntent.collectAsStateWithLifecycle()
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
     var showEditParty by remember { mutableStateOf(false) }
     var confirmDeleteParty by remember { mutableStateOf(false) }
+
+    /** File of the tapped IMAGE attachment shown in the full-screen in-app viewer (ADR-052). */
+    var expandedImageFile by remember { mutableStateOf<File?>(null) }
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     val deletedNoticeTemplate = stringResource(R.string.expenses_party_deleted_notice)
+    val notAvailableText = stringResource(R.string.expenses_attachment_view_not_available)
+    val downloadFailedText = stringResource(R.string.expenses_attachment_view_download_failed)
+    val noViewerAppText = stringResource(R.string.expenses_attachment_view_no_viewer_app)
+    val linkFailedText = stringResource(R.string.expenses_google_prompt_link_failed)
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -104,12 +132,35 @@ fun PartyLedgerScreen(
                     Toast.makeText(context, deletedNoticeTemplate.format(event.partyName), Toast.LENGTH_SHORT).show()
                     onBack()
                 }
+                is PartyLedgerEvent.OpenAttachment ->
+                    if (event.mimeType.startsWith("image/")) {
+                        expandedImageFile = event.file
+                    } else if (!openWithExternalApp(context, event.file, event.mimeType)) {
+                        snackbarHostState.showSnackbar(noViewerAppText)
+                    }
+                PartyLedgerEvent.AttachmentUnavailable -> snackbarHostState.showSnackbar(notAvailableText)
+                PartyLedgerEvent.AttachmentDownloadFailed -> snackbarHostState.showSnackbar(downloadFailedText)
+                PartyLedgerEvent.GoogleLinkFailed -> snackbarHostState.showSnackbar(linkFailedText)
             }
         }
     }
 
+    // Google scope-consent sheet for the link-to-view flow (mirrors the add-entry prompt).
+    val consentLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                viewModel.completeGoogleConsent(result.data)
+            } else {
+                viewModel.completeGoogleConsent(null)
+            }
+        }
+    LaunchedEffect(consentIntent) {
+        consentIntent?.let { consentLauncher.launch(IntentSenderRequest.Builder(it.intentSender).build()) }
+    }
+
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -213,6 +264,8 @@ fun PartyLedgerScreen(
                             row = row,
                             attachments = state.attachmentsByExpense[row.expense.id].orEmpty(),
                             googleUnlinked = state.googleUnlinked,
+                            openingAttachmentId = openingAttachmentId,
+                            onOpenAttachment = viewModel::openAttachment,
                             canEdit = state.canEditEntries,
                             canDelete = state.canDeleteEntries,
                             masked = !state.canViewAmounts,
@@ -279,6 +332,69 @@ fun PartyLedgerScreen(
                 },
             )
         }
+    }
+
+    // Full-screen in-app viewer for IMAGE attachments (ADR-052; same tap-to-expand
+    // dialog pattern as inventory item photos). Tap anywhere on the image to close.
+    expandedImageFile?.let { file ->
+        Dialog(onDismissRequest = { expandedImageFile = null }) {
+            AsyncImage(
+                model = file,
+                contentDescription = stringResource(R.string.expenses_ledger_attachment_expanded),
+                contentScale = ContentScale.Fit,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { expandedImageFile = null },
+            )
+        }
+    }
+
+    if (showAttachmentLinkPrompt) {
+        // Link-Google-to-view dialog (ADR-052): the tapped file is only in Drive and no
+        // account is linked. Connect runs the link flow in place (same plumbing as the
+        // add-entry prompt) and then re-opens the attachment; Later just dismisses.
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAttachmentLinkPrompt,
+            title = { Text(stringResource(R.string.expenses_attachment_view_link_title)) },
+            text = { Text(stringResource(R.string.expenses_attachment_view_link_message)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.linkGoogleToView(context) }, enabled = !attachmentLinking) {
+                    Text(stringResource(R.string.expenses_google_prompt_connect))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissAttachmentLinkPrompt, enabled = !attachmentLinking) {
+                    Text(stringResource(R.string.expenses_google_prompt_later))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Hands a non-image attachment (PDF) to an external viewer via the expenses
+ * [androidx.core.content.FileProvider] + `ACTION_VIEW` chooser (ADR-052). Returns false
+ * when no installed app can display the type — the caller shows the localized message.
+ */
+private fun openWithExternalApp(
+    context: Context,
+    file: File,
+    mimeType: String,
+): Boolean {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.expenses.fileprovider", file)
+    val intent =
+        Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, mimeType)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    // The manifest <queries> block makes this resolvable check honest on API 30+.
+    if (intent.resolveActivity(context.packageManager) == null) return false
+    return try {
+        context.startActivity(Intent.createChooser(intent, null))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
     }
 }
 
@@ -373,6 +489,8 @@ private fun LedgerEntryRow(
     row: LedgerRow,
     attachments: List<AttachmentWithLocalState>,
     googleUnlinked: Boolean,
+    openingAttachmentId: String?,
+    onOpenAttachment: (AttachmentWithLocalState) -> Unit,
     canEdit: Boolean,
     canDelete: Boolean,
     masked: Boolean,
@@ -395,7 +513,14 @@ private fun LedgerEntryRow(
                 // Scrollable single line: several 56dp thumbs overflow the entry column
                 // on narrow screens (the trailing amount column shrinks the space further).
                 ChipRow(modifier = Modifier.padding(top = 8.dp)) {
-                    attachments.forEach { AttachmentThumbnail(it, googleUnlinked = googleUnlinked) }
+                    attachments.forEach { attachment ->
+                        AttachmentThumbnail(
+                            attachment = attachment,
+                            googleUnlinked = googleUnlinked,
+                            opening = openingAttachmentId == attachment.attachment.id,
+                            onClick = { onOpenAttachment(attachment) },
+                        )
+                    }
                 }
             }
             AssistChip(
@@ -472,9 +597,11 @@ private fun EntryMenu(
 private fun AttachmentThumbnail(
     attachment: AttachmentWithLocalState,
     googleUnlinked: Boolean,
+    opening: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.size(56.dp)) {
+    Box(modifier = modifier.size(56.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick)) {
         val localFile = attachment.localCachePath?.let(::File)?.takeIf { it.exists() }
         if (attachment.attachment.mimeType.startsWith("image/") && localFile != null) {
             AsyncImage(
@@ -512,6 +639,20 @@ private fun AttachmentThumbnail(
                 tint = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.align(Alignment.TopEnd).size(24.dp),
             )
+        }
+        if (opening) {
+            // Loading indicator while the file is fetched (Drive download, ADR-052).
+            val openingDescription = stringResource(R.string.expenses_ledger_attachment_opening)
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f))
+                        .semantics { contentDescription = openingDescription },
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+            }
         }
     }
 }

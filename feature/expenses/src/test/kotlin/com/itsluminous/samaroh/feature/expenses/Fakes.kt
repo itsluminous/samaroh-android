@@ -110,6 +110,20 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
         attachments.value = attachments.value.filter { it.attachment.id != id }
     }
 
+    /** Recorded (id → path) cache-path stamps, mirrored into [attachments] like Room would. */
+    val cachePathUpdates = mutableListOf<Pair<String, String>>()
+
+    override suspend fun updateAttachmentLocalCachePath(
+        id: String,
+        localCachePath: String,
+    ) {
+        cachePathUpdates += id to localCachePath
+        attachments.value =
+            attachments.value.map {
+                if (it.attachment.id == id) AttachmentWithLocalState(it.attachment, localCachePath) else it
+            }
+    }
+
     override suspend fun deletePartyCascade(partyId: String): List<String> {
         cascadeDeletedPartyIds += partyId
         val liveExpenseIds =
@@ -190,4 +204,56 @@ class FakeGoogleAccountLinker(
     override suspend fun unlink() {
         state.value = com.itsluminous.samaroh.core.google.auth.GoogleLinkState.NotLinked
     }
+}
+
+/** Drive fake for the attachment view/download path: writes [downloadBytes] into the target. */
+class FakeDriveService : com.itsluminous.samaroh.core.google.drive.DriveService {
+    var downloadBytes: ByteArray = "drive-bytes".toByteArray()
+
+    /** When set, [downloadFile] throws it instead of writing (offline / API error paths). */
+    var downloadError: Exception? = null
+
+    val downloadedFileIds = mutableListOf<String>()
+
+    override suspend fun findFolder(
+        name: String,
+        parentId: String?,
+    ): String? = null
+
+    override suspend fun createFolder(
+        name: String,
+        parentId: String?,
+    ): String = "folder-id"
+
+    override suspend fun uploadFile(
+        name: String,
+        mimeType: String,
+        parentId: String,
+        sourceFile: java.io.File,
+    ): com.itsluminous.samaroh.core.google.drive.DriveFileRef =
+        com.itsluminous.samaroh.core.google.drive
+            .DriveFileRef("file-id", name)
+
+    override suspend fun downloadFile(
+        fileId: String,
+        target: java.io.File,
+    ) {
+        downloadError?.let { throw it }
+        downloadedFileIds += fileId
+        target.writeBytes(downloadBytes)
+    }
+
+    override suspend fun deleteFile(fileId: String) = Unit
+}
+
+/** Records immediate-sync nudges (link-to-view flow asserts one after a successful link). */
+class RecordingSyncScheduler : com.itsluminous.samaroh.core.data.sync.SyncScheduler {
+    var immediateSyncRequests = 0
+        private set
+
+    override fun requestImmediateSync() {
+        immediateSyncRequests++
+    }
+
+    override fun ensurePeriodicSync() = Unit
 }

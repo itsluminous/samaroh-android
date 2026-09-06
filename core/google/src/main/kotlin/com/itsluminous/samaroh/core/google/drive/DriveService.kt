@@ -37,6 +37,15 @@ interface DriveService {
         sourceFile: File,
     ): DriveFileRef
 
+    /**
+     * Downloads a file's media bytes (`files/{id}?alt=media`, ADR-052) into [target].
+     * Streams straight to disk; on failure [target] is removed and the error thrown.
+     */
+    suspend fun downloadFile(
+        fileId: String,
+        target: File,
+    )
+
     /** Permanently deletes a file the app created (used by backup retention, best-effort). */
     suspend fun deleteFile(fileId: String)
 }
@@ -54,6 +63,9 @@ class RestDriveService
         private val tokenProvider: com.itsluminous.samaroh.core.google.auth.GoogleAccessTokenProvider,
     ) : DriveService {
         private val json = Json { ignoreUnknownKeys = true }
+
+        /** Base of the `files` resource — overridable so the download test can point at a local server. */
+        internal var filesUrl: String = FILES_URL
 
         private suspend fun token(): String =
             tokenProvider.accessToken() ?: throw DriveNotAvailableException("no google access token available")
@@ -139,6 +151,14 @@ class RestDriveService
                 fileId = obj.getValue("id").jsonPrimitive.content,
                 fileName = obj["name"]?.jsonPrimitive?.content ?: name,
             )
+        }
+
+        override suspend fun downloadFile(
+            fileId: String,
+            target: File,
+        ) {
+            val response = http.downloadToFile("$filesUrl/$fileId?alt=media", token(), target)
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
         }
 
         override suspend fun deleteFile(fileId: String) {

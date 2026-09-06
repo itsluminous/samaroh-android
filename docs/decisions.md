@@ -1756,3 +1756,48 @@ one-shot churn, no spurious post-sync hook runs, no cancellation WARNs. The held
 business_settings item keeps retrying per ADR-048 until the owner applies the alter —
 now without side effects. Genuine local mutations, remote edits and business renames
 still trigger the calendar push exactly as before.
+
+## ADR-052 — View expense attachments: source resolution + Drive media download (2026-09-06)
+
+**Status:** accepted. Additive on three frozen contracts (ADR-001 process):
+`ExpenseAttachmentDao.updateLocalCachePath`, `ExpensesLedgerRepository.updateAttachmentLocalCachePath`,
+`DriveService.downloadFile`.
+
+**Context.** Ledger rows render attachment thumbnails but nothing opened them. The bytes
+live in Google Drive (the authoritative store, §4.2); the device may or may not hold a
+local cache copy (`expense_attachments.local_cache_path`, Room-only state): a row synced
+from another device has a `drive_file_id` but no local file, and a row created offline on
+this device has a local file but no `drive_file_id` yet.
+
+**Decision.**
+1. **`AttachmentContentResolver`** (feature:expenses, plain class provided by
+   `AttachmentsModule`) resolves a tapped attachment in priority order:
+   (1) live `local_cache_path` file → open directly; (2) `drive_file_id` + Google linked →
+   download `files.get?alt=media` with the current user's token, cache into the
+   compressor's attachments dir (`files/expense_attachments`, already covered by
+   `expenses_file_paths.xml`), stamp the row's `local_cache_path` (NO outbox op —
+   device-only state), then open; (3) `drive_file_id` but NOT linked →
+   `NeedsGoogleLink`; (4) neither → `NotAvailable`. Download failures (typically
+   offline) map to `DownloadFailed` and a friendly localized retry message; the partial
+   file is deleted. The download target name is deterministic (`drive-{id}-{fileName}`)
+   so retries overwrite instead of piling up partials.
+2. **Drive media download** reuses the existing REST plumbing: `DriveService.downloadFile`
+   → `GoogleApiHttp.downloadToFile`, a streaming GET that writes the binary body straight
+   to disk (`request()` buffers text and would corrupt media bytes). Same
+   `GoogleAccessTokenProvider` silent-token path as uploads; `drive.file` scope covers
+   files the app created.
+3. **Open UX (party ledger).** Images → full-screen in-app `Dialog` viewer (the inventory
+   tap-to-expand pattern); PDFs → `ACTION_VIEW` chooser through `ExpensesFileProvider`,
+   with a manifest `<queries>` block so a missing PDF viewer is detected honestly and
+   rendered as a localized snackbar instead of an empty system chooser. While a Drive
+   download runs, the tapped thumbnail shows a scrim + spinner
+   (`openingAttachmentId`); one resolution at a time. The `NeedsGoogleLink` case shows a
+   link-to-view dialog that runs the §4.4 link flow in place (same consent plumbing as
+   the add-entry prompt) and re-opens the tapped attachment on success, plus nudges sync
+   so this device's pending uploads move too.
+
+**Consequences.** A downloaded file becomes the local cache — the thumbnail upgrades from
+the generic icon to the image preview reactively (Room flow re-emits on the
+`local_cache_path` update). Cache-path stamping deliberately bypasses the outbox: the
+column never syncs. There is no separate entry-detail surface; the ledger rows are the
+attachment surface (add/edit only stages new local files).

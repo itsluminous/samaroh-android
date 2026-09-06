@@ -74,6 +74,16 @@ interface ExpensesLedgerRepository {
     suspend fun deleteAttachment(id: String)
 
     /**
+     * ADDITIVE view-attachment support (ADR-052): records where a Drive-downloaded
+     * attachment file was cached on THIS device. `local_cache_path` is Room-only state
+     * (never synced), so — unlike every other write here — no outbox op is enqueued.
+     */
+    suspend fun updateAttachmentLocalCachePath(
+        id: String,
+        localCachePath: String,
+    )
+
+    /**
      * Party delete (ADR-028): tombstones the party AND cascades to its live expenses and
      * their attachments — children first (attachments → expenses → party), one outbox
      * DELETE row per tombstone so the server mirrors the cascade. Attachments with a
@@ -134,6 +144,14 @@ class RoomExpensesLedgerRepository
             val now = clock.instant()
             attachmentDao.tombstone(id, now)
             outboxWriter.enqueue("expense_attachments", id, OutboxOperation.DELETE, deletePayload(id, now))
+        }
+
+        override suspend fun updateAttachmentLocalCachePath(
+            id: String,
+            localCachePath: String,
+        ) {
+            // Device-only state (the file cache location); deliberately NO outbox enqueue.
+            attachmentDao.updateLocalCachePath(id, localCachePath)
         }
 
         override suspend fun deletePartyCascade(partyId: String): List<String> {
