@@ -1,6 +1,8 @@
 package com.itsluminous.samaroh.feature.onboarding.ui
 
+import android.content.ActivityNotFoundException
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -161,7 +163,16 @@ internal fun CreateBusinessScreen(
                         )
                     }
                 }
-                OutlinedButton(onClick = { cameraLauncher.launch(null) }) {
+                // Devices without any camera app throw instead of returning a result —
+                // degrade to an honest toast, never a crash (ADR-050).
+                val cameraMissingText = stringResource(R.string.common_camera_missing)
+                OutlinedButton(onClick = {
+                    try {
+                        cameraLauncher.launch(null)
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(context, cameraMissingText, Toast.LENGTH_SHORT).show()
+                    }
+                }) {
                     Text(stringResource(R.string.onboarding_create_logo_camera))
                 }
                 OutlinedButton(

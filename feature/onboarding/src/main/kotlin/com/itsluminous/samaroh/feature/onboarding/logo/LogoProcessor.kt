@@ -2,7 +2,8 @@ package com.itsluminous.samaroh.feature.onboarding.logo
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.os.Build
+import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
+import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,6 +41,7 @@ object ImageCropMath {
 /**
  * Processes a picked/captured logo into a square, ≤320px WebP file (same approach as
  * inventory images, §1.1) under the app's private files dir. No storage permission needed.
+ * Encoding rides the shared pipeline at the LOGO level (unchanged treatment, ADR-050).
  */
 @Singleton
 class LogoProcessor
@@ -51,20 +53,10 @@ class LogoProcessor
             withContext(Dispatchers.IO) {
                 val crop = ImageCropMath.squareCropRect(source.width, source.height)
                 val squared = Bitmap.createBitmap(source, crop.left, crop.top, crop.size, crop.size)
-                val outSize = ImageCropMath.outputSize(crop.size)
-                val scaled = if (outSize == crop.size) squared else Bitmap.createScaledBitmap(squared, outSize, outSize, true)
                 val dir = File(context.filesDir, "logos").apply { mkdirs() }
                 val file = File(dir, "business-logo-${System.currentTimeMillis()}.webp")
-                file.outputStream().use { stream ->
-                    val format =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            Bitmap.CompressFormat.WEBP_LOSSY
-                        } else {
-                            @Suppress("DEPRECATION")
-                            Bitmap.CompressFormat.WEBP
-                        }
-                    scaled.compress(format, 85, stream)
-                }
+                ImageCompression.encodeToFile(squared, CompressionSpec.Logo, file)
+                if (squared !== source) squared.recycle()
                 file.absolutePath
             }
     }
