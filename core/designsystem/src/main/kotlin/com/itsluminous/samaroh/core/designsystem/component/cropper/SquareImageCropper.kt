@@ -2,8 +2,6 @@ package com.itsluminous.samaroh.core.designsystem.component.cropper
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -43,10 +41,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.exifinterface.media.ExifInterface
+import com.itsluminous.samaroh.core.designsystem.imaging.decodeUprightImage
 import com.itsluminous.samaroh.core.i18n.R
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlin.math.min
 
 /** Longest side the crop-source bitmap is downsampled to before interactive cropping. */
@@ -183,39 +179,9 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCropGrid(sidePx
  * [CROP_SOURCE_MAX_DIMENSION_PX] on the longest side (bounded memory for any gallery
  * photo) and rotated upright per its EXIF orientation — the interactive crop must show
  * the image the way the user shot it. Null when the content is unreadable.
+ * Thin wrapper over the shared [decodeUprightImage] pipeline (ADR-050).
  */
 suspend fun loadCropSourceBitmap(
     context: Context,
     uri: Uri,
-): Bitmap? =
-    withContext(Dispatchers.IO) {
-        runCatching {
-            val resolver = context.contentResolver
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            // decodeStream returns null BY DESIGN with inJustDecodeBounds — only the
-            // stream-open result decides success here; bounds carry the outcome.
-            val boundsStream = resolver.openInputStream(uri) ?: return@runCatching null
-            boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-            var sampleSize = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= CROP_SOURCE_MAX_DIMENSION_PX) {
-                sampleSize *= 2
-            }
-            val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-            val decoded =
-                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-                    ?: return@runCatching null
-            // EXIF parsing is best-effort: formats without EXIF support (some PNGs/BMPs)
-            // must still crop — they just skip rotation.
-            val rotation =
-                runCatching {
-                    resolver.openInputStream(uri)?.use { ExifInterface(it).rotationDegrees } ?: 0
-                }.getOrDefault(0)
-            if (rotation == 0) {
-                decoded
-            } else {
-                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
-                Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
-            }
-        }.getOrNull()
-    }
+): Bitmap? = decodeUprightImage(context, uri, CROP_SOURCE_MAX_DIMENSION_PX)?.bitmap

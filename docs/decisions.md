@@ -1636,3 +1636,69 @@ get an actionable path to Drive storage instead of a dead-end dialog; booking mu
 on unlinked devices cost one log line instead of five stack traces. Emulator-verified:
 booking create/cancel → debounced push → skip → `Worker result SUCCESS`; remote pull
 trigger unchanged.
+
+## ADR-050 — Shared image-compression levels, EXIF-upright attachments, honest attachment errors (2026-09-06)
+
+**Status:** accepted. Owner-directed picker/compression upgrade; additive — no
+frozen-contract changes. Extends ADR-025 (cropper) and ADR-049 (attachment fix).
+
+**Context.** Four call sites each hard-coded their own scale-and-encode: expense
+attachments (JPEG 85/2048, `AttachmentCompressor`), inventory item photos (WebP 80/320,
+`ItemImageStore`), the onboarding logo (`LogoProcessor`) and a fourth, INLINE duplicate
+in `BusinessProfileViewModel`. The owner wants compression to be a per-use-case
+argument: **~10% compression for invoice/bill attachments** (they must stay readable)
+and **~50% for inventory item images** (rendered as small thumbnails). Separately, the
+attachment image path decoded without EXIF rotation (camera JPEGs stored sideways —
+the gap ADR-025 fixed only for the cropper), errors collapsed "too large" into
+"couldn't read", and a missing camera app crashed the capture buttons.
+
+**Decision.**
+1. **One shared pipeline in `core:designsystem`** (`imaging/`): `CompressionSpec`
+   (quality, longest-side cap, JPEG/WebP) + `ImageCompression` (power-of-two subsample →
+   exact scale → encode; never upscales) + `decodeUprightImage` (bounded two-pass decode
+   + EXIF upright rotation, reporting `rotationDegrees`/`wasDownsized`). The cropper's
+   `loadCropSourceBitmap` is now a thin wrapper over the same decoder. Precedent for
+   non-composable shared code in designsystem: the ADR-025 cropper geometry.
+2. **Levels are arguments, named per use-case.** The owner's "~N% compression" maps to
+   encoder `quality = 100 − N`; dimension caps are per use-case and unchanged:
+
+   | Use case | Spec | Quality | Max side | Format |
+   |---|---|---|---|---|
+   | Invoice/bill image attachment | `DocumentLight` | 90 | 2048px | JPEG |
+   | Inventory item photo | `ItemPhoto` | 50 | 320px | WebP |
+   | Business logo (onboarding + settings) | `Logo` | 85 | 320px | WebP |
+   | PDF attachment | — | copied byte-identical (bounded) | — | — |
+
+   Interpretation: for item photos the ≤320px WebP dimensions already do the heavy
+   byte-saving, so the ~50% level is applied as ENCODER QUALITY 50 at those dimensions
+   (unit test pins the ordering: item output < a light encode of the same pixels).
+   Invoices go from quality 85 → 90 (lighter touch than before — readability first).
+   The logo keeps its existing treatment; `BusinessProfileViewModel`'s inline duplicate
+   now rides the same shared call.
+3. **EXIF everywhere.** `AttachmentCompressor` decodes through `decodeUprightImage`,
+   so camera/gallery invoices store upright (regression test writes a rotated JPEG and
+   asserts swapped output dimensions). Item photos/logos were already upright via the
+   cropper's decode; that decode is now the same code path.
+4. **Keep-original-when-smaller.** When re-encoding an image would not shrink it (an
+   already-efficient small image) AND nothing had to change (no downsize, no rotation),
+   the original bytes are copied verbatim with their original mime — attachments never
+   get bigger or lossier for no reason.
+5. **Honest attachment errors + bounded copies.** Document (PDF) attachments are
+   size-checked up-front via the provider-declared size and streamed through a bounded
+   copy (25 MB cap, memory O(buffer)); over-cap picks return `TooLarge`, rendered as a
+   dedicated snackbar (`expenses.entry.attach_too_large`) distinct from `Unreadable`
+   ("couldn't add"). Capture buttons catch `ActivityNotFoundException` and show
+   `common.camera_missing` instead of crashing on camera-less devices.
+6. **Crop policy unchanged, now explicit.** Item photos and the business logo keep the
+   ADR-025 interactive SQUARE crop (their storage/rendering is square). Invoices/bills
+   are documents: they attach DIRECTLY with no crop step — not even an optional one —
+   because readability is the point and the preview thumb + remove affordance already
+   covers "wrong pick". Square-cropping a bill destroys it; a free-form crop editor is
+   scope without evidence of need.
+
+**Consequences.** Any future image use-case picks (or adds) a named `CompressionSpec`
+instead of copy-pasting encode code; quality/size questions are answered in one file.
+Attachment imports are upright, honestly refused when oversized, and never bloated by a
+pointless re-encode. Tests for the levels/EXIF/crop-policy run under
+`@GraphicsMode(NATIVE)` (the ADR-049 lesson — legacy shadows lie about codecs). Stored
+formats and the sync/Drive mirroring contracts (ADR-023) are unchanged.
