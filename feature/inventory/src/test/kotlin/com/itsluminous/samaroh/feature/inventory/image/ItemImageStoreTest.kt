@@ -3,10 +3,16 @@ package com.itsluminous.samaroh.feature.inventory.image
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences
 import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
 import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
@@ -23,12 +29,38 @@ import kotlin.random.Random
 class ItemImageStoreTest {
     private lateinit var context: Context
     private lateinit var store: LocalItemImageStore
+    private lateinit var imageQuality: ImageQualityPreferences
+    private lateinit var storeScope: CoroutineScope
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        store = LocalItemImageStore(context)
+        storeScope = CoroutineScope(Dispatchers.IO + Job())
+        val dataStore =
+            PreferenceDataStoreFactory.create(scope = storeScope) {
+                java.io.File(context.cacheDir, "test-settings.preferences_pb")
+            }
+        imageQuality = ImageQualityPreferences(dataStore)
+        store = LocalItemImageStore(context, imageQuality)
     }
+
+    @org.junit.After
+    fun tearDown() {
+        storeScope.cancel()
+    }
+
+    @Test
+    fun `settings quality applies - a lower stored quality yields a smaller webp`() =
+        runTest {
+            // ADR-053 spec resolution for the ITEM case: pref → provider → spec.
+            val source = noisyBitmap(640, 640)
+            imageQuality.setItemPhotoQuality(ImageQualityPreferences.ITEM_LEVELS.high)
+            val highPath = store.compressItemImage(source, itemId = "item-q-high")!!
+            imageQuality.setItemPhotoQuality(ImageQualityPreferences.ITEM_LEVELS.low)
+            val lowPath = store.compressItemImage(source, itemId = "item-q-low")!!
+
+            assertThat(File(lowPath).length()).isLessThan(File(highPath).length())
+        }
 
     @Test
     fun `cropped square is stored as webp within the dimension cap`() =

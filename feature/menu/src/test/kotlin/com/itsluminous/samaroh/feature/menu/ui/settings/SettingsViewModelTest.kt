@@ -66,6 +66,9 @@ class SettingsViewModelTest {
             SettingsViewModel(
                 currentBusinessProvider = CurrentBusinessProvider(FakeActiveBusinessProvider(businessRepository)),
                 preferences = SettingsPreferencesDataSource(dataStore),
+                imageQuality =
+                    com.itsluminous.samaroh.core.data.settings
+                        .ImageQualityPreferences(dataStore),
                 googleAccountLinker = linker,
                 permissionGuard = permissionGuard,
                 businessRepository = businessRepository,

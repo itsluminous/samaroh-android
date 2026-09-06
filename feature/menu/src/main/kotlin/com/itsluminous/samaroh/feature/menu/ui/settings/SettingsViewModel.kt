@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences
 import com.itsluminous.samaroh.core.google.GoogleServicesConfig
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
@@ -56,6 +57,10 @@ data class SettingsUiState(
     val canManageEventTypes: Boolean = false,
     val backupFrequency: BackupFrequency = BackupFrequency.WEEKLY,
     val lastBackupAt: Instant? = null,
+    /** Encoder quality of invoice/bill attachments (Settings → Image quality, ADR-053). */
+    val billsQuality: Int = ImageQualityPreferences.BILLS_DEFAULT,
+    /** Encoder quality of inventory item photos (Settings → Image quality, ADR-053). */
+    val itemPhotoQuality: Int = ImageQualityPreferences.ITEM_DEFAULT,
 )
 
 @HiltViewModel
@@ -64,6 +69,7 @@ class SettingsViewModel
     constructor(
         currentBusinessProvider: CurrentBusinessProvider,
         private val preferences: SettingsPreferencesDataSource,
+        private val imageQuality: ImageQualityPreferences,
         private val googleAccountLinker: GoogleAccountLinker,
         private val permissionGuard: PermissionGuard,
         private val businessRepository: BusinessRepository,
@@ -71,22 +77,36 @@ class SettingsViewModel
         private val calendarSyncScheduler: CalendarSyncScheduler,
         private val clock: Clock,
     ) : ViewModel() {
+        /** Device prefs + the two image-quality values as ONE source (keeps combines at 5). */
+        private val devicePrefs =
+            combine(
+                preferences.settings,
+                imageQuality.billsQuality,
+                imageQuality.itemPhotoQuality,
+            ) { device, bills, items -> Triple(device, bills, items) }
+
         @OptIn(ExperimentalCoroutinesApi::class)
         val uiState: StateFlow<SettingsUiState> =
             currentBusinessProvider.currentBusiness
                 .flatMapLatest { business ->
                     if (business == null) {
-                        combine(preferences.settings, googleAccountLinker.linkState) { device, link ->
-                            SettingsUiState(loading = false, device = device, linkState = link)
+                        combine(devicePrefs, googleAccountLinker.linkState) { (device, bills, items), link ->
+                            SettingsUiState(
+                                loading = false,
+                                device = device,
+                                linkState = link,
+                                billsQuality = bills,
+                                itemPhotoQuality = items,
+                            )
                         }
                     } else {
                         combine(
-                            preferences.settings,
+                            devicePrefs,
                             googleAccountLinker.linkState,
                             businessRepository.settings(business.id),
                             permissionGuard.permissions(business.id),
                             permissionGuard.isOwner(business.id),
-                        ) { device, link, settings, permissions, isOwner ->
+                        ) { (device, bills, items), link, settings, permissions, isOwner ->
                             SettingsUiState(
                                 loading = false,
                                 businessId = business.id,
@@ -103,6 +123,8 @@ class SettingsViewModel
                                 isOwner = isOwner,
                                 backupFrequency = BackupFrequency.fromWire(settings?.backupFrequency ?: BackupFrequency.WEEKLY.wire),
                                 lastBackupAt = settings?.lastBackupAt,
+                                billsQuality = bills,
+                                itemPhotoQuality = items,
                             )
                         }
                     }
@@ -149,6 +171,16 @@ class SettingsViewModel
         /** Booking-calendar icon-watermark opacity (Settings → Booking calendar slider). */
         fun setBookingCalendarIconAlpha(alpha: Float) {
             viewModelScope.launch { preferences.setBookingCalendarIconAlpha(alpha) }
+        }
+
+        // Image quality (ADR-053): the compression call sites read these on the next encode.
+
+        fun setBillsQuality(quality: Int) {
+            viewModelScope.launch { imageQuality.setBillsQuality(quality) }
+        }
+
+        fun setItemPhotoQuality(quality: Int) {
+            viewModelScope.launch { imageQuality.setItemPhotoQuality(quality) }
         }
 
         fun linkGoogle(activityContext: Context) {

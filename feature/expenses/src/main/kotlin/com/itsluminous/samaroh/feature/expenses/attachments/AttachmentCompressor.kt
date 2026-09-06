@@ -25,7 +25,12 @@ import java.util.UUID
  */
 class AttachmentCompressor(
     private val context: Context,
-    private val spec: CompressionSpec = CompressionSpec.DocumentLight,
+    /**
+     * Resolved at prepare time so the Settings "Image quality" preference (ADR-053)
+     * applies to the NEXT attachment without any restart; the default is the fixed
+     * ADR-050 level for tests and pref-less construction.
+     */
+    private val specProvider: suspend () -> CompressionSpec = { CompressionSpec.DocumentLight },
     private val maxDocumentBytes: Long = MAX_DOCUMENT_BYTES,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -63,7 +68,7 @@ class AttachmentCompressor(
             val result =
                 runCatching {
                     if (mimeType.startsWith("image/")) {
-                        compressImage(uri, mimeType, displayName)
+                        compressImage(uri, mimeType, displayName, specProvider())
                     } else {
                         copyUntouched(uri, mimeType, displayName)
                     }
@@ -92,6 +97,7 @@ class AttachmentCompressor(
         uri: Uri,
         mimeType: String,
         displayName: String,
+        spec: CompressionSpec,
     ): PrepareResult {
         // Upright, bounded decode via the shared pipeline — camera JPEGs carry EXIF
         // rotation that the old path ignored (sideways invoices, ADR-050). Blocking

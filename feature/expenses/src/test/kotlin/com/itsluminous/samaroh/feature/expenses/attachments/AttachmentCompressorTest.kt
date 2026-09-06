@@ -150,6 +150,27 @@ class AttachmentCompressorTest {
             assertThat(prepared.file.parentFile).isEqualTo(compressor.attachmentsDir())
         }
 
+    @Test
+    fun `settings quality applies - a lower-quality spec yields smaller bytes`() =
+        runTest {
+            // Same noisy source through the default (90) and the Settings "Space saver"
+            // (60) level: ADR-053's pref → provider → spec resolution for the BILLS case.
+            val source = writeBitmap(width = 1600, height = 1200)
+            val low =
+                AttachmentCompressor(
+                    context,
+                    specProvider = {
+                        com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec.DocumentLight
+                            .copy(quality = 60)
+                    },
+                )
+
+            val defaultBytes = prepared(compressor.prepare(Uri.fromFile(source), "image/png", source.name)).file.length()
+            val lowBytes = prepared(low.prepare(Uri.fromFile(source), "image/png", source.name)).file.length()
+
+            assertThat(lowBytes).isLessThan(defaultBytes)
+        }
+
     private fun prepared(result: AttachmentCompressor.PrepareResult): AttachmentCompressor.Prepared {
         assertThat(result).isInstanceOf(AttachmentCompressor.PrepareResult.Ready::class.java)
         return (result as AttachmentCompressor.PrepareResult.Ready).prepared

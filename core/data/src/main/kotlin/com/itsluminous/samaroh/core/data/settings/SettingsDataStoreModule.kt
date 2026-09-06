@@ -26,6 +26,8 @@ import javax.inject.Singleton
  * - `booking_reminder_lead_days`, `booking_reminder_style`, `booking_reminder_sound_uri`
  *   (menu Settings; read by booking's reminder engine)
  * - `onboarding_complete` (`:app` first-launch routing)
+ * - `image_quality_bills`, `image_quality_item_photos` ([ImageQualityPreferences];
+ *   written by menu Settings, read by the expense-attachment and item-photo encoders)
  */
 @Qualifier
 @Retention(AnnotationRetention.BINARY)

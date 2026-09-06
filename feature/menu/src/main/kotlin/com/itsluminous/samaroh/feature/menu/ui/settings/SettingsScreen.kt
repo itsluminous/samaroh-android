@@ -39,6 +39,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences.Companion.BILLS_LEVELS
+import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences.Companion.ITEM_LEVELS
+import com.itsluminous.samaroh.core.data.settings.QualityLevels
 import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
@@ -175,6 +178,29 @@ fun SettingsScreen(
                 state.device?.bookingCalendarIconAlpha
                     ?: SettingsPreferencesDataSource.DEFAULT_CALENDAR_ICON_ALPHA,
             onCommit = viewModel::setBookingCalendarIconAlpha,
+        )
+        HorizontalDivider()
+
+        // Image quality (ADR-053): per-use-case encoder quality for the two photo
+        // pipelines; dimension caps stay fixed (ADR-050), only the squeeze is tunable.
+        SettingsSectionHeader(R.string.settings_image_quality_title)
+        Text(
+            text = stringResource(R.string.settings_image_quality_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        ImageQualityControl(
+            labelRes = R.string.settings_image_quality_bills_label,
+            levels = BILLS_LEVELS,
+            quality = state.billsQuality,
+            onSelect = viewModel::setBillsQuality,
+        )
+        ImageQualityControl(
+            labelRes = R.string.settings_image_quality_inventory_label,
+            levels = ITEM_LEVELS,
+            quality = state.itemPhotoQuality,
+            onSelect = viewModel::setItemPhotoQuality,
         )
         HorizontalDivider()
 
@@ -346,6 +372,56 @@ private fun IconAlphaSliderRow(
             )
         }
     }
+}
+
+/**
+ * One use-case's image-quality control (ADR-053): a label, three plain-language level
+ * chips and a size hint for the selected level. The stored value is a raw encoder
+ * quality; the chip closest to it renders selected.
+ */
+@Composable
+private fun ImageQualityControl(
+    @StringRes labelRes: Int,
+    levels: QualityLevels,
+    quality: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val selected = levels.nearest(quality)
+    Text(
+        text = stringResource(labelRes),
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.padding(start = 16.dp, top = 12.dp),
+    )
+    ChipRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
+        FilterChip(
+            selected = selected == levels.high,
+            onClick = { onSelect(levels.high) },
+            label = { Text(stringResource(R.string.settings_image_quality_level_high)) },
+        )
+        FilterChip(
+            selected = selected == levels.balanced,
+            onClick = { onSelect(levels.balanced) },
+            label = { Text(stringResource(R.string.settings_image_quality_level_balanced)) },
+        )
+        FilterChip(
+            selected = selected == levels.low,
+            onClick = { onSelect(levels.low) },
+            label = { Text(stringResource(R.string.settings_image_quality_level_low)) },
+        )
+    }
+    Text(
+        text =
+            stringResource(
+                when (selected) {
+                    levels.high -> R.string.settings_image_quality_hint_high
+                    levels.balanced -> R.string.settings_image_quality_hint_balanced
+                    else -> R.string.settings_image_quality_hint_low
+                },
+            ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
 }
 
 /**

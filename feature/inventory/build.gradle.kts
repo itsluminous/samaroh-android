@@ -59,6 +59,7 @@ dependencies {
     testImplementation(project(":core:testing"))
     testImplementation(libs.room.runtime)
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.datastore.preferences)
     testImplementation(libs.truth)
     testImplementation(libs.turbine)
     testImplementation(libs.robolectric)

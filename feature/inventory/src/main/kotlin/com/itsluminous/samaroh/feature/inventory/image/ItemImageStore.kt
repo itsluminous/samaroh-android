@@ -2,10 +2,12 @@ package com.itsluminous.samaroh.feature.inventory.image
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences
 import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
 import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -36,6 +38,7 @@ class LocalItemImageStore
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
+        private val imageQuality: ImageQualityPreferences,
     ) : ItemImageStore {
         override suspend fun compressItemImage(
             source: Bitmap,
@@ -58,9 +61,10 @@ class LocalItemImageStore
                         }
                     val dir = File(context.filesDir, "inventory-images").apply { mkdirs() }
                     val file = File(dir, "$itemId.webp")
-                    // Shared pipeline at the ITEM level (~50% compression, ADR-050):
-                    // thumbnails render small, so heavy squeeze at the existing ≤320px.
-                    ImageCompression.encodeToFile(cropped, CompressionSpec.ItemPhoto, file)
+                    // Shared pipeline at the ITEM level (ADR-050); the encoder quality
+                    // comes from Settings → Image quality (ADR-053), dimensions fixed.
+                    val spec = CompressionSpec.ItemPhoto.copy(quality = imageQuality.itemPhotoQuality.first())
+                    ImageCompression.encodeToFile(cropped, spec, file)
                     if (cropped !== source) cropped.recycle()
                     file.absolutePath
                 }.getOrNull()
