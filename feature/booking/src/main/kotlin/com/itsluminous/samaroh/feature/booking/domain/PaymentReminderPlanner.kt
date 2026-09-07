@@ -58,7 +58,11 @@ object PaymentReminderPlanner {
             val pending = reminders.filter { it.status == ReminderStatus.PENDING }
 
             if (due <= 0L) {
-                toDismiss += pending
+                // Auto-dismiss ONLY a truly paid-off booking (ADR-064: total > 0 AND
+                // due <= 0). A booking with no known total (total 0 → due 0) never
+                // reminds, but an existing reminder for it is NOT auto-removed — the
+                // user dismisses it, or fills in the total and lets it settle honestly.
+                if (booking.totalAmountPaise > 0L) toDismiss += pending
                 continue
             }
 
@@ -96,14 +100,20 @@ object PaymentReminderPlanner {
     }
 
     /**
-     * Cleanup pass over ALL due pending PAYMENT reminders (§4.1 + ADR-024): a reminder is
-     * stale — and gets DISMISSED — when its booking no longer justifies it:
-     * - the booking is missing, soft-deleted or cancelled (reminders stop on cancel), or
-     * - nothing is due: `due <= 0` covers fully-settled bookings AND bookings with no
-     *   known total (total 0 → due 0) — neither may ever surface a reminder, or
-     * - the booking resolves to a MARKER-kind preset (ADR-041/ADR-044): markers carry
-     *   no money, so any reminder for one — e.g. created before its preset was flipped
-     *   to marker, or synced from an older client — is dismissed here.
+     * Cleanup pass over ALL due pending PAYMENT reminders (§4.1 + ADR-024, narrowed by
+     * ADR-064). A reminder is auto-dismissed in EXACTLY these cases — nothing else,
+     * ever (owner rule: never remove a reminder unless the booking is genuinely paid
+     * off or gone):
+     * - the booking is TRULY PAID: known total (`total > 0`) and nothing outstanding
+     *   (`due <= 0`), or
+     * - the booking is cancelled (reminders stop on cancel), or
+     * - the booking is deleted: soft-deleted, or absent from the replica entirely —
+     *   the engine only runs this pass on a CONSISTENT replica (ADR-060), so a missing
+     *   row means the booking is gone on the server, not "not pulled yet".
+     *
+     * Deliberately NOT dismissed anymore (pre-ADR-064 behavior removed): a booking with
+     * no known total (total 0 → due 0), and marker-kind bookings (ADR-041/044) — those
+     * reminders stay on the pending-confirmations card until the user acts on them.
      *
      * This runs against every due pending reminder regardless of the booking's end date,
      * so reminders synced from another device for a booking that was settled here (or
@@ -113,15 +123,13 @@ object PaymentReminderPlanner {
         duePendingReminders: List<PaymentReminder>,
         bookingById: Map<String, Booking?>,
         duePaiseByBooking: Map<String, Long>,
-        isMarker: (Booking) -> Boolean = { false },
     ): List<PaymentReminder> =
         duePendingReminders.filter { reminder ->
             val booking = bookingById[reminder.bookingId]
             booking == null ||
                 booking.deletedAt != null ||
                 booking.status == BookingStatus.CANCELLED ||
-                isMarker(booking) ||
-                (duePaiseByBooking[booking.id] ?: 0L) <= 0L
+                (booking.totalAmountPaise > 0L && (duePaiseByBooking[booking.id] ?: 0L) <= 0L)
         }
 
     /**

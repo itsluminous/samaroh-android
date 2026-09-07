@@ -239,20 +239,39 @@ class PaymentReminderPlannerTest {
     }
 
     @Test
-    fun `stale pass dismisses reminders of marker bookings even with due remaining`() {
-        // ADR-041/ADR-044: a marker booking never justifies a payment reminder — even
-        // an edge-case row with money (preset flipped to marker after creation).
-        val marker = Fixtures.booking(id = "marker-booking", startDate = today.minusDays(3), endDate = today.minusDays(2))
-        val real = Fixtures.booking(id = "real-booking", startDate = today.minusDays(3), endDate = today.minusDays(2))
-        val markerReminder = reminder(marker.id, today.minusDays(1))
-        val realReminder = reminder(real.id, today.minusDays(1))
+    fun `stale pass NEVER dismisses a reminder whose booking total is unknown (ADR-064)`() {
+        // Owner rule: auto-dismissal only for truly paid bookings (total > 0, due <= 0)
+        // or cancelled/deleted ones. total 0 → due 0 is NOT "paid" — the reminder stays
+        // on the card until the user acts (fills the total or dismisses manually).
+        val unknownTotal =
+            Fixtures.booking(startDate = today.minusDays(6), endDate = today.minusDays(5), totalAmountPaise = 0L)
+        val kept = reminder(unknownTotal.id, today.minusDays(1))
         val dismissals =
             PaymentReminderPlanner.staleDismissals(
-                duePendingReminders = listOf(markerReminder, realReminder),
-                bookingById = mapOf(marker.id to marker, real.id to real),
-                duePaiseByBooking = mapOf(marker.id to 5_000_00L, real.id to 5_000_00L),
-                isMarker = { it.id == marker.id },
+                duePendingReminders = listOf(kept),
+                bookingById = mapOf(unknownTotal.id to unknownTotal),
+                duePaiseByBooking = mapOf(unknownTotal.id to 0L),
             )
-        assertThat(dismissals).containsExactly(markerReminder)
+        assertThat(dismissals).isEmpty()
+    }
+
+    @Test
+    fun `plan does not dismiss pending reminders of an unknown-total booking (ADR-064)`() {
+        val unknownTotal =
+            Fixtures.booking(startDate = today.minusDays(5), endDate = today.minusDays(2), totalAmountPaise = 0L)
+        val kept = reminder(unknownTotal.id, today.minusDays(1))
+        val plan =
+            PaymentReminderPlanner.plan(
+                today = today,
+                endedBookings = listOf(unknownTotal),
+                duePaiseByBooking = mapOf(unknownTotal.id to 0L),
+                remindersByBooking = mapOf(unknownTotal.id to listOf(kept)),
+                newId = newId,
+                now = Fixtures.NOW,
+            )
+        // Nothing created (due 0), nothing dismissed (total unknown ≠ paid), nothing notified.
+        assertThat(plan.toCreate).isEmpty()
+        assertThat(plan.toDismiss).isEmpty()
+        assertThat(plan.toNotify).isEmpty()
     }
 }

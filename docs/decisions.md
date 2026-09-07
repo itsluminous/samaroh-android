@@ -2336,3 +2336,33 @@ carries device-local paths for Android-added photos — readers must treat
 `drive_image_id` as authoritative (web change tracked separately). Failure modes log
 under `SamarohItemImage` (fetch), `SamarohDriveMirror` (upload), `SamarohDriveRepair`
 (permissions).
+
+## ADR-064 — Reminder auto-dismissal narrowed to truly-paid or gone bookings (2026-09-07)
+
+**Status:** accepted. Owner-directed behavior change in `feature:booking` planning
+(`PaymentReminderPlanner`); no schema/wire change.
+
+**Context.** The owner's rule: NEVER auto-remove a payment reminder unless the booking
+is genuinely paid off (the 2026-08 past-bookings mass-removal was a ONE-TIME setup
+wish, not a standing policy). The ADR-024 cleanup dismissed on bare `due <= 0`, which
+also swept bookings with UNKNOWN totals (total 0 → due 0), and on marker-kind
+resolution — both broader than the rule.
+
+**Decision.** Auto-dismissal (both `plan()`'s settled branch and `staleDismissals`)
+now fires in EXACTLY three cases — nothing else, ever:
+1. **truly paid**: `total > 0 AND due <= 0`;
+2. **cancelled**;
+3. **deleted**: soft-deleted, or absent from the replica — judged only on a CONSISTENT
+   replica (ADR-060 gate), where absence means deleted on the server.
+
+Removed: the bare `due <= 0` sweep (unknown-total bookings keep their reminders until
+the user fills the total or dismisses manually) and the `isMarker` dismissal (a preset
+flipped to marker no longer silently clears an existing reminder; markers still NEVER
+get new payment reminders — they stay excluded from planning). The one-pending-per-
+booking dedup (ADR-024) is unchanged: it collapses same-booking duplicates to the
+earliest, which is ordering hygiene, not removal.
+
+**Consequences.** The phantom reminders from the ADR-060 initial-sync race are for
+settled bookings (total > 0, due ≤ 0 once all payments pull) — the cleanup still
+clears them legitimately. A reminder on an unknown-total or marker booking now
+requires a user action to leave the card; that is the owner's explicit preference.

@@ -187,8 +187,12 @@ class ReminderEngineCleanupTest {
         }
 
     @Test
-    fun `stale pending reminder of a marker booking is dismissed`() =
+    fun `stale pending reminder of a marker booking is KEPT (ADR-064)`() =
         runTest(dispatcher) {
+            // Owner rule: auto-dismissal only for truly paid (total > 0, due <= 0) or
+            // cancelled/deleted bookings — a marker flip is neither, so an existing
+            // reminder stays until the user acts. New reminders are still never created
+            // for markers (they are excluded from planning).
             eventTypeRepository.presetsFlow.value =
                 seededPresetFixtures() + presetFixture("Lagan", kind = EventTypeKind.MARKER, sortOrder = 9)
             val day = engineToday()
@@ -206,6 +210,27 @@ class ReminderEngineCleanupTest {
             engine().runDailyPass()
 
             val after = bookingRepository.reminders.value.single()
-            assertThat(after.status).isEqualTo(ReminderStatus.DISMISSED)
+            assertThat(after.status).isEqualTo(ReminderStatus.PENDING)
+        }
+
+    @Test
+    fun `pending reminder of an unknown-total booking is KEPT (ADR-064)`() =
+        runTest(dispatcher) {
+            val day = engineToday()
+            val booking =
+                Fixtures.booking(
+                    startDate = day.minusDays(300),
+                    endDate = day.minusDays(299),
+                    totalAmountPaise = 0L, // total unknown
+                )
+            bookingRepository.saveBooking(booking)
+            bookingRepository.recordPayment(Fixtures.payment(bookingId = booking.id, amountPaise = 50_000_00L))
+            bookingRepository.saveReminder(pendingReminder(booking.id, day.minusDays(1)))
+
+            engine().runDailyPass()
+
+            // due clamps to 0 but total is unknown → NOT auto-dismissed, and no new one.
+            val after = bookingRepository.reminders.value.single()
+            assertThat(after.status).isEqualTo(ReminderStatus.PENDING)
         }
 }

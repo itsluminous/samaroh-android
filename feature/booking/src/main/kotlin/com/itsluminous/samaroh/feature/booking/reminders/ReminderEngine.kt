@@ -104,9 +104,10 @@ class ReminderEngine
 
             plan.toCreate.forEach { bookingRepository.saveReminder(it) }
 
-            // Cleanup pass (§4.1 + ADR-024): every due pending reminder — including ones
-            // synced from other devices for bookings NOT in this run's ended set — is
-            // dismissed when its booking is gone, cancelled or has nothing due.
+            // Cleanup pass (§4.1 + ADR-024, narrowed by ADR-064): every due pending
+            // reminder — including ones synced from other devices for bookings NOT in
+            // this run's ended set — is dismissed ONLY when its booking is truly paid
+            // (total > 0, due <= 0), cancelled or deleted. Nothing else, ever.
             val duePending =
                 bookingRepository
                     .duePendingRemindersOnce(businessId, today)
@@ -121,7 +122,7 @@ class ReminderEngine
                     dueByBooking[booking.id] = DueCalculator.duePaise(booking, bookingRepository.totalPaidPaise(booking.id))
                 }
             }
-            val stale = PaymentReminderPlanner.staleDismissals(duePending, bookingById, dueByBooking, isMarker)
+            val stale = PaymentReminderPlanner.staleDismissals(duePending, bookingById, dueByBooking)
             (plan.toDismiss + stale).distinctBy { it.id }.forEach { dismiss(it) }
 
             for (reminder in plan.toNotify) {
