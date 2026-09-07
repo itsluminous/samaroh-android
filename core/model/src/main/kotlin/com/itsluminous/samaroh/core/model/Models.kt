@@ -239,7 +239,7 @@ data class MasterItem(
     val id: String,
     @SerialName("business_id") val businessId: String,
     val name: String,
-    /** 'pcs' | 'qty' | 'kg' | free text. */
+    /** A wire value from shared/units.json ('pcs', 'kg', 'ml', …) or free text (ADR-061). */
     val unit: String,
     @SerialName("image_path") val imagePath: String? = null,
     @SerialName("drive_image_id") val driveImageId: String? = null,

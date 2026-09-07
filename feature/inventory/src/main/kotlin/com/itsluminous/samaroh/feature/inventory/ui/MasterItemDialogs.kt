@@ -49,6 +49,7 @@ import com.itsluminous.samaroh.feature.inventory.DeleteRequestState
 import com.itsluminous.samaroh.feature.inventory.MasterItemEditorState
 import com.itsluminous.samaroh.feature.inventory.MasterItemFormError
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
+import com.itsluminous.samaroh.feature.inventory.UnitGroup
 import com.itsluminous.samaroh.feature.inventory.UnitOption
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
@@ -256,15 +257,37 @@ private fun UnitDropdown(
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            UnitOption.entries.forEach { option ->
+            // Grouped picker (ADR-061): non-selectable group headers, units in the
+            // shared-file order, free-text Custom last and ungrouped.
+            UnitGroup.entries.forEach { group ->
                 DropdownMenuItem(
-                    text = { Text(unitOptionLabel(option)) },
-                    onClick = {
-                        viewModel.onUnitOptionChange(option)
-                        expanded = false
+                    text = {
+                        Text(
+                            text = stringResource(group.labelRes),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     },
+                    onClick = {},
+                    enabled = false,
                 )
+                UnitOption.ofGroup(group).forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(unitOptionLabel(option)) },
+                        onClick = {
+                            viewModel.onUnitOptionChange(option)
+                            expanded = false
+                        },
+                    )
+                }
             }
+            DropdownMenuItem(
+                text = { Text(unitOptionLabel(UnitOption.CUSTOM)) },
+                onClick = {
+                    viewModel.onUnitOptionChange(UnitOption.CUSTOM)
+                    expanded = false
+                },
+            )
         }
     }
 }

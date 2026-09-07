@@ -29,22 +29,6 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
-/** Unit dropdown options (§4.3). [wire] is the stored value; CUSTOM stores free text. */
-enum class UnitOption(
-    val wire: String?,
-) {
-    PIECES("pcs"),
-    QUANTITY("qty"),
-    KG("kg"),
-    LITRE("litre"),
-    CUSTOM(null),
-    ;
-
-    companion object {
-        fun fromWire(unit: String): UnitOption = entries.firstOrNull { it.wire == unit } ?: CUSTOM
-    }
-}
-
 /** Validation errors of the item editor; each maps to a catalog string. */
 enum class MasterItemFormError {
     NAME_REQUIRED,
