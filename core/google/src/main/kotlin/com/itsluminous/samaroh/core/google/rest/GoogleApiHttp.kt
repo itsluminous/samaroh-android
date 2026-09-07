@@ -107,7 +107,57 @@ class GoogleApiHttp
                 }
             }
 
+        /**
+         * GET [url] WITHOUT credentials and stream the binary body into [target] — the
+         * anyone-with-link download path (ADR-059): a member whose own token cannot read
+         * another account's app-created file still gets the bytes once the uploader's
+         * device has shared the file link-scoped. Redirects (drive.google.com →
+         * usercontent host) are followed by [HttpURLConnection] automatically. A 2xx
+         * response whose final Content-Type is HTML is an interstitial or sign-in page,
+         * NOT the file — treated as a failure so callers never cache an HTML page as a
+         * bill. On any failure [target] is deleted.
+         */
+        suspend fun downloadPublicToFile(
+            url: String,
+            target: File,
+        ): GoogleApiResponse =
+            withContext(Dispatchers.IO) {
+                val connection = URL(url).openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = TIMEOUT_MS
+                    connection.readTimeout = TIMEOUT_MS
+                    val code = connection.responseCode
+                    val contentType = connection.contentType.orEmpty()
+                    if (code in 200..299 && !contentType.contains("text/html", ignoreCase = true)) {
+                        connection.inputStream.use { input ->
+                            target.outputStream().use { input.copyTo(it) }
+                        }
+                        GoogleApiResponse(code, "")
+                    } else {
+                        target.delete()
+                        if (code in 200..299) {
+                            // The bytes never arrived — Drive answered with a page.
+                            GoogleApiResponse(HTTP_NOT_FOUND_LIKE, "html response ($contentType): file is not link-shared")
+                        } else {
+                            GoogleApiResponse(
+                                code,
+                                connection.errorStream
+                                    ?.bufferedReader()
+                                    ?.use { it.readText() }
+                                    .orEmpty(),
+                            )
+                        }
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            }
+
         private companion object {
             const val TIMEOUT_MS = 30_000
+
+            /** Synthetic code for "2xx but HTML" public downloads — semantically the file is unavailable. */
+            const val HTTP_NOT_FOUND_LIKE = 404
         }
     }

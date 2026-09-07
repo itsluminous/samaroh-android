@@ -142,9 +142,14 @@ class LocalApplier
                     ) { it.id }
                 "expense_attachments" -> {
                     val model = json.decodeFromJsonElement(ExpenseAttachment.serializer(), row)
-                    // local_cache_path is Room-only state; preserve it across pulled updates.
-                    val cachePath = expenseAttachmentDao.byId(model.id)?.localCachePath
-                    upsertIfChanged(model.toEntity(cachePath), expenseAttachmentDao::byId, expenseAttachmentDao::upsert) { it.id }
+                    // local_cache_path and drive_permission_ensured are Room-only state;
+                    // preserve both across pulled updates (ADR-052 / ADR-059).
+                    val existing = expenseAttachmentDao.byId(model.id)
+                    upsertIfChanged(
+                        model.toEntity(existing?.localCachePath, existing?.drivePermissionEnsured ?: false),
+                        expenseAttachmentDao::byId,
+                        expenseAttachmentDao::upsert,
+                    ) { it.id }
                 }
                 "master_items" ->
                     upsertIfChanged(

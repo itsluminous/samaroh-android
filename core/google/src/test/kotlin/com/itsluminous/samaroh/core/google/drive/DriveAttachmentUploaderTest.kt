@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.database.entity.BusinessEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
+import com.itsluminous.samaroh.core.google.rest.GoogleApiException
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -37,6 +38,7 @@ class DriveAttachmentUploaderTest {
     private lateinit var context: Context
     private lateinit var db: SamarohDatabase
     private lateinit var drive: RecordingUploader
+    private lateinit var driveService: PermissionRecordingDriveService
     private lateinit var uploader: DriveAttachmentUploader
     private lateinit var localFile: File
 
@@ -45,6 +47,7 @@ class DriveAttachmentUploaderTest {
         context = ApplicationProvider.getApplicationContext()
         db = inMemoryDatabase(context)
         drive = RecordingUploader()
+        driveService = PermissionRecordingDriveService()
         uploader =
             DriveAttachmentUploader(
                 db.expenseAttachmentDao(),
@@ -52,6 +55,7 @@ class DriveAttachmentUploaderTest {
                 db.partyDao(),
                 db.businessDao(),
                 drive,
+                driveService,
                 DriveNameFactory(clock, ZoneOffset.UTC),
             )
         localFile = File(context.cacheDir, "att-src.jpg").apply { writeBytes(byteArrayOf(1)) }
@@ -177,6 +181,74 @@ class DriveAttachmentUploaderTest {
             assertThat(uploader.upload("att-1")).isEqualTo(AttachmentUploader.UploadResult.NotLinked)
             assertThat(db.expenseAttachmentDao().byId("att-1")?.driveFileId).isNull()
         }
+
+    @Test
+    fun `successful upload ensures the anyone-with-link permission and marks the flag`() =
+        runTest {
+            seed()
+            seedAttachment()
+
+            val result = uploader.upload("att-1")
+
+            assertThat(result).isInstanceOf(AttachmentUploader.UploadResult.Uploaded::class.java)
+            assertThat(driveService.permissionEnsuredFileIds).containsExactly("drive-file-1")
+            assertThat(db.expenseAttachmentDao().byId("att-1")?.drivePermissionEnsured).isTrue()
+        }
+
+    @Test
+    fun `permission failure is best-effort - upload still succeeds, flag stays pending for repair`() =
+        runTest {
+            seed()
+            seedAttachment()
+            driveService.ensureError = GoogleApiException(500, "boom")
+
+            val result = uploader.upload("att-1")
+
+            assertThat(result).isInstanceOf(AttachmentUploader.UploadResult.Uploaded::class.java)
+            assertThat(db.expenseAttachmentDao().byId("att-1")?.drivePermissionEnsured).isFalse()
+        }
+}
+
+/** Records [ensureAnyoneReaderPermission] calls; other members are unused by the uploader. */
+internal class PermissionRecordingDriveService : DriveService {
+    val permissionEnsuredFileIds = mutableListOf<String>()
+
+    /** When set, [ensureAnyoneReaderPermission] throws it. */
+    var ensureError: Exception? = null
+
+    override suspend fun ensureAnyoneReaderPermission(fileId: String) {
+        ensureError?.let { throw it }
+        permissionEnsuredFileIds += fileId
+    }
+
+    override suspend fun findFolder(
+        name: String,
+        parentId: String?,
+    ): String? = null
+
+    override suspend fun createFolder(
+        name: String,
+        parentId: String?,
+    ): String = "folder-id"
+
+    override suspend fun uploadFile(
+        name: String,
+        mimeType: String,
+        parentId: String,
+        sourceFile: File,
+    ): DriveFileRef = DriveFileRef("file-id", name)
+
+    override suspend fun downloadFile(
+        fileId: String,
+        target: File,
+    ) = Unit
+
+    override suspend fun downloadPublicFile(
+        fileId: String,
+        target: File,
+    ) = Unit
+
+    override suspend fun deleteFile(fileId: String) = Unit
 }
 
 private class RecordingUploader : DriveUploader {

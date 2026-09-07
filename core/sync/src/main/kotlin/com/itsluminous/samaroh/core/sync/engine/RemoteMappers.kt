@@ -150,18 +150,21 @@ internal fun Expense.toEntity() =
         deletedAt,
     )
 
-internal fun ExpenseAttachment.toEntity(localCachePath: String?) =
-    ExpenseAttachmentEntity(
-        id,
-        expenseId,
-        businessId,
-        driveFileId,
-        mimeType,
-        fileName,
-        localCachePath,
-        createdAt,
-        deletedAt,
-    )
+internal fun ExpenseAttachment.toEntity(
+    localCachePath: String?,
+    drivePermissionEnsured: Boolean,
+) = ExpenseAttachmentEntity(
+    id,
+    expenseId,
+    businessId,
+    driveFileId,
+    mimeType,
+    fileName,
+    localCachePath,
+    drivePermissionEnsured,
+    createdAt,
+    deletedAt,
+)
 
 internal fun MasterItem.toEntity() = MasterItemEntity(id, businessId, name, unit, imagePath, driveImageId, createdAt, updatedAt, deletedAt)
 

@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.google.di
 
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
+import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
@@ -15,6 +16,7 @@ import com.itsluminous.samaroh.core.google.calendar.CalendarService
 import com.itsluminous.samaroh.core.google.calendar.GcalSyncStateStore
 import com.itsluminous.samaroh.core.google.calendar.RemoteBookingCalendarTrigger
 import com.itsluminous.samaroh.core.google.calendar.RestCalendarService
+import com.itsluminous.samaroh.core.google.drive.DriveAttachmentPermissionRepair
 import com.itsluminous.samaroh.core.google.drive.DriveAttachmentUploader
 import com.itsluminous.samaroh.core.google.drive.DriveBackedAttachmentUploadQueue
 import com.itsluminous.samaroh.core.google.drive.DriveItemImageMirror
@@ -49,6 +51,9 @@ abstract class GoogleModule {
 
     /** Satisfies `core:sync`'s optional item-photo Drive mirror — the durable copy (ADR-055). */
     @Binds abstract fun bindItemPhotoDriveMirror(impl: DriveItemImageMirror): ItemPhotoDriveMirror
+
+    /** Retroactively link-shares Drive-hosted bills so members can view them (ADR-059). */
+    @Binds abstract fun bindAttachmentPermissionRepair(impl: DriveAttachmentPermissionRepair): AttachmentPermissionRepair
 
     /** Sign-out wipes the per-device gcal push state with the rest of the local data (ADR-040). */
     @Binds

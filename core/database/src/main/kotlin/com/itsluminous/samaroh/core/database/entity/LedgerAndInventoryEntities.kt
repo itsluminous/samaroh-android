@@ -61,6 +61,12 @@ data class ExpenseAttachmentEntity(
     @ColumnInfo(name = "mime_type") val mimeType: String,
     @ColumnInfo(name = "file_name") val fileName: String,
     @ColumnInfo(name = "local_cache_path") val localCachePath: String? = null,
+    /**
+     * Device-only state (never synced, like `local_cache_path`, ADR-059): true once THIS
+     * device has ensured the Drive file's anyone-with-link reader permission — or
+     * confirmed it can never do so (the file belongs to another member's account).
+     */
+    @ColumnInfo(name = "drive_permission_ensured") val drivePermissionEnsured: Boolean = false,
     @ColumnInfo(name = "created_at") val createdAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
 )

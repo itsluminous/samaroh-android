@@ -2085,3 +2085,73 @@ with a recognizable name within a handful of syncs, `drive_image_id` converges t
 the normal outbox (no manual-upload duplicates), and the §9.1 `{item-name}-{item-id}`
 naming from ADR-055 is superseded for new uploads. One extra download round-trip per
 storage-only mirror, capped per run.
+
+## ADR-059 — Member access to Drive-hosted bills: link-scoped sharing + public-link fallback (2026-09-07)
+
+**Status:** accepted. Additive on frozen contracts (ADR-001 process): Room migration
+8→9 (`expense_attachments.drive_permission_ensured`, device-only), additive
+`ExpenseAttachmentDao` queries, `DriveService.ensureAnyoneReaderPermission` /
+`DriveService.downloadPublicFile`, new `core:data` seam `AttachmentPermissionRepair`.
+Extends ADR-052 (attachment resolver) and reuses the ADR-055/058 sync-pass pattern.
+
+**Context.** Bills live ONLY in the uploader's Google Drive (`drive.file` scope — §4.2,
+ADR-018). A `drive.file` file is private to the account whose app created it, so
+another business MEMBER's token gets 404 on `files.get`: member bill-viewing failed on
+Android (the ADR-052 resolver's own-token download) and on the web (the ledger's
+`drive.google.com/file/d/{id}/view` chips). Item photos were never affected — Supabase
+Storage is their serving source (ADR-023); Drive is only their private durable copy.
+
+**Decision.**
+1. **Every bill upload also creates a link-scoped reader permission** —
+   `permissions.create` with `role=reader, type=anyone` (file discovery stays off: the
+   file is viewable by anyone WITH the link but never searchable). `drive.file` covers
+   sharing on app-created files — the same authority the ADR-053 delete cascade already
+   exercises. Best-effort inline in `DriveAttachmentUploader`: a permission failure
+   never fails the upload; the row's flag stays pending and the repair pass (3) retries.
+2. **Resolver fallback ladder** (`AttachmentContentResolver`): local cache → own-token
+   `files.get?alt=media` (linked users; their own uploads) → PUBLIC LINK download
+   (`https://drive.google.com/uc?export=download&id={id}`, NO credentials — works for
+   anyone-with-link files, including signed-out clients) → only then the ADR-052
+   "link your Google account to view" prompt (specifically: not-linked + Drive answered
+   but withheld the file — an old bill awaiting repair), with network-level failures
+   still mapping to the friendly `DownloadFailed` retry state. The `uc?export=download`
+   endpoint was chosen over `files.get?key=API_KEY` because the app deliberately ships
+   no API key (only the OAuth web client id, spec §6). A 2xx answer whose Content-Type
+   is HTML (sign-in page / large-file interstitial — bills are far below that
+   threshold) is treated as a failure so an HTML page is never cached as a bill; the
+   endpoint is exercised by an integration-shaped test against a local mock HTTP
+   server (the ADR-052 download-test pattern).
+3. **Retroactive repair on the uploader's device** — pre-ADR-059 bills lack the
+   permission. `AttachmentPermissionRepair` (seam in `core:data`, implemented by
+   `core:google`'s `DriveAttachmentPermissionRepair`, consumed `Optional` by
+   `core:sync` — the exact ADR-055 mirror shape) runs once per sync after the push:
+   pending = live row with `drive_file_id` whose DEVICE-ONLY
+   `drive_permission_ensured` flag (new column, never synced — exactly like
+   `local_cache_path`; preserved across pulls by `LocalApplier`) is unset; at most 10
+   rows per run (ADR-058 throttle spirit), oldest first. `permissions.create` is
+   idempotent for `type=anyone`, so re-ensuring is harmless. A 403/404 answer means the
+   file belongs to ANOTHER member's account: the local flag is set so this device stops
+   retrying — the verdict never syncs, so the uploader's own device still repairs the
+   file. Not linked stops the pass silently; transient failures stay pending.
+4. **Threat model — stated honestly.** Anyone WITH a bill's link can view that bill;
+   the mitigations are that Drive file ids are high-entropy and unguessable, discovery
+   is off (the permission grants access by id, not by search), and the ids live only in
+   `expense_attachments` behind Supabase RLS (business members only) — links never
+   leave the app's surfaces. This is the standard "anyone with the link" posture and is
+   the deliberate trade for member access without per-member Drive grants (which
+   `drive.file` cannot express and which would break on member churn). A leaked link
+   exposes exactly one bill image/PDF; revocation = deleting the file (ADR-053 delete
+   already does).
+5. **Web needs no change** (verified): the ledger chip's
+   `drive.google.com/file/d/{id}/view` URL renders anyone-with-link files for any
+   browser, signed in or not, once the permission exists.
+6. **Item-photo Drive mirrors are deliberately NOT shared.** Members are served from
+   Supabase Storage (ADR-023); the ADR-055/058 Drive copies remain the owner's private
+   durable backup, so no permission is created on them.
+
+**Consequences.** A member tapping a bill gets the bytes via the public path with no
+Google link and no prompt; the link dialog survives only as the honest last resort.
+Existing bills become member-visible as the uploader's device syncs (10 per run —
+typically within the hour). One extra Drive POST per bill upload. Devices that never
+link simply leave their rows pending, as ever. Failure modes are logged under
+`SamarohAttach` (inline) and `SamarohDriveRepair` (repair pass).

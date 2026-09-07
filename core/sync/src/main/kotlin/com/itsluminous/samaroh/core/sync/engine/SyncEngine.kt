@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.sync.engine
 
 import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
+import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
@@ -76,6 +77,8 @@ class SyncEngine
         private val itemImageMirror: ItemImageMirror,
         /** Drive durable-copy mirror for item photos (ADR-055) — bound by `core:google`. */
         private val itemPhotoDriveMirror: Optional<ItemPhotoDriveMirror>,
+        /** Link-shares Drive bills so members can view them (ADR-059) — bound by `core:google`. */
+        private val attachmentPermissionRepair: Optional<AttachmentPermissionRepair>,
         private val conflictNotifier: ConflictNotifier,
         private val syncMetaStore: SyncMetaStore,
         /** Feature-contributed reactions to applied pulls (ADR-024) — e.g. reminder re-planning. */
@@ -111,6 +114,12 @@ class SyncEngine
                         val drain = push(remote)
                         pushed += drain.first
                         itemErrors += drain.second
+                    }
+                    // ADR-059: ensure link-reader permissions on Drive bills (retroactive
+                    // repair + inline-failure retry). Writes only the device-local flag —
+                    // no outbox drain needed. Never blocks or fails the sync.
+                    attachmentPermissionRepair.orElse(null)?.let { repair ->
+                        runCatching { repair.repairPending() }
                     }
                     val pullResult = pull(remote)
                     pulled = pullResult.applied

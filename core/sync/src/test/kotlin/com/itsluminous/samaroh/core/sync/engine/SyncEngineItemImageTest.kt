@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.sync.engine
 
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
@@ -215,5 +216,35 @@ class SyncEngineItemImageTest {
             assertThat(outcome.pushedCount).isEqualTo(1)
             assertThat(outcome.networkFailed).isFalse()
             assertThat(remote.upserts).hasSize(1)
+        }
+
+    // -------------------------------------------------- ADR-059 bill permission repair
+
+    @Test
+    fun `permission repair runs once per sync run`() =
+        runTest {
+            var calls = 0
+            val repair =
+                AttachmentPermissionRepair {
+                    calls++
+                    0
+                }
+
+            syncEngine(db, remote, permissionRepair = repair).runSync()
+
+            assertThat(calls).isEqualTo(1)
+        }
+
+    @Test
+    fun `permission repair failure never fails the sync run`() =
+        runTest {
+            db.outboxDao().enqueue(masterItemEntry(Fixtures.masterItem(id = "item-11")))
+            val repair = AttachmentPermissionRepair { error("drive exploded") }
+
+            val outcome = syncEngine(db, remote, permissionRepair = repair).runSync()
+
+            // Silent best-effort (ADR-059): the row push and pull proceed untouched.
+            assertThat(outcome.pushedCount).isEqualTo(1)
+            assertThat(outcome.networkFailed).isFalse()
         }
 }

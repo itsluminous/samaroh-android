@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.sync.di
 
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
+import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
@@ -55,6 +56,9 @@ abstract class SyncModule {
 
     /** Bound by `core:google` (ADR-055); while absent, item photos simply gain no Drive copy. */
     @BindsOptionalOf abstract fun optionalItemPhotoDriveMirror(): ItemPhotoDriveMirror
+
+    /** Bound by `core:google` (ADR-059); while absent, bill link-permissions simply stay pending. */
+    @BindsOptionalOf abstract fun optionalAttachmentPermissionRepair(): AttachmentPermissionRepair
 
     /** Feature modules contribute [PostSyncHook]s via `@IntoSet`; valid even when none do (ADR-024). */
     @Multibinds abstract fun postSyncHooks(): Set<PostSyncHook>

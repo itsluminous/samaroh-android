@@ -5,6 +5,7 @@ import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
+import com.itsluminous.samaroh.core.google.rest.GoogleApiException
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -501,9 +502,25 @@ class PartyLedgerViewModelTest {
         }
 
     @Test
-    fun `tapping a drive-only attachment while unlinked shows the link prompt instead of opening`() =
+    fun `tapping a drive-only attachment while unlinked opens via the public link, no prompt`() =
         runTest {
             linker.state.value = GoogleLinkState.NotLinked
+            val viewModel = viewModel()
+
+            viewModel.events.test {
+                viewModel.openAttachment(attachmentWithLocalState(driveFileId = "drive-1"))
+                val event = awaitItem() as PartyLedgerEvent.OpenAttachment
+                assertThat(event.file.readBytes()).isEqualTo(driveService.publicDownloadBytes)
+            }
+            assertThat(viewModel.showAttachmentLinkPrompt.value).isFalse()
+            assertThat(driveService.downloadedFileIds).isEmpty()
+        }
+
+    @Test
+    fun `unlinked with the file not link-shared shows the link prompt instead of opening`() =
+        runTest {
+            linker.state.value = GoogleLinkState.NotLinked
+            driveService.publicDownloadError = GoogleApiException(404, "file is not link-shared")
             val viewModel = viewModel()
 
             viewModel.openAttachment(attachmentWithLocalState(driveFileId = "drive-1"))
@@ -518,6 +535,7 @@ class PartyLedgerViewModelTest {
     fun `linking from the prompt downloads and opens the tapped attachment`() =
         runTest {
             linker.state.value = GoogleLinkState.NotLinked
+            driveService.publicDownloadError = GoogleApiException(404, "file is not link-shared")
             val viewModel = viewModel()
             val tapped = attachmentWithLocalState(driveFileId = "drive-1")
             viewModel.openAttachment(tapped)
@@ -552,6 +570,7 @@ class PartyLedgerViewModelTest {
         runTest {
             linker.state.value = GoogleLinkState.Linked("test@example.com", emptyList())
             driveService.downloadError = java.io.IOException("offline")
+            driveService.publicDownloadError = java.io.IOException("offline")
             val viewModel = viewModel()
             viewModel.events.test {
                 viewModel.openAttachment(attachmentWithLocalState(driveFileId = "drive-1"))

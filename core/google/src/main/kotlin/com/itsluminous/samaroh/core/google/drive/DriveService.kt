@@ -46,6 +46,25 @@ interface DriveService {
         target: File,
     )
 
+    /**
+     * Downloads an anyone-with-link file's bytes WITHOUT credentials (ADR-059) via the
+     * public `uc?export=download` endpoint — the member fallback when the current user's
+     * token cannot read a bill another account's app uploaded. On failure (not shared,
+     * offline, HTML interstitial) [target] is removed and the error thrown.
+     */
+    suspend fun downloadPublicFile(
+        fileId: String,
+        target: File,
+    )
+
+    /**
+     * Ensures [fileId] is readable by anyone WITH the link (`permissions.create`,
+     * role=reader, type=anyone; discovery stays off — the file is never searchable).
+     * `drive.file` scope covers sharing on files the app created (ADR-059). Idempotent:
+     * re-creating the `anyone` permission simply re-affirms it.
+     */
+    suspend fun ensureAnyoneReaderPermission(fileId: String)
+
     /** Permanently deletes a file the app created (used by backup retention, best-effort). */
     suspend fun deleteFile(fileId: String)
 }
@@ -53,6 +72,9 @@ interface DriveService {
 private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 private const val FILES_URL = "https://www.googleapis.com/drive/v3/files"
 private const val UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name"
+
+/** Unauthenticated anyone-with-link download endpoint (ADR-059) — `{base}{fileId}` per file. */
+private const val PUBLIC_DOWNLOAD_URL = "https://drive.google.com/uc?export=download&id="
 
 /** [DriveService] over the plain REST v3 endpoints using `drive.file` scope tokens. */
 @Singleton
@@ -66,6 +88,9 @@ class RestDriveService
 
         /** Base of the `files` resource — overridable so the download test can point at a local server. */
         internal var filesUrl: String = FILES_URL
+
+        /** Base of the public link download — overridable for the same local-server tests. */
+        internal var publicDownloadUrl: String = PUBLIC_DOWNLOAD_URL
 
         private suspend fun token(): String =
             tokenProvider.accessToken() ?: throw DriveNotAvailableException("no google access token available")
@@ -158,6 +183,33 @@ class RestDriveService
             target: File,
         ) {
             val response = http.downloadToFile("$filesUrl/$fileId?alt=media", token(), target)
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
+        }
+
+        override suspend fun downloadPublicFile(
+            fileId: String,
+            target: File,
+        ) {
+            // Deliberately NO token: the whole point is that any signed-out client can
+            // fetch an anyone-with-link file (ADR-059 member fallback).
+            val response = http.downloadPublicToFile("$publicDownloadUrl$fileId", target)
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
+        }
+
+        override suspend fun ensureAnyoneReaderPermission(fileId: String) {
+            val body =
+                buildJsonObject {
+                    put("role", "reader")
+                    put("type", "anyone")
+                }
+            val response =
+                http.request(
+                    "POST",
+                    "$filesUrl/$fileId/permissions",
+                    token(),
+                    contentType = "application/json; charset=UTF-8",
+                    body = body.toString().toByteArray(),
+                )
             if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
         }
 

@@ -66,7 +66,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -220,6 +220,22 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE business_settings ADD COLUMN gcal_calendar_id TEXT",
+                    )
+                }
+            }
+
+        /**
+         * v8 → v9 (ADR-059): `expense_attachments.drive_permission_ensured` — DEVICE-ONLY
+         * state (never synced, exactly like `local_cache_path`): whether this device has
+         * ensured the bill's Drive file carries the anyone-with-link reader permission.
+         * Existing rows default to 0 so the repair pass picks them up; the column has no
+         * server counterpart and never appears in a sync payload.
+         */
+        val MIGRATION_8_9: Migration =
+            object : Migration(8, 9) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE expense_attachments ADD COLUMN drive_permission_ensured INTEGER NOT NULL DEFAULT 0",
                     )
                 }
             }

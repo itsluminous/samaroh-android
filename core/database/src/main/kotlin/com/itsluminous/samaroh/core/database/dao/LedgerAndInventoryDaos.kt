@@ -210,6 +210,27 @@ interface ExpenseAttachmentDao {
         path: String,
     )
 
+    /**
+     * ADDITIVE member bill access (ADR-059): live rows with a Drive file whose
+     * anyone-with-link reader permission this device has not yet ensured — the repair
+     * pass input, oldest first so the backlog drains deterministically.
+     */
+    @Query(
+        """
+        SELECT * FROM expense_attachments
+        WHERE drive_file_id IS NOT NULL AND deleted_at IS NULL AND drive_permission_ensured = 0
+        ORDER BY created_at ASC LIMIT :limit
+        """,
+    )
+    suspend fun pendingPermissionRepair(limit: Int): List<ExpenseAttachmentEntity>
+
+    /**
+     * ADDITIVE (ADR-059): stamps the device-only permission flag. Like
+     * `updateLocalCachePath`, callers never enqueue an outbox op — the column never syncs.
+     */
+    @Query("UPDATE expense_attachments SET drive_permission_ensured = 1 WHERE id = :id")
+    suspend fun markDrivePermissionEnsured(id: String)
+
     @Query("UPDATE expense_attachments SET deleted_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,

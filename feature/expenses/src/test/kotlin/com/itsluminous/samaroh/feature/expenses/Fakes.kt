@@ -256,6 +256,28 @@ class FakeDriveService : com.itsluminous.samaroh.core.google.drive.DriveService 
         deleteError?.let { throw it }
         deletedFileIds += fileId
     }
+
+    var publicDownloadBytes: ByteArray = "public-drive-bytes".toByteArray()
+
+    /** When set, [downloadPublicFile] throws it (not link-shared / offline paths, ADR-059). */
+    var publicDownloadError: Exception? = null
+
+    val publicDownloadedFileIds = mutableListOf<String>()
+
+    override suspend fun downloadPublicFile(
+        fileId: String,
+        target: java.io.File,
+    ) {
+        publicDownloadError?.let { throw it }
+        publicDownloadedFileIds += fileId
+        target.writeBytes(publicDownloadBytes)
+    }
+
+    val permissionEnsuredFileIds = mutableListOf<String>()
+
+    override suspend fun ensureAnyoneReaderPermission(fileId: String) {
+        permissionEnsuredFileIds += fileId
+    }
 }
 
 /** Records immediate-sync nudges (link-to-view flow asserts one after a successful link). */

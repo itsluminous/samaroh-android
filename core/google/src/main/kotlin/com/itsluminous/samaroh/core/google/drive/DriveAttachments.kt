@@ -43,6 +43,7 @@ class DriveAttachmentUploader
         private val partyDao: PartyDao,
         private val businessDao: BusinessDao,
         private val driveUploader: DriveUploader,
+        private val driveService: DriveService,
         private val nameFactory: DriveNameFactory,
     ) : AttachmentUploader {
         override suspend fun upload(attachmentId: String): AttachmentUploader.UploadResult {
@@ -80,7 +81,17 @@ class DriveAttachmentUploader
                     mimeType = row.mimeType,
                     sourceFile = file,
                 ).fold(
-                    onSuccess = { AttachmentUploader.UploadResult.Uploaded(it.fileId) },
+                    onSuccess = { ref ->
+                        // ADR-059: bills must be readable by every business member, but
+                        // `drive.file` files are private to the uploader's account — share
+                        // link-scoped (role=reader, type=anyone; ids are unguessable and
+                        // live only behind RLS). Best-effort: the row still uploads if the
+                        // permission call fails — the sync-run repair pass retries it.
+                        runCatching { driveService.ensureAnyoneReaderPermission(ref.fileId) }
+                            .onSuccess { attachmentDao.markDrivePermissionEnsured(attachmentId) }
+                            .onFailure { android.util.Log.w(TAG, "link permission failed for ${ref.fileId}: ${it.message}") }
+                        AttachmentUploader.UploadResult.Uploaded(ref.fileId)
+                    },
                     onFailure = { error ->
                         when (error) {
                             is DriveNotAvailableException -> AttachmentUploader.UploadResult.NotLinked
@@ -112,6 +123,10 @@ class DriveAttachmentUploader
                 "application/pdf" -> ".pdf"
                 else -> ".bin"
             }
+        }
+
+        private companion object {
+            const val TAG = "SamarohAttach"
         }
     }
 
