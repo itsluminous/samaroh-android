@@ -32,7 +32,8 @@ enum class BackupFrequency(
     ;
 
     companion object {
-        fun fromWire(value: String): BackupFrequency = entries.firstOrNull { it.wire == value } ?: WEEKLY
+        /** Unknown/missing values fall back to the DAILY default (ADR-056). */
+        fun fromWire(value: String): BackupFrequency = entries.firstOrNull { it.wire == value } ?: DAILY
     }
 }
 

@@ -153,6 +153,20 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `backup frequency defaults to DAILY when no settings row exists`() =
+        runTest(dispatcherRule.dispatcher) {
+            // ADR-056: fresh state (no business_settings row anywhere yet) shows the
+            // Daily chip selected and unknown wire values also fall back to daily.
+            val collector = launch { viewModel.uiState.collect {} }
+            runCurrent()
+
+            assertThat(viewModel.uiState.value.backupFrequency).isEqualTo(BackupFrequency.DAILY)
+            assertThat(BackupFrequency.fromWire("weekly")).isEqualTo(BackupFrequency.WEEKLY)
+            assertThat(BackupFrequency.fromWire("bogus")).isEqualTo(BackupFrequency.DAILY)
+            collector.cancel()
+        }
+
+    @Test
     fun `backup frequency persists its wire value`() =
         runTest(dispatcherRule.dispatcher) {
             val collector = launch { viewModel.uiState.collect {} }

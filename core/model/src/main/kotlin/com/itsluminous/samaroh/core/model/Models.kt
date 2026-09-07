@@ -277,8 +277,8 @@ data class BusinessSettings(
      * Replaces `google_accounts.calendar_id` (kept only for the primary fallback).
      */
     @SerialName("gcal_calendar_id") val gcalCalendarId: String? = null,
-    /** 'daily' | 'weekly' | 'monthly' | 'manual'. */
-    @SerialName("backup_frequency") val backupFrequency: String = "weekly",
+    /** 'daily' | 'weekly' | 'monthly' | 'manual'. Default daily (ADR-056). */
+    @SerialName("backup_frequency") val backupFrequency: String = "daily",
     @SerialName("last_backup_at") @Serializable(InstantSerializer::class) val lastBackupAt: Instant? = null,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
 )

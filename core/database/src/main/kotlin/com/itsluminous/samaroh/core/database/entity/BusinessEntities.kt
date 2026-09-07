@@ -73,7 +73,7 @@ data class BusinessSettingsEntity(
     @ColumnInfo(name = "gcal_sync_enabled") val gcalSyncEnabled: Boolean = false,
     /** ADR-048: per-business app-created calendar id (named after the business). */
     @ColumnInfo(name = "gcal_calendar_id") val gcalCalendarId: String? = null,
-    @ColumnInfo(name = "backup_frequency") val backupFrequency: String = "weekly",
+    @ColumnInfo(name = "backup_frequency") val backupFrequency: String = "daily",
     @ColumnInfo(name = "last_backup_at") val lastBackupAt: Instant? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
 )

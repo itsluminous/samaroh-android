@@ -55,7 +55,7 @@ data class SettingsUiState(
     val isOwner: Boolean = false,
     /** Owner or `settings.manage_business` — gates the Event types row (ADR-032). */
     val canManageEventTypes: Boolean = false,
-    val backupFrequency: BackupFrequency = BackupFrequency.WEEKLY,
+    val backupFrequency: BackupFrequency = BackupFrequency.DAILY,
     val lastBackupAt: Instant? = null,
     /** Encoder quality of invoice/bill attachments (Settings → Image quality, ADR-053). */
     val billsQuality: Int = ImageQualityPreferences.BILLS_DEFAULT,
@@ -121,7 +121,7 @@ class SettingsViewModel
                                         link is GoogleLinkState.Linked &&
                                         GoogleServicesConfig.SCOPE_CALENDAR_APP_CREATED !in link.grantedScopes,
                                 isOwner = isOwner,
-                                backupFrequency = BackupFrequency.fromWire(settings?.backupFrequency ?: BackupFrequency.WEEKLY.wire),
+                                backupFrequency = BackupFrequency.fromWire(settings?.backupFrequency ?: BackupFrequency.DAILY.wire),
                                 lastBackupAt = settings?.lastBackupAt,
                                 billsQuality = bills,
                                 itemPhotoQuality = items,
