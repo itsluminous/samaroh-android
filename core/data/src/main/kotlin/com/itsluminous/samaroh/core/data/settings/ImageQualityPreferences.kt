@@ -20,7 +20,8 @@ import kotlin.math.abs
  *
  * Values are raw 0–100 encoder qualities, coerced into a per-use-case band on READ so a
  * stale/corrupt stored value can never produce an unreadable bill or a bloated
- * thumbnail. Unset means the ADR-050 default (bills 90, item photos 50).
+ * thumbnail. Unset means the default (bills 90 per ADR-050; item photos 30 — the
+ * Space-saver level — per ADR-056).
  */
 @Singleton
 class ImageQualityPreferences
@@ -53,8 +54,10 @@ class ImageQualityPreferences
             const val BILLS_MIN = 60
             const val BILLS_MAX = 100
 
-            // Item photos render as small thumbnails: a wide, lower band (ADR-050 default 50).
-            const val ITEM_DEFAULT = 50
+            // Item photos render as small thumbnails: a wide, lower band. Default is the
+            // Space-saver level (ADR-056) — thumbnails tolerate strong compression, and
+            // the owner prefers minimal storage/bandwidth out of the box.
+            const val ITEM_DEFAULT = 30
             const val ITEM_MIN = 30
             const val ITEM_MAX = 90
 

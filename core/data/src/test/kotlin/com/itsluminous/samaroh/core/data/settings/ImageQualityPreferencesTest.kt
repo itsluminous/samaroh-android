@@ -18,8 +18,9 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Image-quality preference contract (ADR-053): the exact DataStore keys, ADR-050
- * defaults when unset, and per-use-case band coercion on both read and write.
+ * Image-quality preference contract (ADR-053, defaults per ADR-056): the exact DataStore
+ * keys, defaults when unset (bills 90 = High, item photos 30 = Space saver), and
+ * per-use-case band coercion on both read and write.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ImageQualityPreferencesTest {
@@ -42,10 +43,14 @@ class ImageQualityPreferencesTest {
     }
 
     @Test
-    fun `unset values fall back to the ADR-050 defaults`() =
+    fun `unset values fall back to the defaults - bills High, item photos Space saver`() =
         testScope.runTest {
             assertThat(prefs.billsQuality.first()).isEqualTo(ImageQualityPreferences.BILLS_DEFAULT)
             assertThat(prefs.itemPhotoQuality.first()).isEqualTo(ImageQualityPreferences.ITEM_DEFAULT)
+            // Pin the literal values: bills stay q90 (High), item photos default q30
+            // (Space saver, the lowest chip) — ADR-056.
+            assertThat(ImageQualityPreferences.BILLS_DEFAULT).isEqualTo(90)
+            assertThat(ImageQualityPreferences.ITEM_DEFAULT).isEqualTo(30)
         }
 
     @Test
@@ -97,7 +102,7 @@ class ImageQualityPreferencesTest {
         }
         // The defaults ARE selectable levels — the default chip renders selected.
         assertThat(bills.high).isEqualTo(ImageQualityPreferences.BILLS_DEFAULT)
-        assertThat(items.balanced).isEqualTo(ImageQualityPreferences.ITEM_DEFAULT)
+        assertThat(items.low).isEqualTo(ImageQualityPreferences.ITEM_DEFAULT)
     }
 
     @Test
