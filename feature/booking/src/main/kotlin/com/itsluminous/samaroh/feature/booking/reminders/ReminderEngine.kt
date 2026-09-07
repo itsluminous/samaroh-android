@@ -4,6 +4,7 @@ import android.content.Context
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
+import com.itsluminous.samaroh.core.data.sync.ReplicaIntegrity
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.EventTypeKinds
 import com.itsluminous.samaroh.core.model.PaymentReminder
@@ -27,7 +28,17 @@ import javax.inject.Singleton
  * Orchestrates the daily reminder pass (§4.1): runs the pure planners against repository
  * state and executes the resulting plan (persist reminders via Room+outbox, post
  * notifications, schedule exact alarms for the full-screen style). Called by
- * [BookingReminderWorker] every day at 09:00 local.
+ * [BookingReminderWorker] every day at 09:00 local and by [ReminderPostSyncHook] after
+ * every completed sync pull.
+ *
+ * MUTATING passes are gated on replica consistency (ADR-060): payment planning derives
+ * `due = total − Σpayments`, so running it while a pull is in flight or after a partial
+ * pull (bookings landed, payments not) fabricates a reminder for every settled past
+ * booking — and pushes them to the server. When the replica is inconsistent the pass
+ * skips payment and follow-up planning entirely (creation AND dismissal — a missing
+ * booking row must not dismiss a synced reminder either) and still posts the read-only
+ * upcoming-event reminders. The pull that restores consistency re-runs the engine via
+ * [ReminderPostSyncHook], so deferred planning happens within the same sync cycle.
  */
 @Singleton
 class ReminderEngine
@@ -40,6 +51,7 @@ class ReminderEngine
         private val eventTypes: EventTypeCatalog,
         private val notifier: BookingNotifier,
         private val prefs: BookingReminderPrefs,
+        private val replicaIntegrity: ReplicaIntegrity,
         private val clock: Clock,
     ) {
         suspend fun runDailyPass() {
@@ -47,10 +59,13 @@ class ReminderEngine
             // Style/sound resolved ONCE at fire time and honored by EVERY reminder kind
             // (ADR-045) — payment, follow-up and upcoming alike.
             val settings = prefs.current()
+            val planningSafe = replicaIntegrity.isReplicaConsistent()
             val businesses = businessRepository.businesses().first().filter { it.deletedAt == null }
             for (business in businesses) {
-                runPaymentReminders(business.id, today, settings)
-                runFollowUpReminders(business.id, today, settings)
+                if (planningSafe) {
+                    runPaymentReminders(business.id, today, settings)
+                    runFollowUpReminders(business.id, today, settings)
+                }
                 runUpcomingReminders(business.id, today, settings)
             }
         }

@@ -32,6 +32,17 @@ data class SyncCursorEntity(
      * timestamp (idempotent applies), which self-heals installs that lost tied rows.
      */
     @ColumnInfo(name = "last_pulled_id") val lastPulledId: String? = null,
+    /**
+     * The last pulled row's cursor timestamp EXACTLY as the server serialized it
+     * (ADR-060). [lastPulledAt] is millisecond-truncated (Room stores epoch millis), but
+     * Postgres `timestamptz` carries microseconds — a keyset `eq` built from the
+     * truncated value can never match a tied row, so a >page-size block of rows sharing
+     * one bulk-write timestamp permanently stalled the pull after the first page (the
+     * mass-bogus-payment-reminders incident). Null on pre-ADR-060 cursors: the next pull
+     * then re-fetches every row AT the stored millisecond (idempotent applies) and
+     * rebuilds the raw position, which self-heals stalled installs.
+     */
+    @ColumnInfo(name = "last_pulled_raw") val lastPulledRaw: String? = null,
 ) {
     companion object {
         /** Scope key for tables pulled without a per-business filter. */

@@ -7,10 +7,12 @@ import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
+import com.itsluminous.samaroh.core.data.sync.ReplicaIntegrity
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
 import com.itsluminous.samaroh.core.sync.DataStoreSyncMetaStore
+import com.itsluminous.samaroh.core.sync.DefaultReplicaIntegrity
 import com.itsluminous.samaroh.core.sync.NotificationConflictNotifier
 import com.itsluminous.samaroh.core.sync.RoomOutboxWriter
 import com.itsluminous.samaroh.core.sync.RoomSyncStatus
@@ -45,6 +47,9 @@ abstract class SyncModule {
     @Binds abstract fun bindConflictNotifier(impl: NotificationConflictNotifier): ConflictNotifier
 
     @Binds abstract fun bindSyncMetaStore(impl: DataStoreSyncMetaStore): SyncMetaStore
+
+    /** "Is the local replica a consistent snapshot?" — gates destructive planning (ADR-060). */
+    @Binds abstract fun bindReplicaIntegrity(impl: DefaultReplicaIntegrity): ReplicaIntegrity
 
     /** Sign-out wipes the sync metadata (last-sync time) with the rest of the local data (ADR-040). */
     @Binds

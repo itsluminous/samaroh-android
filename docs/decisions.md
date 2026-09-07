@@ -2155,3 +2155,114 @@ Existing bills become member-visible as the uploader's device syncs (10 per run 
 typically within the hour). One extra Drive POST per bill upload. Devices that never
 link simply leave their rows pending, as ever. Failure modes are logged under
 `SamarohAttach` (inline) and `SamarohDriveRepair` (repair pass).
+
+## ADR-060 — µs-exact pull cursor + replica-consistency gate on reminder planning (2026-09-07, the "hundreds of pending confirmations" incident)
+
+**Problem (verified on the owner's device DB).** The owner's fresh sign-in mass-created
+pending payment reminders for long-settled past bookings — again, after ADR-024. Two
+compounding defects:
+
+1. **The keyset pull silently stalled after ONE page per table.** ADR-051 truncates
+   every timestamp to milliseconds (Room stores epoch millis), including the pull
+   cursor — but Postgres `timestamptz` carries MICROSECONDS. The bulk booking import
+   stamped 805 bookings and 632 payments with one identical transaction timestamp
+   (e.g. `…12.851423`); after page 1 the keyset predicate
+   `ts > '…12.851' OR (ts = '…12.851' AND id > lastId)` matched the WHOLE tie block via
+   the truncated `>` while the `=` tie-breaker never matched anything, so page 2
+   re-served page 1, the anti-loop guard "position did not advance" fired, and the pull
+   froze at exactly 200 rows per table — forever (both cursors observed frozen at the
+   same millisecond, 200/805 bookings and 200/632 payments on device).
+2. **The reminder engine planned against that permanently partial replica.** With most
+   payments missing, `due = total − Σpayments` was positive for every settled past
+   booking in the pulled window; the engine created pending reminders (observed
+   `created_at` = the two engine passes after sign-in), pushed them to the server, and —
+   because the payments could never arrive — RE-created successors after each dismissal.
+   The owner's server-side cleanup (`Planning/cleanup-stale-reminders.sql`) could not
+   help: the rows were freshly generated after it ran.
+
+**Decision.**
+1. **Raw wire cursor** (`core:database` + `core:sync`): `sync_cursors.last_pulled_raw`
+   (additive TEXT column, Room 9→10) stores the cursor timestamp EXACTLY as the server
+   serialized it; `RemoteStore.pull` takes the cursor as that string, so the keyset
+   `eq`/`gt` comparisons run at full server precision and tie blocks of any size
+   paginate. A cursor without the raw value (legacy or stalled install) is treated as
+   ADR-024-legacy: the keyset id is dropped, the pull re-includes rows AT the stored
+   millisecond (idempotent applies) and rebuilds the raw position from the first page —
+   which un-sticks stalled installs on their first sync after the update.
+2. **`ReplicaIntegrity` contract** (`core:data`, additive; impl `core:sync`): "is the
+   local replica a consistent snapshot?" — false while a sync run executes, and after a
+   pull that aborted (transport) or skipped a rejected table, until a later pull
+   completes cleanly (`SyncMetaStore` gains complete/incomplete pull stamps; session-
+   scoped, so sign-out resets). Unconfigured builds and signed-out (offline-continue)
+   usage are always consistent — purely local data is its own source of truth.
+3. **Reminder engine gate** (`feature:booking`): the MUTATING passes (payment planning
+   incl. its cleanup, tentative follow-ups) are skipped while the replica is
+   inconsistent — creation AND dismissal, since a missing booking row must not dismiss a
+   legitimately synced reminder. Read-only upcoming-event reminders still run. The pull
+   that restores consistency re-runs the engine via `ReminderPostSyncHook`, so deferred
+   planning happens in the same sync cycle.
+4. **Post-sync hooks fire after EVERY completed pull** (was: only when rows were
+   applied), so the due≤0 cleanup pass self-heals locally-fabricated reminders promptly
+   even when nothing new arrives — previously a device with bogus rows and a quiet
+   server waited for the next daily 09:00 pass.
+
+**Contract note.** Frozen-contract touches, all additive: `sync_cursors` column +
+migration 9→10, `ReplicaIntegrity` in `core:data`, `PostSyncHook` invocation semantics
+widened. `Planning/cleanup-stale-reminders.sql` (owner-run, not in this repo) dismisses
+the server rows this incident already created; devices self-heal via 1+4.
+
+## ADR-061 — Canonical grouped unit list in `shared/units.json` (2026-09-07)
+
+**Problem.** Samaroh's item editor offered five units (`pcs`, `qty`, `kg`, `litre`,
+custom); the legacy inventory tool the owner migrated from offered a full grouped set
+(Count / Weight / Liquid / Distance). The list is rendered by BOTH apps, so it needs a
+single cross-app source of truth — like event types (event-types.json).
+
+**Decision.**
+1. **`shared/units.json`** is the canonical list: groups in picker order, each unit with
+   a stable `key`, its frozen `wire` value (the exact `master_items.unit` string) and a
+   catalog `label_key`. The original five wire values are UNCHANGED for compatibility;
+   the new units add `sets units items boxes packets` (Count), `g mg ton` (Weight),
+   `ml cup` (Liquid), `m cm mm km ft in` (Distance). Free-text custom stays.
+2. **Android binds it to compile-time enums** (`feature:inventory` `UnitOption` /
+   `UnitGroup` with `@StringRes` labels — lint-checked, no runtime JSON parse), and
+   `UnitCatalogParityTest` reads `shared/units.json` and fails the build on ANY drift
+   (wire values, grouping, order, frozen five). The unit dropdown renders group headers
+   (non-selectable) with the units in file order and Custom last.
+3. **Labels** (en + real Hindi, incl. the four group headers) live in the shared
+   `strings/fragments/inventory.*.json`; measurement units carry their abbreviation in
+   the label ("Grams (g)" / "ग्राम (g)"), matching the legacy tool.
+4. A stored free-text unit that equals a new wire value (an old custom "g") now renders
+   with the canonical localized label — deliberate upgrade, the stored string is
+   untouched.
+
+**Contract note.** `master_items.unit` semantics unchanged (any string remains valid);
+`core:model` comment updated to point at units.json. Web adopts the same file.
+
+## ADR-062 — Offline item photos: post-sync disk-cache warm-up (2026-09-07)
+
+**Problem.** Storage-hosted item photos rendered offline ONLY if that exact image had
+been on screen while online: Coil's disk cache is populated by display requests, so
+web-added photos the device never scrolled — or entries evicted from the size-bounded
+cache — were blank offline. (Serving-path keying is NOT the issue: ADR-023 already uses
+the bucket's stable authenticated URL with `memoryCacheKey`/`diskCacheKey` = object
+path and `respectCacheHeaders(false)`.)
+
+**Decision.** `feature:inventory` contributes `ItemImagePrefetcher` as a `PostSyncHook`
+(ADR-024 pattern; hooks run after every completed pull per ADR-060): for every live
+master item whose `image_path` resolves to a Storage object, probe Coil's disk cache by
+the stable key and enqueue a download ONLY on a miss (memory cache disabled — screens
+fill it on render). Failures are dropped silently; the next sync retries. Alternatives
+rejected:
+- **Download-once into the local file convention** (`inventory-images/{itemId}.webp`):
+  that directory means "photo added on THIS device" to the ADR-055/058 Drive mirror — a
+  mirrored download would masquerade as a local original, re-upload web photos to the
+  owner's Drive, and need its own staleness tracking when a photo is replaced. The
+  disk-cache warm-up reuses the existing keying, eviction and invalidation semantics
+  (a replaced photo = a new object path = a new key).
+- **Invoices/bills**: explicitly NOT prefetched — expense attachments keep their
+  current on-demand behavior.
+
+**Consequences.** After one online sync, the whole inventory (list, detail, expand
+viewer) renders with airplane mode on. Item photos are WebP ≤320px (ADR-025), so a full
+warm-up is a few MB once; subsequent syncs are cache probes only.

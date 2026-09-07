@@ -1,7 +1,6 @@
 package com.itsluminous.samaroh.core.sync.remote
 
 import kotlinx.serialization.json.JsonObject
-import java.time.Instant
 
 /**
  * Thin abstraction over the Postgrest wire (§8) so the sync engine is unit-testable
@@ -28,16 +27,19 @@ interface RemoteStore {
     )
 
     /**
-     * Incremental pull page (keyset, ADR-024): rows strictly after the position
+     * Incremental pull page (keyset, ADR-024/ADR-060): rows strictly after the position
      * `(after, afterId)` in `(cursorColumn, idColumn)` ascending order, at most [limit],
      * optionally scoped to one business and to an explicit column projection (ADR-003).
-     * A null [afterId] means "any id at [after]": rows AT the timestamp are included —
-     * that is both the legacy-cursor self-heal and the fresh-install EPOCH start.
+     * [after] is the cursor timestamp AS A WIRE STRING — for a keyset cursor it must be
+     * the exact value the server previously serialized (microsecond precision, ADR-060),
+     * or the `eq` tie-breaker never matches and a >page tie block stalls the pull. A
+     * null [afterId] means "any id at [after]": rows AT the timestamp are included —
+     * that is the legacy-cursor self-heal and the fresh-install EPOCH start.
      */
     suspend fun pull(
         table: String,
         businessId: String?,
-        after: Instant,
+        after: String,
         afterId: String?,
         limit: Int,
         columns: String? = null,

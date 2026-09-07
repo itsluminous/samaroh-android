@@ -2,10 +2,12 @@ package com.itsluminous.samaroh.e2e
 
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
+import com.itsluminous.samaroh.core.data.sync.ReplicaIntegrity
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
 import com.itsluminous.samaroh.core.sync.DataStoreSyncMetaStore
+import com.itsluminous.samaroh.core.sync.DefaultReplicaIntegrity
 import com.itsluminous.samaroh.core.sync.NotificationConflictNotifier
 import com.itsluminous.samaroh.core.sync.RoomOutboxWriter
 import com.itsluminous.samaroh.core.sync.RoomSyncStatus
@@ -40,6 +42,9 @@ abstract class TestSyncModule {
     @Binds abstract fun bindConflictNotifier(impl: NotificationConflictNotifier): ConflictNotifier
 
     @Binds abstract fun bindSyncMetaStore(impl: DataStoreSyncMetaStore): SyncMetaStore
+
+    /** Real impl (ADR-060): with the null remote store below it always reports consistent. */
+    @Binds abstract fun bindReplicaIntegrity(impl: DefaultReplicaIntegrity): ReplicaIntegrity
 
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
 

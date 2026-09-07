@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
 import com.itsluminous.samaroh.core.sync.SyncMetaStore
+import com.itsluminous.samaroh.core.sync.SyncRunState
 import com.itsluminous.samaroh.core.sync.remote.RemoteStore
 import com.itsluminous.samaroh.core.sync.remote.RemoteStoreProvider
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
@@ -39,7 +40,7 @@ fun newTestDatabase(): SamarohDatabase = inMemoryDatabase(ApplicationProvider.ge
 class FakeRemoteStore : RemoteStore {
     val upserts = mutableListOf<Pair<String, JsonObject>>()
     val tombstones = mutableListOf<Triple<String, String, String>>()
-    val pullCalls = mutableListOf<Triple<String, String?, Instant>>()
+    val pullCalls = mutableListOf<Triple<String, String?, String>>()
 
     /** Keyset id per pull call, parallel to [pullCalls] (ADR-024). */
     val pullAfterIds = mutableListOf<String?>()
@@ -92,7 +93,7 @@ class FakeRemoteStore : RemoteStore {
     override suspend fun pull(
         table: String,
         businessId: String?,
-        after: Instant,
+        after: String,
         afterId: String?,
         limit: Int,
         columns: String?,
@@ -127,14 +128,28 @@ class RecordingConflictNotifier : ConflictNotifier {
 
 class InMemorySyncMetaStore : SyncMetaStore {
     private val state = MutableStateFlow<Instant?>(null)
+    private val completePull = MutableStateFlow<Instant?>(null)
+    private val incompletePull = MutableStateFlow<Instant?>(null)
     override val lastSyncTime: Flow<Instant?> = state
+    override val lastCompletePullTime: Flow<Instant?> = completePull
+    override val lastIncompletePullTime: Flow<Instant?> = incompletePull
 
     override suspend fun recordSyncTime(at: Instant) {
         state.value = at
     }
 
+    override suspend fun recordCompletePullTime(at: Instant) {
+        completePull.value = at
+    }
+
+    override suspend fun recordIncompletePullTime(at: Instant) {
+        incompletePull.value = at
+    }
+
     override suspend fun clear() {
         state.value = null
+        completePull.value = null
+        incompletePull.value = null
     }
 }
 
@@ -177,6 +192,7 @@ fun syncEngine(
     driveMirror: ItemPhotoDriveMirror? = null,
     permissionRepair: AttachmentPermissionRepair? = null,
     postSyncHooks: Set<PostSyncHook> = emptySet(),
+    runState: SyncRunState = SyncRunState(),
     remoteChangeListeners: Set<RemoteChangeListener> = emptySet(),
     clock: Clock = FIXED_CLOCK,
 ): SyncEngine =
@@ -209,6 +225,7 @@ fun syncEngine(
         attachmentPermissionRepair = Optional.ofNullable(permissionRepair),
         conflictNotifier = notifier,
         syncMetaStore = metaStore,
+        runState = runState,
         postSyncHooks = postSyncHooks,
         remoteChangeListeners = remoteChangeListeners,
         clock = clock,

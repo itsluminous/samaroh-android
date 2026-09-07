@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.sync.ReplicaIntegrity
 import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
@@ -53,6 +54,8 @@ class ReminderEngineCleanupTest {
             override val eventTypes: List<BuiltInEventType> = emptyList()
         }
 
+    private var replicaIntegrity = ReplicaIntegrity { true }
+
     private val bookingRepository = FakeBookingRepository()
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
     private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
@@ -71,6 +74,7 @@ class ReminderEngineCleanupTest {
                         File(tmp.root, "settings.preferences_pb")
                     },
                 ),
+            replicaIntegrity = replicaIntegrity,
             clock = clock,
         )
 

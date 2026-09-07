@@ -103,3 +103,22 @@ interface PostSyncHook {
 fun interface RemoteChangeListener {
     suspend fun onRemoteChangesApplied(appliedTables: Map<String, Set<String>>)
 }
+
+/**
+ * Answers "is the local replica a CONSISTENT snapshot of the server right now?"
+ * (ADR-060, additive contract extension). Destructive background planning — most
+ * importantly the payment-reminder engine, which CREATES and DISMISSES rows from
+ * `due = total − Σpayments` — must not run against a replica where bookings have
+ * arrived but their payments have not (a partial or in-flight pull): every settled
+ * past booking then looks unpaid and gets a bogus reminder, which also syncs out.
+ *
+ * The `core:sync` implementation returns false while a sync run is executing, and
+ * after any pull that was aborted (transport failure) or skipped a rejected table,
+ * until a later pull completes cleanly. It returns true when Supabase is not
+ * configured or nobody is signed in — purely local data is its own single source of
+ * truth. Interactive, user-initiated actions should NOT consult this; it exists for
+ * unattended engines.
+ */
+fun interface ReplicaIntegrity {
+    suspend fun isReplicaConsistent(): Boolean
+}

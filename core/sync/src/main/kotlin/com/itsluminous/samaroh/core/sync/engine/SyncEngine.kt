@@ -17,6 +17,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncConflictEntity
 import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
 import com.itsluminous.samaroh.core.sync.ConflictNotifier
 import com.itsluminous.samaroh.core.sync.SyncMetaStore
+import com.itsluminous.samaroh.core.sync.SyncRunState
 import com.itsluminous.samaroh.core.sync.remote.RemoteRejectedException
 import com.itsluminous.samaroh.core.sync.remote.RemoteStore
 import com.itsluminous.samaroh.core.sync.remote.RemoteStoreProvider
@@ -81,6 +82,8 @@ class SyncEngine
         private val attachmentPermissionRepair: Optional<AttachmentPermissionRepair>,
         private val conflictNotifier: ConflictNotifier,
         private val syncMetaStore: SyncMetaStore,
+        /** Pull-phase flag for the replica-consistency signal (ADR-060). */
+        private val runState: SyncRunState,
         /** Feature-contributed reactions to applied pulls (ADR-024) — e.g. reminder re-planning. */
         private val postSyncHooks: Set<@JvmSuppressWildcards PostSyncHook>,
         /** Told WHICH tables/businesses a pull changed (ADR-047) — e.g. the calendar push on remote booking edits. */
@@ -121,14 +124,37 @@ class SyncEngine
                     attachmentPermissionRepair.orElse(null)?.let { repair ->
                         runCatching { repair.repairPending() }
                     }
-                    val pullResult = pull(remote)
+                    val pullResult =
+                        try {
+                            // The replica is mid-mutation only while rows apply (ADR-060):
+                            // hooks below run after the stamp, so they see it consistent.
+                            runState.setPullActive(true)
+                            pull(remote)
+                        } catch (e: RemoteUnavailableException) {
+                            // A transport abort mid-pull can leave some tables pulled and
+                            // others not — flag the replica inconsistent (ADR-060) until a
+                            // later pull completes cleanly. Pushes never touch the replica,
+                            // so a push-phase failure aborts above without flagging.
+                            runCatching { syncMetaStore.recordIncompletePullTime(clock.instant()) }
+                            throw e
+                        } finally {
+                            runState.setPullActive(false)
+                        }
                     pulled = pullResult.applied
                     conflicts = pullResult.conflicts
                     syncMetaStore.recordSyncTime(clock.instant())
-                    if (pulled > 0) {
-                        // A hook failure must never fail the sync run (§8: per-item errors don't block).
-                        postSyncHooks.forEach { hook -> runCatching { hook.onSyncApplied() } }
+                    if (pullResult.rejected) {
+                        // A rejected (skipped) table means e.g. bookings may be in Room
+                        // while their payments are not — an inconsistent replica (ADR-060).
+                        syncMetaStore.recordIncompletePullTime(clock.instant())
+                    } else {
+                        syncMetaStore.recordCompletePullTime(clock.instant())
                     }
+                    // ADR-060: hooks run after EVERY completed pull — not only when rows
+                    // were applied — so self-heal passes (the reminder cleanup) catch
+                    // locally-created stale rows promptly even when nothing new arrived.
+                    // A hook failure must never fail the sync run (§8: per-item errors don't block).
+                    postSyncHooks.forEach { hook -> runCatching { hook.onSyncApplied() } }
                     if (pullResult.appliedTables.isNotEmpty()) {
                         // ADR-047: remote edits (another member's booking change) must reach
                         // reactions like the calendar push without waiting for a periodic.
@@ -292,6 +318,7 @@ class SyncEngine
         private suspend fun pull(remote: RemoteStore): PullResult {
             var applied = 0
             var conflicts = 0
+            var rejected = false
             val appliedTables = mutableMapOf<String, MutableSet<String>>()
             val (globalTables, scopedTables) = SyncTables.ALL.partition { !it.businessScoped }
             val coveredBusinessIds = mutableSetOf<String>()
@@ -303,6 +330,7 @@ class SyncEngine
                     val result = pullTableGuarded(remote, spec, SyncCursorEntity.GLOBAL_SCOPE, collectIds)
                     applied += result.applied
                     conflicts += result.conflicts
+                    rejected = rejected || result.rejected
                     if (result.appliedIds.isNotEmpty()) {
                         appliedTables.getOrPut(spec.name) { mutableSetOf() } += result.appliedIds
                     }
@@ -319,12 +347,13 @@ class SyncEngine
                         val result = pullTableGuarded(remote, spec, businessId)
                         applied += result.applied
                         conflicts += result.conflicts
+                        rejected = rejected || result.rejected
                         if (result.applied > 0) appliedTables.getOrPut(spec.name) { mutableSetOf() } += businessId
                     }
                 }
                 coveredBusinessIds += newBusinessIds
             }
-            return PullResult(applied, conflicts, appliedTables)
+            return PullResult(applied, conflicts, appliedTables, rejected)
         }
 
         /** One pull's outcome (ADR-047 adds [appliedTables] for the remote-change listeners). */
@@ -337,6 +366,8 @@ class SyncEngine
              * reports applied row ids (row id = business id, ADR-048).
              */
             val appliedTables: Map<String, Set<String>>,
+            /** True when at least one table's pull was rejected and skipped (ADR-060). */
+            val rejected: Boolean,
         )
 
         /** One table's pull outcome. [appliedIds] only collected when requested (businesses). */
@@ -344,6 +375,8 @@ class SyncEngine
             val applied: Int,
             val conflicts: Int,
             val appliedIds: List<String> = emptyList(),
+            /** True when this table's pull was rejected and skipped this run (ADR-060). */
+            val rejected: Boolean = false,
         )
 
         /**
@@ -363,7 +396,7 @@ class SyncEngine
             try {
                 pullTable(remote, spec, scope, collectAppliedIds)
             } catch (_: RemoteRejectedException) {
-                TablePull(0, 0)
+                TablePull(0, 0, rejected = true)
             }
 
         private suspend fun pullTable(
@@ -377,15 +410,21 @@ class SyncEngine
             val appliedIds = mutableListOf<String>()
             val stored = cursorDao.cursor(scope, spec.name)
             var cursorAt = stored?.lastPulledAt ?: Instant.EPOCH
-            // Null id = legacy/fresh cursor: the pull then INCLUDES rows at cursorAt, so
-            // ties dropped by the old timestamp-only cursor are recovered (ADR-024).
-            var cursorId = stored?.lastPulledId
+            // The wire position is the EXACT server-serialized timestamp (ADR-060):
+            // Room's millisecond Instant can never `eq`-match the server's microsecond
+            // value, so a keyset built from it stalls on a >page block of tied rows (the
+            // bulk-import mass-reminders incident). A legacy cursor without the raw
+            // string degrades to the inclusive ADR-024 re-pull (null id = rows AT the
+            // timestamp included, idempotent applies) and rebuilds the raw position from
+            // the first page — which also un-sticks installs stalled by the old cursor.
+            var cursorRaw = stored?.lastPulledRaw ?: cursorAt.toString()
+            var cursorId = if (stored?.lastPulledRaw != null) stored.lastPulledId else null
             while (true) {
                 val rows =
                     remote.pull(
                         table = spec.name,
                         businessId = scope.takeIf { spec.businessScoped },
-                        after = cursorAt,
+                        after = cursorRaw,
                         afterId = cursorId,
                         limit = PULL_PAGE_SIZE,
                         columns = spec.selectColumns,
@@ -394,12 +433,15 @@ class SyncEngine
                     )
                 if (rows.isEmpty()) break
                 var lastAt = cursorAt
+                var lastRaw = cursorRaw
                 var lastId = cursorId
                 for (raw in rows) {
                     val row = WireConverter.toLocal(spec.name, raw)
-                    val remoteUpdated = WireConverter.parseTimestamp(row.getValue(spec.cursorColumn).jsonPrimitive.content)
+                    val rawTimestamp = raw.getValue(spec.cursorColumn).jsonPrimitive.content
+                    val remoteUpdated = WireConverter.parseTimestamp(rawTimestamp)
                     // Rows arrive ordered by (cursorColumn, id) — the last one is the new keyset position.
                     lastAt = remoteUpdated
+                    lastRaw = rawTimestamp
                     lastId = row.getValue(spec.idColumn).jsonPrimitive.content
                     val outcome = applyWithLww(spec, row, remoteUpdated)
                     if (outcome.first) {
@@ -409,10 +451,11 @@ class SyncEngine
                     if (outcome.second) conflicts++
                 }
                 // Defensive: a page that fails to advance the position would loop forever.
-                if (lastAt == cursorAt && lastId == cursorId) break
-                cursorDao.upsert(SyncCursorEntity(scope, spec.name, lastAt, lastId))
+                if (lastRaw == cursorRaw && lastId == cursorId) break
+                cursorDao.upsert(SyncCursorEntity(scope, spec.name, lastAt, lastId, lastRaw))
                 if (rows.size < PULL_PAGE_SIZE) break
                 cursorAt = lastAt
+                cursorRaw = lastRaw
                 cursorId = lastId
             }
             return TablePull(applied, conflicts, appliedIds)

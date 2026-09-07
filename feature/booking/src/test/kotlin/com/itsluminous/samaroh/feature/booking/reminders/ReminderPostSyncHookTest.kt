@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.sync.ReplicaIntegrity
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -92,6 +93,7 @@ class ReminderPostSyncHookTest {
                                 File(tmp.root, "settings.preferences_pb")
                             },
                         ),
+                    replicaIntegrity = ReplicaIntegrity { true },
                     clock = clock,
                 ),
         )

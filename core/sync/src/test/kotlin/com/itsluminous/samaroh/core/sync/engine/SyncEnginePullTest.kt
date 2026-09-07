@@ -72,7 +72,13 @@ class SyncEnginePullTest {
             assertThat(pulled!!.totalAmountPaise).isEqualTo(123_456L)
             assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings"))
                 .isEqualTo(
-                    SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", Instant.parse("2026-08-25T11:00:00Z"), "b-2"),
+                    SyncCursorEntity(
+                        Fixtures.BUSINESS_ID,
+                        "bookings",
+                        Instant.parse("2026-08-25T11:00:00Z"),
+                        "b-2",
+                        "2026-08-25T11:00:00+00:00",
+                    ),
                 )
         }
 
@@ -88,7 +94,7 @@ class SyncEnginePullTest {
 
             val bookingsPull = remote.pullCalls.single { it.first == "bookings" }
             assertThat(bookingsPull.second).isEqualTo(Fixtures.BUSINESS_ID)
-            assertThat(bookingsPull.third).isEqualTo(Instant.parse("2026-08-20T00:00:00Z"))
+            assertThat(bookingsPull.third).isEqualTo("2026-08-20T00:00:00Z")
         }
 
     @Test
@@ -361,6 +367,7 @@ class SyncEnginePullTest {
                         "expense_attachments",
                         Instant.parse("2026-08-25T10:00:00Z"),
                         "att-1",
+                        "2026-08-25T10:00:00+00:00",
                     ),
                 )
         }
@@ -484,7 +491,13 @@ class SyncEnginePullTest {
             assertThat(bookingAfterIds).containsExactly(null, "b-199").inOrder()
             assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings"))
                 .isEqualTo(
-                    SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", Instant.parse("2026-08-20T05:00:00Z"), "b-299"),
+                    SyncCursorEntity(
+                        Fixtures.BUSINESS_ID,
+                        "bookings",
+                        Instant.parse("2026-08-20T05:00:00Z"),
+                        "b-299",
+                        "2026-08-20T05:00:00+00:00",
+                    ),
                 )
         }
 
@@ -504,14 +517,119 @@ class SyncEnginePullTest {
             syncEngine(db, remote, notifier).runSync()
 
             val bookingsPull = remote.pullCalls.zip(remote.pullAfterIds).first { it.first.first == "bookings" }
-            assertThat(bookingsPull.first.third).isEqualTo(importTs)
+            assertThat(bookingsPull.first.third).isEqualTo(importTs.toString())
             assertThat(bookingsPull.second).isNull()
             assertThat(db.bookingDao().byId("b-tie")).isNotNull()
             assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings"))
-                .isEqualTo(SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", importTs, "b-tie"))
+                .isEqualTo(SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", importTs, "b-tie", "2026-08-20T05:00:00+00:00"))
         }
 
     // ---- post-sync hooks (ADR-024): pulled data becomes actionable immediately ----
+
+    @Test
+    fun `microsecond-tied rows spanning pages paginate fully - the raw cursor keyset matches ties`() =
+        runTest {
+            // The mass-bogus-reminders incident (ADR-060): the server stamps bulk-written
+            // rows with ONE microsecond timestamp; the old Instant cursor truncated it to
+            // millis, the keyset eq never matched, page 2 re-served page 1, and the
+            // anti-loop guard froze the pull at 200 rows per table forever.
+            seedBusiness()
+            val importTsMicros = "2026-09-06T14:58:12.851423+00:00"
+            val page1 = (0 until 200).map { remoteBookingRow("b-%03d".format(it), updatedAt = importTsMicros) }
+            val page2 = (200 until 300).map { remoteBookingRow("b-%03d".format(it), updatedAt = importTsMicros) }
+            remote.servePage("bookings", page1)
+            remote.servePage("bookings", page2)
+
+            val outcome = syncEngine(db, remote, notifier).runSync()
+
+            assertThat(outcome.pulledCount).isAtLeast(300)
+            assertThat(db.bookingDao().byId("b-299")).isNotNull()
+            // Page 2 was requested with the EXACT server-serialized timestamp, so the
+            // remote eq tie-breaker can match rows in the same microsecond.
+            val bookingPulls = remote.pullCalls.zip(remote.pullAfterIds).filter { it.first.first == "bookings" }
+            assertThat(bookingPulls[1].first.third).isEqualTo(importTsMicros)
+            assertThat(bookingPulls[1].second).isEqualTo("b-199")
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings")?.lastPulledRaw)
+                .isEqualTo(importTsMicros)
+        }
+
+    @Test
+    fun `stalled ms-truncated keyset cursor recovers - degrades to the inclusive legacy pull`() =
+        runTest {
+            // An install stuck by the pre-ADR-060 cursor persisted (ms Instant, id) with
+            // no raw position. The keyset id must NOT be trusted (it can never advance
+            // past a tie block); the pull re-includes rows AT the millisecond and
+            // rebuilds the raw position from the page it fetches.
+            seedBusiness()
+            val stuckAt = Instant.parse("2026-09-06T14:58:12.851Z")
+            db.syncCursorDao().upsert(
+                SyncCursorEntity(Fixtures.BUSINESS_ID, "bookings", stuckAt, "b-199", lastPulledRaw = null),
+            )
+            remote.servePage(
+                "bookings",
+                listOf(remoteBookingRow("b-200", updatedAt = "2026-09-06T14:58:12.851423+00:00")),
+            )
+
+            syncEngine(db, remote, notifier).runSync()
+
+            val bookingsPull = remote.pullCalls.zip(remote.pullAfterIds).first { it.first.first == "bookings" }
+            assertThat(bookingsPull.first.third).isEqualTo(stuckAt.toString())
+            assertThat(bookingsPull.second).isNull()
+            assertThat(db.bookingDao().byId("b-200")).isNotNull()
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "bookings")?.lastPulledRaw)
+                .isEqualTo("2026-09-06T14:58:12.851423+00:00")
+        }
+
+    // ---- pull-integrity stamps (ADR-060): the ReplicaIntegrity signal's inputs ----
+
+    @Test
+    fun `a clean pull records the complete-pull stamp`() =
+        runTest {
+            seedBusiness()
+            val meta = InMemorySyncMetaStore()
+
+            syncEngine(db, remote, notifier, metaStore = meta).runSync()
+
+            assertThat(meta.lastCompletePullTime.first()).isEqualTo(FIXED_NOW)
+            assertThat(meta.lastIncompletePullTime.first()).isNull()
+        }
+
+    @Test
+    fun `a rejected table records the incomplete-pull stamp - the replica may be partial`() =
+        runTest {
+            seedBusiness()
+            val meta = InMemorySyncMetaStore()
+            remote.onPull = { table, _ ->
+                if (table == "booking_payments") {
+                    throw com.itsluminous.samaroh.core.sync.remote
+                        .RemoteRejectedException("rls")
+                }
+            }
+
+            syncEngine(db, remote, notifier, metaStore = meta).runSync()
+
+            assertThat(meta.lastIncompletePullTime.first()).isEqualTo(FIXED_NOW)
+            assertThat(meta.lastCompletePullTime.first()).isNull()
+        }
+
+    @Test
+    fun `a transport abort mid-pull records the incomplete-pull stamp`() =
+        runTest {
+            seedBusiness()
+            val meta = InMemorySyncMetaStore()
+            remote.onPull = { table, _ ->
+                if (table == "booking_payments") {
+                    throw com.itsluminous.samaroh.core.sync.remote
+                        .RemoteUnavailableException("offline")
+                }
+            }
+
+            val outcome = syncEngine(db, remote, notifier, metaStore = meta).runSync()
+
+            assertThat(outcome.networkFailed).isTrue()
+            assertThat(meta.lastIncompletePullTime.first()).isEqualTo(FIXED_NOW)
+            assertThat(meta.lastCompletePullTime.first()).isNull()
+        }
 
     private class RecordingHook : com.itsluminous.samaroh.core.data.sync.PostSyncHook {
         var invocations = 0
@@ -534,14 +652,16 @@ class SyncEnginePullTest {
         }
 
     @Test
-    fun `post-sync hooks are skipped when the pull applied nothing`() =
+    fun `post-sync hooks run even when the pull applied nothing - self-heal passes stay prompt`() =
         runTest {
+            // ADR-060: the reminder cleanup must not wait for the next remote change —
+            // locally-created stale rows self-heal on every completed pull.
             seedBusiness()
             val hook = RecordingHook()
 
             syncEngine(db, remote, notifier, postSyncHooks = setOf(hook)).runSync()
 
-            assertThat(hook.invocations).isEqualTo(0)
+            assertThat(hook.invocations).isEqualTo(1)
         }
 
     @Test

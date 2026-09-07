@@ -66,7 +66,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -237,6 +237,19 @@ abstract class SamarohDatabase : RoomDatabase() {
                     db.execSQL(
                         "ALTER TABLE expense_attachments ADD COLUMN drive_permission_ensured INTEGER NOT NULL DEFAULT 0",
                     )
+                }
+            }
+
+        /**
+         * ADR-060: `sync_cursors.last_pulled_raw` — the pull cursor's timestamp exactly
+         * as the server serialized it (microsecond precision), so the keyset `eq`
+         * tie-breaker actually matches tied rows. Existing rows stay null; the next pull
+         * re-fetches from the stored millisecond (idempotent) and rebuilds the position.
+         */
+        val MIGRATION_9_10: Migration =
+            object : Migration(9, 10) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE sync_cursors ADD COLUMN last_pulled_raw TEXT")
                 }
             }
     }

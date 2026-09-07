@@ -10,7 +10,6 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.serialization.json.JsonObject
 import java.io.IOException
-import java.time.Instant
 
 /**
  * supabase-kt Postgrest implementation of [RemoteStore]. Error taxonomy (§8):
@@ -50,7 +49,7 @@ class PostgrestRemoteStore(
     override suspend fun pull(
         table: String,
         businessId: String?,
-        after: Instant,
+        after: String,
         afterId: String?,
         limit: Int,
         columns: String?,
@@ -65,13 +64,15 @@ class PostgrestRemoteStore(
                         if (afterId == null) {
                             // Legacy/fresh cursor: include rows AT the timestamp so ties
                             // lost by the old `>`-only cursor are recovered (ADR-024).
-                            gte(cursorColumn, after.toString())
+                            gte(cursorColumn, after)
                         } else {
                             // Keyset: strictly after (after, afterId) in (ts, id) order.
+                            // `after` is the exact server-serialized string (ADR-060) so
+                            // the eq tie-breaker matches tied rows at full precision.
                             or {
-                                gt(cursorColumn, after.toString())
+                                gt(cursorColumn, after)
                                 and {
-                                    eq(cursorColumn, after.toString())
+                                    eq(cursorColumn, after)
                                     gt(idColumn, afterId)
                                 }
                             }
