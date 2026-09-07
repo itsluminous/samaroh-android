@@ -26,6 +26,7 @@ Drive: Samaroh/{Business Name}/backups/backup-YYYY-MM-DD-HHmm.zip
 ```
 backup-2026-08-25-0900.zip
 ├── manifest.json
+├── logo.webp          ← business logo bytes (optional; the ONLY binary allowed)
 └── tables/
     ├── businesses.json
     ├── business_members.json
@@ -40,6 +41,23 @@ backup-2026-08-25-0900.zip
     ├── master_items.json
     └── inventory_transactions.json
 ```
+
+**Content contract (references-only).** The archive contains table data + *references*
+to images — never the image bytes themselves:
+
+- **Bills / expense attachments and inventory item photos are NOT packed.** They are
+  already mirrored to Drive (`expense_attachments.drive_file_id`,
+  `master_items.drive_image_id`, ADR-055/§9.1), so re-packing them daily would bloat
+  every archive with bytes Drive already holds. The manifest records the Drive ids a
+  restore needs; device-local columns (`local_cache_path`, `image_path`) appear in the
+  row JSON as plain strings but are meaningless off-device.
+- **The business logo is the sole exception.** `businesses.logo_path` points at a file
+  that is *not* Drive-mirrored (device files dir on Android; the `logos` Storage bucket
+  for web uploads) — the one asset a total-loss disaster would otherwise destroy. When
+  the business has a logo and its file is readable on the exporting device, its bytes are
+  embedded as `logo.<ext>` (normally `logo.webp`, ≤320px WebP per ADR-050). A safety cap
+  of 1 MiB (`BackupArchive.MAX_LOGO_BYTES`) skips oversized legacy files so the archive
+  can never balloon with image bytes.
 
 Excluded by design: `google_accounts` (per-user row, no business data; ADR-003 keeps
 tokens server-side anyway) and `outbox` (device-local queue, §8).
@@ -64,7 +82,8 @@ tokens server-side anyway) and `outbox` (device-local queue, §8).
       "file_name": "bill.pdf",
       "mime_type": "application/pdf"
     }
-  ]
+  ],
+  "logo": { "file": "logo.webp", "source_path": "/data/…/files/logos/business-logo-….webp" }
 }
 ```
 
@@ -73,6 +92,10 @@ tokens server-side anyway) and `outbox` (device-local queue, §8).
   (`mime_type` is null for inventory images). Binaries are NOT inside the ZIP — they
   already live in Drive under the same business folder (§9.1); the manifest records the
   ids a restore needs to re-fetch or re-link them.
+- `logo` (optional, additive — still format v1) references the embedded logo entry:
+  `file` is the ZIP entry name, `source_path` the `businesses.logo_path` value at export
+  time. Absent when the business has no logo, the file was unreadable on the exporting
+  device, or it exceeded the 1 MiB cap.
 
 ## `tables/<table>.json`
 
@@ -102,4 +125,9 @@ convergence and audit history survive the disaster.
 3. Convert values per the table above (paise → `numeric` rupees, epoch ms →
    `timestamptz`, wire strings → enums).
 4. Re-link attachments by `drive_file_id` from the manifest (files still live in the
-   business's Drive folder).
+   business's Drive folder). Bills and item photos are **recovered from Drive by id**,
+   not from the ZIP — the archive never carries their bytes.
+5. Restore the business logo **from the ZIP** (`manifest.logo.file`): upload the embedded
+   bytes to the `logos` Storage bucket (or the new device's files dir) and point
+   `businesses.logo_path` at the new location. The logo is the only asset whose bytes the
+   archive carries, because it is not Drive-mirrored.

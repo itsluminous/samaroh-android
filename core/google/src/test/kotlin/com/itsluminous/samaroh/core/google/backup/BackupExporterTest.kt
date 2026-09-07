@@ -6,6 +6,7 @@ import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.BookingEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
+import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -170,5 +171,107 @@ class BackupExporterTest {
                 assertThat(fileName).isEqualTo("bill.pdf")
                 assertThat(mimeType).isEqualTo("application/pdf")
             }
+        }
+
+    /**
+     * References-only contract (spec §4.4, owner requirement): a real archive built from
+     * real exporter output must contain ONLY `manifest.json` + per-table JSON + at most
+     * one embedded logo — never bill/item-photo bytes, even when rows point at local
+     * cache files. Images are restorable from Drive by the manifest's ids.
+     */
+    @Test
+    fun `generated archive is manifest + table json + logo only — no attachment binaries`() =
+        runTest {
+            seed()
+            // Rows that DO have device-local binary paths — the exporter must reference, not pack.
+            db.masterItemDao().upsert(
+                MasterItemEntity(
+                    id = "item-1",
+                    businessId = businessId,
+                    name = "Chairs",
+                    unit = "pcs",
+                    imagePath = "/data/user/0/app/files/item-images/item-1.webp",
+                    driveImageId = "drive-img-7",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            db.expenseAttachmentDao().upsert(
+                ExpenseAttachmentEntity(
+                    id = "att-cached",
+                    expenseId = "e-2",
+                    businessId = businessId,
+                    driveFileId = "drive-file-10",
+                    mimeType = "image/jpeg",
+                    fileName = "receipt.jpg",
+                    localCachePath = "/data/user/0/app/cache/attachments/receipt.jpg",
+                    createdAt = now,
+                ),
+            )
+
+            val content = exporter.export(businessId)
+            val logo = BackupLogoContent(sourcePath = "/data/user/0/app/files/logos/business-logo-1.webp", bytes = byteArrayOf(1, 2, 3))
+            val manifest =
+                BackupArchive.buildManifest(
+                    businessId = businessId,
+                    businessName = "Sharma Hall",
+                    createdAt = now.toString(),
+                    tables = content.tables,
+                    attachments = content.attachments,
+                    logo = logo,
+                )
+            val zipBytes =
+                java.io
+                    .ByteArrayOutputStream()
+                    .also { BackupArchive.write(it, manifest, content.tables, logo) }
+                    .toByteArray()
+
+            val entries = mutableListOf<Pair<String, ByteArray>>()
+            java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(zipBytes)).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    entries += entry.name to zip.readBytes()
+                    entry = zip.nextEntry
+                }
+            }
+
+            // Exact composition: manifest + one JSON per table + the logo. Nothing else.
+            assertThat(entries.map { it.first })
+                .containsExactly(
+                    "manifest.json",
+                    "tables/businesses.json",
+                    "tables/business_members.json",
+                    "tables/business_settings.json",
+                    "tables/bookings.json",
+                    "tables/date_blocks.json",
+                    "tables/booking_payments.json",
+                    "tables/payment_reminders.json",
+                    "tables/parties.json",
+                    "tables/expenses.json",
+                    "tables/expense_attachments.json",
+                    "tables/master_items.json",
+                    "tables/inventory_transactions.json",
+                    "logo.webp",
+                ).inOrder()
+
+            // Every non-logo entry is parseable JSON text — no smuggled binaries.
+            for ((name, bytes) in entries.filterNot { it.first == "logo.webp" }) {
+                Json.parseToJsonElement(bytes.decodeToString()) // throws if not JSON
+                assertThat(name.endsWith(".json")).isTrue()
+            }
+
+            // The manifest references the images by Drive id (bill + item photo).
+            val parsedManifest =
+                Json.decodeFromString(
+                    BackupManifest.serializer(),
+                    entries
+                        .first {
+                            it.first == "manifest.json"
+                        }.second
+                        .decodeToString(),
+                )
+            assertThat(parsedManifest.attachments.map { it.driveFileId })
+                .containsExactly("drive-file-9", "drive-file-10", "drive-img-7")
+            assertThat(parsedManifest.logo?.file).isEqualTo("logo.webp")
         }
 }

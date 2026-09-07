@@ -15,8 +15,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Backup engine (§4.4): per-table JSON exports + attachments manifest zipped and uploaded
- * to Drive `Samaroh/{Business}/backups/backup-YYYY-MM-DD-HHmm.zip`. On success the
+ * Backup engine (§4.4): per-table JSON exports + attachments manifest (+ the business
+ * logo, the sole embedded binary) zipped and uploaded to Drive
+ * `Samaroh/{Business}/backups/backup-YYYY-MM-DD-HHmm.zip`. On success the
  * business settings' `last_backup_at` is updated through the repository (Room + outbox).
  */
 @Singleton
@@ -36,6 +37,9 @@ class BackupEngine
                         ?: error("unknown business $businessId")
                 val now = clock.instant()
                 val content = exporter.export(businessId)
+                // The one binary in the archive: the logo is NOT Drive-mirrored (unlike
+                // bills/item photos), so it rides along for disaster recovery (≤320px WebP).
+                val logo = BackupArchive.loadLogo(business.logoPath)
                 val manifest =
                     BackupArchive.buildManifest(
                         businessId = businessId,
@@ -43,11 +47,12 @@ class BackupEngine
                         createdAt = now.toString(),
                         tables = content.tables,
                         attachments = content.attachments,
+                        logo = logo,
                     )
                 val fileName = BackupArchive.fileName(LocalDateTime.ofInstant(now, ZoneId.systemDefault()))
                 val archive = File.createTempFile("samaroh-backup-", ".zip", context.cacheDir)
                 try {
-                    archive.outputStream().use { BackupArchive.write(it, manifest, content.tables) }
+                    archive.outputStream().use { BackupArchive.write(it, manifest, content.tables, logo) }
                     val uploaded =
                         driveUploader
                             .upload(
