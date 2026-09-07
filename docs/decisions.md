@@ -2032,3 +2032,56 @@ with no contract change.
 **Consequences.** "Where did my item go" resolves itself; the visual weight still
 communicates what is actually in stock. Android intentionally diverges from web parity
 here until the web track adopts the same ordering.
+
+## ADR-058 — Drive mirror covers storage-only photos; human-readable Drive names (ADR-055 addendum) (2026-09-07)
+
+**Status:** accepted. Owner-directed; additive (new seam in `core:data`, new binding in
+`core:auth`, `core:google` implementation changes). Extends ADR-055, whose documented
+gap this closes.
+
+**Context.** ADR-055 mirrored an item photo to Drive only when the device-local
+`{itemId}.webp` file existed — i.e. only photos taken on THIS device. The owner is about
+to re-import ~100 inventory items via the web, whose images land in Supabase Storage
+(the serving source) with no local file anywhere: under ADR-055 those rows would never
+gain a durable Drive copy. Manually uploading to Drive would leave `drive_image_id`
+unset and produce duplicates once mirroring ever ran. Separately, Drive names were
+machine-y: item photos as `{name}-{uuid}.webp`, attachments keeping their local cache
+name (`bill-{uuid8}.jpg`) — not what a human wants when browsing their own Drive.
+
+**Decision.**
+1. **Storage-only rows mirror too.** A pending row (live, `drive_image_id IS NULL`,
+   Storage `image_path`) with NO local file now downloads its bytes through a new
+   `core:data` seam `ItemPhotoStorageDownloader`, implemented in `core:auth`
+   (`StorageItemPhotoDownloader`) over the shared authed Supabase client —
+   `downloadAuthenticated` on the private `inventory-images` bucket, RLS as the
+   signed-in user, exactly like the ADR-023 display resolver. The bytes pass through a
+   cache-dir temp file into the existing `DriveUploader` and the row is stamped
+   (Room + outbox) as before. Web imports AND the ADR-055 legacy-photo gap (pre-fix
+   mismatched file keys) both become mirrorable from any linked device.
+2. **Throttled: at most 10 storage downloads per sync run**
+   (`DriveItemImageMirror.MAX_STORAGE_DOWNLOADS_PER_RUN`). A download+upload is two full
+   image round-trips per row; syncs fire on every mutation, on foreground and
+   periodically, so a 100-item import drains in ~10 unremarkable runs rather than one
+   sync doing 200 transfers on a phone connection. Local-file mirrors (this device took
+   the photo — one cheap upload, arriving one at a time in practice) stay unthrottled.
+   Undelivered rows simply remain pending; the next run continues.
+3. **Human-readable Drive names** via a shared `DriveNameFactory` (`core:google`):
+   item photos upload as `{item name}-{yyyyMMdd-HHmmss}.webp`, expense attachments as
+   `{party name}-{yyyyMMdd-HHmmss}.{ext}` (extension from the stored `file_name`, MIME
+   fallback). Bases sanitize for Drive (path separators/control chars → spaces,
+   whitespace collapsed, 80-char cap, `item`/`expense` fallback when blank; Devanagari
+   passes through untouched). Timestamps render in the DEVICE zone (the owner's wall
+   clock) from the injected `Clock`. Names issued within the same second uniquify with a
+   `-2`, `-3`… suffix (the set resets each second — bounded memory); Drive tolerates
+   duplicate names, but a human browsing the folder should not have to. The Room row's
+   `file_name` (app display, local download name) is untouched — the new name is
+   Drive-side only.
+4. **No rename pass.** Files already mirrored under ADR-055's `{name}-{uuid}` or an
+   attachment's cache name keep their names; only NEW uploads use the convention
+   (durable copies are never eagerly rewritten, same spirit as ADR-053 leftovers).
+
+**Consequences.** After the web re-import, every item photo lands in the owner's Drive
+with a recognizable name within a handful of syncs, `drive_image_id` converges through
+the normal outbox (no manual-upload duplicates), and the §9.1 `{item-name}-{item-id}`
+naming from ADR-055 is superseded for new uploads. One extra download round-trip per
+storage-only mirror, capped per run.

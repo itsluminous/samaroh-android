@@ -28,7 +28,12 @@ import javax.inject.Singleton
  * already in the outbox when `enqueue` is called (see the queue contract's KDoc).
  */
 
-/** Uploads one expense attachment to `Samaroh/{business}/invoices/expenses/{party}/…` (§9.1). */
+/**
+ * Uploads one expense attachment to `Samaroh/{business}/invoices/expenses/{party}/…`
+ * (§9.1). The Drive-side name is human-readable per ADR-058 —
+ * `{party name}-{yyyyMMdd-HHmmss}.{ext}` via [DriveNameFactory] — while the Room row's
+ * `file_name` (shown in the app and used as the local download name) stays untouched.
+ */
 @Singleton
 class DriveAttachmentUploader
     @Inject
@@ -38,6 +43,7 @@ class DriveAttachmentUploader
         private val partyDao: PartyDao,
         private val businessDao: BusinessDao,
         private val driveUploader: DriveUploader,
+        private val nameFactory: DriveNameFactory,
     ) : AttachmentUploader {
         override suspend fun upload(attachmentId: String): AttachmentUploader.UploadResult {
             val row =
@@ -65,7 +71,12 @@ class DriveAttachmentUploader
                 .upload(
                     businessName = business.name,
                     target = DriveTarget.ExpenseInvoices(partyName),
-                    fileName = row.fileName,
+                    fileName =
+                        nameFactory.fileName(
+                            partyName,
+                            fallbackBase = "expense",
+                            extension = driveExtension(row.fileName, row.mimeType),
+                        ),
                     mimeType = row.mimeType,
                     sourceFile = file,
                 ).fold(
@@ -82,6 +93,25 @@ class DriveAttachmentUploader
                         }
                     },
                 )
+        }
+
+        /**
+         * The stored `file_name`'s extension when present, else one derived from the MIME
+         * type (attachments are only ever image/jpeg or application/pdf, ADR-050).
+         */
+        private fun driveExtension(
+            fileName: String,
+            mimeType: String,
+        ): String {
+            val fromName = fileName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+            if (fromName.isNotBlank() && fromName.length <= 5) return ".$fromName"
+            return when (mimeType.lowercase()) {
+                "image/jpeg", "image/jpg" -> ".jpg"
+                "image/png" -> ".png"
+                "image/webp" -> ".webp"
+                "application/pdf" -> ".pdf"
+                else -> ".bin"
+            }
         }
     }
 

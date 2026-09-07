@@ -9,9 +9,11 @@ import com.itsluminous.samaroh.core.auth.SessionActiveBusinessProvider
 import com.itsluminous.samaroh.core.auth.SessionCurrentUserProvider
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.auth.StorageItemImageResolver
+import com.itsluminous.samaroh.core.auth.StorageItemPhotoDownloader
 import com.itsluminous.samaroh.core.auth.SupabaseAuthManager
 import com.itsluminous.samaroh.core.auth.SupabaseMembershipRefresher
 import com.itsluminous.samaroh.core.data.image.ItemImageResolver
+import com.itsluminous.samaroh.core.data.image.ItemPhotoStorageDownloader
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import dagger.Binds
@@ -44,6 +46,9 @@ abstract class AuthModule {
 
     /** Item photo display resolution (ADR-023) — rides on the shared authed client. */
     @Binds abstract fun bindItemImageResolver(impl: StorageItemImageResolver): ItemImageResolver
+
+    /** Item photo bytes for the Drive durable-copy mirror (ADR-058) — same authed client. */
+    @Binds abstract fun bindItemPhotoStorageDownloader(impl: StorageItemPhotoDownloader): ItemPhotoStorageDownloader
 
     companion object {
         @Provides

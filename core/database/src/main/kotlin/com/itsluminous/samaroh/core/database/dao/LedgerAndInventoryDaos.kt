@@ -244,10 +244,11 @@ interface MasterItemDao {
     suspend fun byId(id: String): MasterItemEntity?
 
     /**
-     * Candidates for the Drive item-photo mirror (ADR-055, additive): live rows with a
-     * photo but no Drive copy yet. The caller further requires the photo to be a
-     * mirrored Storage path AND the device-local file to exist — those checks live in
-     * Kotlin (file-system state has no place in SQL).
+     * Candidates for the Drive item-photo mirror (ADR-055/058, additive): live rows with
+     * a photo but no Drive copy yet. The caller further requires the photo to be a
+     * mirrored Storage path and sources the bytes from the device-local file or an
+     * authenticated Storage download — those checks live in Kotlin (file-system and
+     * network state have no place in SQL).
      */
     @Query("SELECT * FROM master_items WHERE drive_image_id IS NULL AND image_path IS NOT NULL AND deleted_at IS NULL")
     suspend fun pendingDriveImageMirror(): List<MasterItemEntity>

@@ -12,10 +12,11 @@ package com.itsluminous.samaroh.core.data.sync
  *   [mirrorPending] once per sync run AFTER the outbox push — by then a new photo's
  *   Storage upload has succeeded (the engine's ADR-023 mirror runs inside the push).
  * - "Pending" is derivable state, not a queue table: a live `master_items` row whose
- *   `drive_image_id` is null, whose `image_path` is already a Storage object path, and
- *   whose device-local photo file (`{itemId}.webp`) still exists. Rows synced FROM the
- *   web have no local file and are skipped — only the device that took the photo mirrors
- *   it.
+ *   `drive_image_id` is null and whose `image_path` is already a Storage object path.
+ *   The bytes come from the device-local `{itemId}.webp` file when this device took the
+ *   photo, or — since ADR-058 — from an authenticated Supabase Storage download for
+ *   storage-only rows (web imports, legacy photos), throttled to a fixed budget of
+ *   downloads per sync run so a bulk import drains across runs.
  * - SILENT best-effort: not linked / offline / a per-item failure just leaves the row
  *   pending for the next sync run — no prompt, no error surface (the durable copy is
  *   opportunistic by design, like the ADR-028/053 Drive cascades).
