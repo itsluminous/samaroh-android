@@ -1915,3 +1915,14 @@ real effect. Restore/Delete visibility is unit-tested as a status × permission 
 ViewModel-tested. Strings live in the shared `booking` fragment (en + hi); the
 duplicate keys the web track added concurrently were converged into the canonical
 `booking.card.*` set in the same shared commit.
+
+**Addendum (2026-09-07) — visual differentiation.** Owner feedback: Restore and Delete
+rendered as twin text buttons and read as interchangeable. Per M3 conventions the two
+now differ in both color and container weight: **Restore** is a filled `Button` with
+`containerColor = SamarohTheme.semanticColors.moneyIn` (the ledger "You got" green
+precedent — a semantic token, so it stays green even under Material You dynamic
+color), and **Delete permanently** is an `OutlinedButton` with error content color and
+an error border. The delete confirmation dialog's confirm action was already
+error-red; the *cancel-booking* confirmation dialog's confirm action was aligned to
+the same error color (the trigger button on active cards already was). Styling only —
+action visibility, permissions and behavior are unchanged.

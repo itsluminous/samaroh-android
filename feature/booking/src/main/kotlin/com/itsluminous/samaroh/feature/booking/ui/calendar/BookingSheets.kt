@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.feature.booking.ui.calendar
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +31,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
@@ -54,6 +58,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
@@ -265,19 +270,29 @@ internal fun BookingCardSheet(
             }
             // Cancelled card (ADR-054): the two ways forward — bring it back or
             // remove it for good — replace the whole active-action surface.
+            // Visual weight tells them apart (ADR-054 addendum): Restore is the safe,
+            // encouraged action → filled moneyIn-green button (the "You got" precedent
+            // guarantees green even under dynamic color); Delete is destructive →
+            // error-outlined button, matching the M3 destructive convention.
             if (actions.showRestore || actions.showDelete) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     if (actions.showRestore) {
-                        TextButton(onClick = onRestoreBooking) {
+                        Button(
+                            onClick = onRestoreBooking,
+                            colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyIn),
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Text(text = stringResource(R.string.booking_card_action_restore_booking))
                         }
                     }
                     if (actions.showDelete) {
-                        TextButton(onClick = { confirmDelete = true }) {
-                            Text(
-                                text = stringResource(R.string.booking_card_action_delete_booking),
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                        OutlinedButton(
+                            onClick = { confirmDelete = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(text = stringResource(R.string.booking_card_action_delete_booking))
                         }
                     }
                 }
@@ -294,7 +309,13 @@ internal fun BookingCardSheet(
                 TextButton(onClick = {
                     confirmCancel = false
                     onCancelBooking()
-                }) { Text(stringResource(R.string.booking_card_action_cancel_booking)) }
+                }) {
+                    // Destructive confirm reads in error red, same as the delete dialog.
+                    Text(
+                        text = stringResource(R.string.booking_card_action_cancel_booking),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmCancel = false }) { Text(stringResource(R.string.common_action_close)) }
