@@ -118,14 +118,18 @@ object Fixtures {
         id: String = UUID.randomUUID().toString(),
         name: String = "fixture-item",
         unit: String = "pcs",
+        imagePath: String? = null,
+        deletedAt: Instant? = null,
     ): MasterItem =
         MasterItem(
             id = id,
             businessId = BUSINESS_ID,
             name = name,
             unit = unit,
+            imagePath = imagePath,
             createdAt = NOW,
             updatedAt = NOW,
+            deletedAt = deletedAt,
         )
 
     fun inventoryTxn(
