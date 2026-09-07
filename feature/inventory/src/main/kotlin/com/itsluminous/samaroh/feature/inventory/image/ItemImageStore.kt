@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.inventory.image
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.itsluminous.samaroh.core.data.image.localItemImageFile
 import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences
 import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
 import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
@@ -9,7 +10,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -59,8 +59,7 @@ class LocalItemImageStore
                                 side,
                             )
                         }
-                    val dir = File(context.filesDir, "inventory-images").apply { mkdirs() }
-                    val file = File(dir, "$itemId.webp")
+                    val file = localItemImageFile(context, itemId).apply { parentFile?.mkdirs() }
                     // Shared pipeline at the ITEM level (ADR-050); the encoder quality
                     // comes from Settings → Image quality (ADR-053), dimensions fixed.
                     val spec = CompressionSpec.ItemPhoto.copy(quality = imageQuality.itemPhotoQuality.first())
@@ -72,7 +71,7 @@ class LocalItemImageStore
 
         override suspend fun deleteItemImage(itemId: String) {
             withContext(Dispatchers.IO) {
-                File(File(context.filesDir, "inventory-images"), "$itemId.webp").delete()
+                localItemImageFile(context, itemId).delete()
             }
         }
     }

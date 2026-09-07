@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
+import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
 import com.itsluminous.samaroh.core.database.SamarohDatabase
@@ -172,6 +173,7 @@ fun syncEngine(
     metaStore: SyncMetaStore = InMemorySyncMetaStore(),
     uploader: AttachmentUploader? = null,
     imageMirror: ItemImageMirror = FakeItemImageMirror(),
+    driveMirror: ItemPhotoDriveMirror? = null,
     postSyncHooks: Set<PostSyncHook> = emptySet(),
     remoteChangeListeners: Set<RemoteChangeListener> = emptySet(),
     clock: Clock = FIXED_CLOCK,
@@ -201,6 +203,7 @@ fun syncEngine(
         remoteStoreProvider = RemoteStoreProvider { remote },
         attachmentUploader = Optional.ofNullable(uploader),
         itemImageMirror = imageMirror,
+        itemPhotoDriveMirror = Optional.ofNullable(driveMirror),
         conflictNotifier = notifier,
         syncMetaStore = metaStore,
         postSyncHooks = postSyncHooks,

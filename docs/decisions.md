@@ -1926,3 +1926,109 @@ an error border. The delete confirmation dialog's confirm action was already
 error-red; the *cancel-booking* confirmation dialog's confirm action was aligned to
 the same error color (the trigger button on active cards already was). Styling only —
 action visibility, permissions and behavior are unchanged.
+
+## ADR-055 — Item photos mirror to Drive as the durable copy (2026-09-07)
+
+**Status:** accepted. Owner-directed; additive (new seam in `core:data`, new
+`core:database` query, one new SyncEngine pass). Extends ADR-023 (item-image Storage
+mirroring) and reuses the ADR-018 attachment queue/trigger pattern in spirit.
+
+**Context.** Item photos upload to Supabase Storage (`inventory-images`) during the
+outbox drain (ADR-023) — that is the SERVING source shared with the web app. Expense
+attachments, by contrast, live durably in the owner's Drive (§2/§4.2). Item photos had
+no durable copy: `master_items.drive_image_id` existed end-to-end (Room, model, sync
+mappers, backup manifest) but nothing on Android ever set it.
+
+**Decision.**
+1. **Drive is the durable copy; Storage stays the serving source.** After a photo's
+   Storage upload has succeeded, the device that took it ALSO uploads it to
+   `Samaroh/{Business}/images/inventory/{item-name}-{item-id}.webp` (§9.1;
+   `DriveTarget.InventoryImages` existed already) and stamps the file id into
+   `master_items.drive_image_id` (Room + outbox upsert, so it syncs and the ADR-023
+   backup manifest — which already reads `drive_image_id` — can reference it).
+2. **A derivable pending set, not a queue table.** `ItemPhotoDriveMirror` (seam in
+   `core:data`, implemented by `core:google`'s `DriveItemImageMirror`, consumed
+   `Optional` by `core:sync` — the exact `AttachmentUploader` wiring shape). Pending =
+   live row with `drive_image_id IS NULL` (new additive `MasterItemDao`
+   query) whose `image_path` is already a STORAGE object path and whose device-local
+   `{itemId}.webp` file still exists. Web-added photos have no local file → only the
+   device that took a photo mirrors it.
+3. **Silent, non-blocking, retried every sync run.** `SyncEngine.runSync` calls
+   `mirrorPending()` AFTER the outbox push (so the Storage upload of a new photo has
+   already happened inside the push) and drains the stamped row upserts with a second
+   push in the same run. Unlike the attachment upload, the mirror NEVER blocks a
+   `master_items` push and never fails a sync (wrapped `runCatching`): not linked =
+   everything simply stays pending until a later run finds Google linked — the
+   "pending until linked" semantics of the attachment queue without its blocking. No
+   prompt anywhere: linking is an explicit Settings/onboarding action; the mirror is a
+   background bonus of being linked (same opportunism as the ADR-028/053 Drive
+   cascades).
+4. **Photo replace/remove invalidates the copy.** The masterlist editor clears
+   `driveImageId` whenever the saved `imagePath` differs from the stored one, so the
+   next sync mirrors the NEW photo (a fresh Drive file; the old one lingers in Drive
+   exactly like ADR-053 delete leftovers — durable copies are never eagerly destroyed).
+5. **Bug fix folded in (file-key integrity).** `MasterlistViewModel` minted DIFFERENT
+   UUIDs for a new item's photo file and the item row itself, so `{itemId}.webp` never
+   matched — photo cleanup on delete missed the file (disk leak) and the mirror could
+   never find it. The editor now mints ONE `newItemId` when it opens; the cropper and
+   the save path both use it. The `inventory-images` dir/file convention moved to
+   `core:data` (`ItemImageFiles.kt`) so writer (`feature:inventory`) and reader
+   (`core:google`) share one definition. Photos of items created BEFORE this fix keep
+   their mismatched file names and are simply never mirrored from this device — their
+   Storage copy is unaffected.
+
+**Consequences.** A linked owner's Drive accumulates every item photo under
+`images/inventory/`, restore/backup tooling can rely on `drive_image_id`, and devices
+that never link lose nothing. One more push pass per sync run only when something was
+actually mirrored. Failure modes are logged under `SamarohDriveMirror`.
+
+## ADR-056 — Defaults: item-photo quality → Space saver, backup frequency → daily (2026-09-07)
+
+**Status:** accepted. Owner-directed defaults change; touches `core:model` /
+`core:database` default VALUES only (no schema shape change). Extends ADR-053 (quality
+preference) and §4.4 (backups).
+
+**Context.** Item photos render as ≤320px thumbnails — the owner wants the smallest
+files out of the box; bills must stay readable. Weekly backups proved too coarse for
+active businesses.
+
+**Decision.**
+1. **Bill photos default stays High (q90)** — unchanged, now pinned by test.
+2. **Item photos default becomes Space saver (q30)** — `ImageQualityPreferences.
+   ITEM_DEFAULT` 50 → 30 (the lowest chip; band 30–90 unchanged). Settings renders the
+   Space-saver chip selected on a fresh install; an explicit user choice is untouched
+   (the keys only default when UNSET).
+3. **Backup frequency defaults to daily** everywhere a client default materializes:
+   the `BusinessSettings` model + Room entity defaults, `BackupFrequency.fromWire`'s
+   unknown-value fallback, and the Settings UI's no-row state. The shared baseline
+   schema (`001_schema.sql`) column default changed 'weekly' → 'daily', and
+   `scripts/alter-backup-daily.sql` (shared repo) migrates an EXISTING deployment: it
+   alters the column default and flips current 'weekly' rows to 'daily' (an explicit
+   monthly/manual choice is preserved). The owner runs it once in the Supabase SQL
+   editor.
+
+**Consequences.** Fresh installs store item photos at roughly a third of the previous
+size and back up daily. No stored user choice is overridden client-side; the alter
+script intentionally rewrites only 'weekly' rows (the old default) server-side.
+
+## ADR-057 — Zero-stock items shown at the end of the stock list (2026-09-07)
+
+**Status:** accepted. Feature-level UI semantics change in `feature:inventory`
+(deliberate divergence from the web stock screen's `quantity > 0` filter).
+
+**Context.** The Current Inventory screen hid items at zero stock (or with no
+transactions yet). Users add an item on the Masterlist, flip to the stock view, and
+conclude the item VANISHED — the top confusion report for inventory.
+
+**Decision.** The stock list now shows every live master item: in-stock rows first,
+then zero-stock rows, each group alphabetical (the DAO's name ordering + a stable
+partition). Zero-stock rows render dimmed (55% alpha) with quantity 0 and ₹0 value so
+in-stock rows still dominate visually; search matches them too. The `allZero` empty
+state died with the filter (all-zero now just renders an all-dimmed list); the
+Masterlist screen is unchanged. The DAO/repository were already returning zero-stock
+rows (LEFT JOIN) — the filter lived only in the ViewModel, so this is presentation-only
+with no contract change.
+
+**Consequences.** "Where did my item go" resolves itself; the visual weight still
+communicates what is actually in stock. Android intentionally diverges from web parity
+here until the web track adopts the same ordering.

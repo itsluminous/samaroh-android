@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.sync.engine
 
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.model.MasterItem
@@ -152,5 +153,67 @@ class SyncEngineItemImageTest {
                     .getValue("id")
                     .jsonPrimitive.content,
             ).isEqualTo("item-7")
+        }
+
+    // ------------------------------------------------------------ ADR-055 Drive mirror
+
+    @Test
+    fun `drive mirror runs after the push and its stamped row drains in the same run`() =
+        runTest {
+            val item = Fixtures.masterItem(id = "item-8").copy(imagePath = "biz/item-8/1.webp")
+            db.outboxDao().enqueue(masterItemEntry(item))
+            // Simulates DriveItemImageMirror: stamp drive_image_id + enqueue the row upsert.
+            val driveMirror =
+                ItemPhotoDriveMirror {
+                    db.outboxDao().enqueue(masterItemEntry(item.copy(driveImageId = "drive-9")))
+                    1
+                }
+
+            val outcome = syncEngine(db, remote, driveMirror = driveMirror).runSync()
+
+            // The original push lands FIRST (Storage serving path), then the mirror's
+            // stamped row drains within the same run — no second sync needed.
+            assertThat(outcome.pushedCount).isEqualTo(2)
+            assertThat(remote.upserts).hasSize(2)
+            assertThat(remote.upserts[0].second["drive_image_id"] ?: JsonNull).isEqualTo(JsonNull)
+            assertThat(
+                remote.upserts[1]
+                    .second
+                    .getValue("drive_image_id")
+                    .jsonPrimitive.content,
+            ).isEqualTo("drive-9")
+            assertThat(db.outboxDao().nextBatch()).isEmpty()
+        }
+
+    @Test
+    fun `drive mirror reporting nothing pending skips the drain push`() =
+        runTest {
+            db.outboxDao().enqueue(masterItemEntry(Fixtures.masterItem(id = "item-9")))
+            var calls = 0
+            val driveMirror =
+                ItemPhotoDriveMirror {
+                    calls++
+                    0
+                }
+
+            val outcome = syncEngine(db, remote, driveMirror = driveMirror).runSync()
+
+            assertThat(calls).isEqualTo(1)
+            assertThat(outcome.pushedCount).isEqualTo(1)
+            assertThat(remote.upserts).hasSize(1)
+        }
+
+    @Test
+    fun `drive mirror failure never fails the sync run`() =
+        runTest {
+            db.outboxDao().enqueue(masterItemEntry(Fixtures.masterItem(id = "item-10")))
+            val driveMirror = ItemPhotoDriveMirror { error("drive exploded") }
+
+            val outcome = syncEngine(db, remote, driveMirror = driveMirror).runSync()
+
+            // Silent best-effort (ADR-055): the row push and pull proceed untouched.
+            assertThat(outcome.pushedCount).isEqualTo(1)
+            assertThat(outcome.networkFailed).isFalse()
+            assertThat(remote.upserts).hasSize(1)
         }
 }

@@ -63,6 +63,12 @@ data class DuplicateSuggestion(
 data class MasterItemEditorState(
     /** Null id = creating a new item. */
     val editingItem: MasterItem? = null,
+    /**
+     * The id a NEW item will be saved under, minted when the editor opens. The photo
+     * file must be keyed by the item's REAL id (`{itemId}.webp`) or photo cleanup and
+     * the Drive mirror (ADR-055) can never find it again.
+     */
+    val newItemId: String = UUID.randomUUID().toString(),
     val name: String = "",
     val unitOption: UnitOption = UnitOption.PIECES,
     val customUnit: String = "",
@@ -71,7 +77,10 @@ data class MasterItemEditorState(
     val duplicates: List<DuplicateSuggestion> = emptyList(),
     val error: MasterItemFormError? = null,
     val saving: Boolean = false,
-)
+) {
+    /** The id this editor writes: the edited item's, or the pre-minted new-item id. */
+    val targetItemId: String get() = editingItem?.id ?: newItemId
+}
 
 /** State of the delete flow: confirmation for deletable items, a blocked notice otherwise. */
 data class DeleteRequestState(
@@ -164,7 +173,7 @@ class MasterlistViewModel
 
         /** Stores the square bitmap confirmed in the interactive cropper (WebP ≤320px). */
         fun onImageCropped(image: Bitmap) {
-            val itemId = editorState.value?.editingItem?.id ?: UUID.randomUUID().toString()
+            val itemId = editorState.value?.targetItemId ?: return
             viewModelScope.launch {
                 val path = imageStore.compressItemImage(image, itemId)
                 if (path != null) editorState.update { it?.copy(imagePath = path) }
@@ -206,9 +215,17 @@ class MasterlistViewModel
                 val now = clock.instant()
                 val existing = snapshot.editingItem
                 inventoryRepository.saveMasterItem(
-                    existing?.copy(name = name, unit = unit, imagePath = snapshot.imagePath, updatedAt = now)
+                    existing?.copy(
+                        name = name,
+                        unit = unit,
+                        imagePath = snapshot.imagePath,
+                        // A replaced/removed photo invalidates the Drive durable copy —
+                        // clearing the id makes the ADR-055 mirror upload the new photo.
+                        driveImageId = if (snapshot.imagePath == existing.imagePath) existing.driveImageId else null,
+                        updatedAt = now,
+                    )
                         ?: MasterItem(
-                            id = UUID.randomUUID().toString(),
+                            id = snapshot.newItemId,
                             businessId = businessId,
                             name = name,
                             unit = unit,

@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.sync.engine
 import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
+import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
@@ -73,6 +74,8 @@ class SyncEngine
         private val remoteStoreProvider: RemoteStoreProvider,
         private val attachmentUploader: Optional<AttachmentUploader>,
         private val itemImageMirror: ItemImageMirror,
+        /** Drive durable-copy mirror for item photos (ADR-055) — bound by `core:google`. */
+        private val itemPhotoDriveMirror: Optional<ItemPhotoDriveMirror>,
         private val conflictNotifier: ConflictNotifier,
         private val syncMetaStore: SyncMetaStore,
         /** Feature-contributed reactions to applied pulls (ADR-024) — e.g. reminder re-planning. */
@@ -96,6 +99,19 @@ class SyncEngine
                     val pushResult = push(remote)
                     pushed = pushResult.first
                     itemErrors = pushResult.second
+                    // ADR-055: AFTER the push (so a new photo's Storage upload already
+                    // succeeded), silently mirror pending item photos to Drive. A
+                    // successful mirror enqueues the row upsert carrying drive_image_id;
+                    // drain those in the same run. Never blocks or fails the sync.
+                    val mirrored =
+                        itemPhotoDriveMirror.orElse(null)?.let { mirror ->
+                            runCatching { mirror.mirrorPending() }.getOrDefault(0)
+                        } ?: 0
+                    if (mirrored > 0) {
+                        val drain = push(remote)
+                        pushed += drain.first
+                        itemErrors += drain.second
+                    }
                     val pullResult = pull(remote)
                     pulled = pullResult.applied
                     conflicts = pullResult.conflicts

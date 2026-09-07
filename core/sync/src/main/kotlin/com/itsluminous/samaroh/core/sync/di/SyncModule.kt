@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.sync.di
 
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
@@ -51,6 +52,9 @@ abstract class SyncModule {
 
     /** Bound by `core:google` (W1-F); while absent, attachment ops stay queued with a pending state. */
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
+
+    /** Bound by `core:google` (ADR-055); while absent, item photos simply gain no Drive copy. */
+    @BindsOptionalOf abstract fun optionalItemPhotoDriveMirror(): ItemPhotoDriveMirror
 
     /** Feature modules contribute [PostSyncHook]s via `@IntoSet`; valid even when none do (ADR-024). */
     @Multibinds abstract fun postSyncHooks(): Set<PostSyncHook>

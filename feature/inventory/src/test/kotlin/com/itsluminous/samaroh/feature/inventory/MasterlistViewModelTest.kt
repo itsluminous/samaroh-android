@@ -70,6 +70,45 @@ class MasterlistViewModelTest {
         }
 
     @Test
+    fun `a new item saves under the editor's pre-minted id`() =
+        runTest {
+            // ADR-055: the cropper keys the photo file by targetItemId, so the saved
+            // row MUST use that same id or cleanup/Drive mirroring can't find the file.
+            viewModel.openEditor()
+            val mintedId = viewModel.editor.value?.targetItemId
+            viewModel.onNameChange("New Item")
+            viewModel.saveItem()
+
+            assertThat(inventory.savedItems.single().id).isEqualTo(mintedId)
+        }
+
+    @Test
+    fun `removing the photo clears the drive image id`() =
+        runTest {
+            val withPhoto = plate.copy(imagePath = "biz/item-plate/1.webp", driveImageId = "drive-1")
+            viewModel.openEditor(withPhoto)
+            viewModel.onImageRemoved()
+            viewModel.saveItem()
+
+            val saved = inventory.savedItems.single()
+            assertThat(saved.imagePath).isNull()
+            assertThat(saved.driveImageId).isNull()
+        }
+
+    @Test
+    fun `an unchanged photo keeps the drive image id`() =
+        runTest {
+            val withPhoto = plate.copy(imagePath = "biz/item-plate/1.webp", driveImageId = "drive-1")
+            viewModel.openEditor(withPhoto)
+            viewModel.onNameChange("Steel Plate XL")
+            viewModel.saveItem()
+
+            val saved = inventory.savedItems.single()
+            assertThat(saved.imagePath).isEqualTo("biz/item-plate/1.webp")
+            assertThat(saved.driveImageId).isEqualTo("drive-1")
+        }
+
+    @Test
     fun `custom unit option requires the free-text unit`() =
         runTest {
             viewModel.openEditor()

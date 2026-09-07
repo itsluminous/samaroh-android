@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.google.di
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
 import com.itsluminous.samaroh.core.google.auth.CredentialManagerGoogleAccountLinker
@@ -16,6 +17,7 @@ import com.itsluminous.samaroh.core.google.calendar.RemoteBookingCalendarTrigger
 import com.itsluminous.samaroh.core.google.calendar.RestCalendarService
 import com.itsluminous.samaroh.core.google.drive.DriveAttachmentUploader
 import com.itsluminous.samaroh.core.google.drive.DriveBackedAttachmentUploadQueue
+import com.itsluminous.samaroh.core.google.drive.DriveItemImageMirror
 import com.itsluminous.samaroh.core.google.drive.DriveService
 import com.itsluminous.samaroh.core.google.drive.DriveUploader
 import com.itsluminous.samaroh.core.google.drive.RestDriveService
@@ -44,6 +46,9 @@ abstract class GoogleModule {
 
     /** Supersedes `core:data`'s local-only placeholder queue (ADR-018). */
     @Binds abstract fun bindAttachmentUploadQueue(impl: DriveBackedAttachmentUploadQueue): AttachmentUploadQueue
+
+    /** Satisfies `core:sync`'s optional item-photo Drive mirror — the durable copy (ADR-055). */
+    @Binds abstract fun bindItemPhotoDriveMirror(impl: DriveItemImageMirror): ItemPhotoDriveMirror
 
     /** Sign-out wipes the per-device gcal push state with the rest of the local data (ADR-040). */
     @Binds
