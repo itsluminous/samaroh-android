@@ -145,14 +145,36 @@ class RoomExpensesLedgerRepositoryTest {
         }
 
     @Test
-    fun `cascade returns only the local cache paths of tombstoned attachments`() =
+    fun `cascade returns the device state of every tombstoned attachment (ADR-063)`() =
         runTest {
-            seed()
+            val (pending, driveBacked) = seed()
 
-            val localCachePaths = repository.deletePartyCascade(party.id)
+            val deleted = repository.deletePartyCascade(party.id)
 
-            // The Drive-backed attachment has no local file; the survivor party's file stays.
-            assertThat(localCachePaths).containsExactly("/tmp/pending-bill.jpg")
+            // Cache paths for local cleanup AND drive ids for the best-effort Drive delete;
+            // the survivor party's attachment is untouched.
+            assertThat(deleted).containsExactly(
+                CascadeDeletedAttachment(pending.id, null, "/tmp/pending-bill.jpg"),
+                CascadeDeletedAttachment(driveBacked.id, "drive-file-1", null),
+            )
+        }
+
+    @Test
+    fun `entry cascade tombstones the entry and its attachments, children first (ADR-063)`() =
+        runTest {
+            val (pending, _) = seed()
+
+            val deleted = repository.deleteExpenseCascade(expense1.id)
+
+            assertThat(deleted).containsExactly(CascadeDeletedAttachment(pending.id, null, "/tmp/pending-bill.jpg"))
+            assertThat(db.expenseDao().byId(expense1.id)?.deletedAt).isEqualTo(deleteInstant)
+            assertThat(db.expenseAttachmentDao().byId(pending.id)?.deletedAt).isEqualTo(deleteInstant)
+            // The party and its OTHER entry stay live.
+            assertThat(db.partyDao().byId(party.id)?.deletedAt).isNull()
+            assertThat(db.expenseDao().byId(expense2.id)?.deletedAt).isNull()
+            // Outbox: attachment DELETE first, then the entry DELETE.
+            assertThat(outbox.records.map { it.entityType }).isEqualTo(listOf("expense_attachments", "expenses"))
+            assertThat(outbox.records.map { it.entityId }).isEqualTo(listOf(pending.id, expense1.id))
         }
 
     @Test
@@ -172,9 +194,9 @@ class RoomExpensesLedgerRepositoryTest {
         runTest {
             db.partyDao().upsert(party.toEntity())
 
-            val localCachePaths = repository.deletePartyCascade(party.id)
+            val deleted = repository.deletePartyCascade(party.id)
 
-            assertThat(localCachePaths).isEmpty()
+            assertThat(deleted).isEmpty()
             assertThat(outbox.records).hasSize(1)
             assertThat(outbox.records.single().entityType).isEqualTo("parties")
             assertThat(db.partyDao().byId(party.id)?.deletedAt).isEqualTo(deleteInstant)

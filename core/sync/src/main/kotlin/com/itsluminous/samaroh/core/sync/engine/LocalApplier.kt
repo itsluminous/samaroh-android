@@ -151,12 +151,21 @@ class LocalApplier
                         expenseAttachmentDao::upsert,
                     ) { it.id }
                 }
-                "master_items" ->
+                "master_items" -> {
+                    val model = json.decodeFromJsonElement(MasterItem.serializer(), row)
+                    // drive_permission_ensured is Room-only state; preserve it across
+                    // pulled updates while the Drive photo is unchanged (ADR-063 —
+                    // the exact expense_attachments ADR-059 shape). A pulled row with a
+                    // NEW drive_image_id resets the flag so the repair pass re-runs.
+                    val existing = masterItemDao.byId(model.id)
+                    val keepEnsured =
+                        existing != null && existing.driveImageId == model.driveImageId && existing.drivePermissionEnsured
                     upsertIfChanged(
-                        json.decodeFromJsonElement(MasterItem.serializer(), row).toEntity(),
+                        model.toEntity(drivePermissionEnsured = keepEnsured),
                         masterItemDao::byId,
                         masterItemDao::upsert,
                     ) { it.id }
+                }
                 "inventory_transactions" ->
                     upsertIfChanged(
                         json.decodeFromJsonElement(InventoryTransaction.serializer(), row).toEntity(),

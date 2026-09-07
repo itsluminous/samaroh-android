@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
+import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
 import com.itsluminous.samaroh.core.google.rest.GoogleApiException
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import kotlinx.coroutines.test.runTest
@@ -17,10 +18,11 @@ import java.io.File
 import java.time.Instant
 
 /**
- * ADR-059 retroactive repair: bills uploaded before the link-permission change (or whose
- * inline permission call failed) gain the anyone-with-link reader permission on the
- * uploader's device, N per sync run, idempotently; definitive not-my-file answers stop
- * this device retrying without ever syncing that verdict.
+ * ADR-059 retroactive repair (item photos added by ADR-063): bills AND item photos
+ * uploaded before the link-permission change (or whose inline permission call failed)
+ * gain the anyone-with-link reader permission on the uploader's device, N per set per
+ * sync run, idempotently; definitive not-my-file answers stop this device retrying
+ * without ever syncing that verdict.
  */
 @RunWith(RobolectricTestRunner::class)
 class DriveAttachmentPermissionRepairTest {
@@ -36,7 +38,7 @@ class DriveAttachmentPermissionRepairTest {
         context = ApplicationProvider.getApplicationContext()
         db = inMemoryDatabase(context)
         driveService = ScriptedDriveService()
-        repair = DriveAttachmentPermissionRepair(db.expenseAttachmentDao(), driveService)
+        repair = DriveAttachmentPermissionRepair(db.expenseAttachmentDao(), db.masterItemDao(), driveService)
     }
 
     @After
@@ -61,6 +63,29 @@ class DriveAttachmentPermissionRepairTest {
                 fileName = "$id.jpg",
                 drivePermissionEnsured = ensured,
                 createdAt = createdAt,
+                deletedAt = deletedAt,
+            ),
+        )
+    }
+
+    private suspend fun seedItem(
+        id: String,
+        driveImageId: String? = "drive-$id",
+        ensured: Boolean = false,
+        deletedAt: Instant? = null,
+        updatedAt: Instant = now,
+    ) {
+        db.masterItemDao().upsert(
+            MasterItemEntity(
+                id = id,
+                businessId = "biz-1",
+                name = "Item $id",
+                unit = "pcs",
+                imagePath = null,
+                driveImageId = driveImageId,
+                drivePermissionEnsured = ensured,
+                createdAt = now,
+                updatedAt = updatedAt,
                 deletedAt = deletedAt,
             ),
         )
@@ -114,6 +139,47 @@ class DriveAttachmentPermissionRepairTest {
             assertThat(driveService.ensuredFileIds.first()).isEqualTo("drive-att-0")
 
             assertThat(repair.repairPending()).isEqualTo(3)
+        }
+
+    @Test
+    fun `repairs pending item photos too and marks their local flag (ADR-063)`() =
+        runTest {
+            seedRow("att-1")
+            seedItem("item-1")
+            seedItem("item-done", ensured = true)
+            seedItem("item-dead", deletedAt = now)
+            seedItem("item-unmirrored", driveImageId = null)
+
+            val settled = repair.repairPending()
+
+            assertThat(settled).isEqualTo(2)
+            assertThat(driveService.ensuredFileIds).containsExactly("drive-att-1", "drive-item-1")
+            assertThat(db.masterItemDao().byId("item-1")?.drivePermissionEnsured).isTrue()
+            // Idempotent tracking: a second run touches nothing.
+            driveService.ensuredFileIds.clear()
+            assertThat(repair.repairPending()).isEqualTo(0)
+        }
+
+    @Test
+    fun `item-photo throttle is its own budget, oldest first`() =
+        runTest {
+            repeat(DriveAttachmentPermissionRepair.MAX_REPAIRS_PER_RUN + 2) { index ->
+                seedItem("item-$index", updatedAt = now.plusSeconds(index.toLong()))
+            }
+
+            assertThat(repair.repairPending()).isEqualTo(DriveAttachmentPermissionRepair.MAX_REPAIRS_PER_RUN)
+            assertThat(driveService.ensuredFileIds.first()).isEqualTo("drive-item-0")
+            assertThat(repair.repairPending()).isEqualTo(2)
+        }
+
+    @Test
+    fun `not-my-file item photo (403) marks the local flag so this device stops retrying`() =
+        runTest {
+            seedItem("item-theirs")
+            driveService.errorsByFileId["drive-item-theirs"] = GoogleApiException(403, "forbidden")
+
+            assertThat(repair.repairPending()).isEqualTo(1)
+            assertThat(db.masterItemDao().byId("item-theirs")?.drivePermissionEnsured).isTrue()
         }
 
     @Test

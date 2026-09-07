@@ -107,7 +107,8 @@ internal fun Expense.toEntity() =
 
 internal fun MasterItemEntity.toModel() = MasterItem(id, businessId, name, unit, imagePath, driveImageId, createdAt, updatedAt, deletedAt)
 
-internal fun MasterItem.toEntity() = MasterItemEntity(id, businessId, name, unit, imagePath, driveImageId, createdAt, updatedAt, deletedAt)
+internal fun MasterItem.toEntity(drivePermissionEnsured: Boolean = false) =
+    MasterItemEntity(id, businessId, name, unit, imagePath, driveImageId, drivePermissionEnsured, createdAt, updatedAt, deletedAt)
 
 internal fun InventoryTransactionEntity.toModel() =
     InventoryTransaction(

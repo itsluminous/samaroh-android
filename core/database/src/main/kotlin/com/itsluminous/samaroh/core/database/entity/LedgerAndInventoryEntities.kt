@@ -82,6 +82,12 @@ data class MasterItemEntity(
     val unit: String,
     @ColumnInfo(name = "image_path") val imagePath: String? = null,
     @ColumnInfo(name = "drive_image_id") val driveImageId: String? = null,
+    /**
+     * DEVICE-ONLY (never synced, ADR-063 — the exact `expense_attachments` ADR-059
+     * shape): true once this device confirmed the anyone-with-link reader permission on
+     * the Drive photo (or confirmed it can never do so — another account's file).
+     */
+    @ColumnInfo(name = "drive_permission_ensured", defaultValue = "0") val drivePermissionEnsured: Boolean = false,
     @ColumnInfo(name = "created_at") val createdAt: Instant,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,

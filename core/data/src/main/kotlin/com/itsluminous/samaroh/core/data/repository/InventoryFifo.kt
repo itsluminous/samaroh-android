@@ -37,6 +37,8 @@ data class CurrentInventoryLine(
     val name: String,
     val unit: String,
     val imagePath: String?,
+    /** Drive photo id (ADR-063) — the serving source when no local file exists. */
+    val driveImageId: String?,
     val currentQuantity: Double,
     /** Long paise (ADR-002). */
     val totalValuePaise: Long,
@@ -139,6 +141,7 @@ class FifoInventoryRepository
                         name = it.name,
                         unit = it.unit,
                         imagePath = it.imagePath,
+                        driveImageId = it.driveImageId,
                         currentQuantity = roundQuantity(it.currentQuantity),
                         totalValuePaise = it.totalValuePaise,
                         lastTransactionAt = it.lastTransactionAt,

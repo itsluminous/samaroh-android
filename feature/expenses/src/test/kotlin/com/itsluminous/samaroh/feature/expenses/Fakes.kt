@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.expenses
 
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
+import com.itsluminous.samaroh.core.data.repository.CascadeDeletedAttachment
 import com.itsluminous.samaroh.core.data.repository.ExpenseTotals
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
@@ -71,6 +72,7 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
     val attachments = MutableStateFlow<List<AttachmentWithLocalState>>(emptyList())
     val savedAttachments = mutableListOf<Pair<ExpenseAttachment, String?>>()
     val cascadeDeletedPartyIds = mutableListOf<String>()
+    val cascadeDeletedExpenseIds = mutableListOf<String>()
 
     override fun totals(businessId: String): Flow<ExpenseTotals> =
         expenses.map { list ->
@@ -128,7 +130,7 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
             }
     }
 
-    override suspend fun deletePartyCascade(partyId: String): List<String> {
+    override suspend fun deletePartyCascade(partyId: String): List<CascadeDeletedAttachment> {
         cascadeDeletedPartyIds += partyId
         val liveExpenseIds =
             expenses.value
@@ -139,7 +141,15 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
         attachments.value = attachments.value - removed.toSet()
         expenses.value = expenses.value.filterNot { it.id in liveExpenseIds }
         parties.value = parties.value.filter { it.id != partyId }
-        return removed.mapNotNull { it.localCachePath }
+        return removed.map { CascadeDeletedAttachment(it.attachment.id, it.attachment.driveFileId, it.localCachePath) }
+    }
+
+    override suspend fun deleteExpenseCascade(expenseId: String): List<CascadeDeletedAttachment> {
+        cascadeDeletedExpenseIds += expenseId
+        val removed = attachments.value.filter { it.attachment.expenseId == expenseId }
+        attachments.value = attachments.value - removed.toSet()
+        expenses.value = expenses.value.filterNot { it.id == expenseId }
+        return removed.map { CascadeDeletedAttachment(it.attachment.id, it.attachment.driveFileId, it.localCachePath) }
     }
 }
 

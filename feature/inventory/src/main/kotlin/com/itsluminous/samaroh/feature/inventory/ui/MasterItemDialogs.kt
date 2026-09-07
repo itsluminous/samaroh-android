@@ -51,6 +51,7 @@ import com.itsluminous.samaroh.feature.inventory.MasterItemFormError
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
 import com.itsluminous.samaroh.feature.inventory.UnitGroup
 import com.itsluminous.samaroh.feature.inventory.UnitOption
+import com.itsluminous.samaroh.feature.inventory.image.ItemPhoto
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
 
@@ -116,7 +117,19 @@ internal fun MasterItemEditorDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    val editorImageModel = rememberItemImageModel(state.imagePath)
+                    // Editor preview: a fresh crop is a local file; an unchanged photo may
+                    // resolve via the item's Drive copy (ADR-063).
+                    val editorImageModel =
+                        rememberItemImageModel(
+                            ItemPhoto(
+                                itemId = state.targetItemId,
+                                imagePath = state.imagePath,
+                                driveImageId =
+                                    state.editingItem
+                                        ?.takeIf { it.imagePath == state.imagePath }
+                                        ?.driveImageId,
+                            ),
+                        )
                     if (editorImageModel != null) {
                         AsyncImage(
                             model = editorImageModel,

@@ -84,15 +84,32 @@ interface ExpensesLedgerRepository {
     )
 
     /**
-     * Party delete (ADR-028): tombstones the party AND cascades to its live expenses and
-     * their attachments — children first (attachments → expenses → party), one outbox
-     * DELETE row per tombstone so the server mirrors the cascade. Attachments with a
-     * `drive_file_id` only get their metadata tombstoned (Drive purge is out of scope
-     * pre-OAuth). Returns the `local_cache_path` of every tombstoned attachment so the
-     * caller can remove the on-device cached files.
+     * Party delete (ADR-028; return widened by ADR-063): tombstones the party AND
+     * cascades to its live expenses and their attachments — children first
+     * (attachments → expenses → party), one outbox DELETE row per tombstone so the
+     * server mirrors the cascade. Returns every tombstoned attachment's device state
+     * so the caller can remove local cache files AND best-effort delete the Drive
+     * copies (the ADR-053 viewer-delete pattern, extended to cascades).
      */
-    suspend fun deletePartyCascade(partyId: String): List<String>
+    suspend fun deletePartyCascade(partyId: String): List<CascadeDeletedAttachment>
+
+    /**
+     * Entry delete cascade (ADR-063, additive): tombstones the entry's live attachments
+     * (one outbox DELETE each) and then the expense row itself — children first, the
+     * party-cascade shape scoped to one entry. Returns the tombstoned attachments'
+     * device state for local-file and best-effort Drive cleanup, like
+     * [deletePartyCascade]. The plain `ExpensesRepository.deleteExpense` (no attachment
+     * handling) remains for rows known to carry none.
+     */
+    suspend fun deleteExpenseCascade(expenseId: String): List<CascadeDeletedAttachment>
 }
+
+/** Device-relevant remains of an attachment tombstoned by a cascade delete (ADR-063). */
+data class CascadeDeletedAttachment(
+    val attachmentId: String,
+    val driveFileId: String?,
+    val localCachePath: String?,
+)
 
 @Singleton
 class RoomExpensesLedgerRepository
@@ -154,7 +171,7 @@ class RoomExpensesLedgerRepository
             attachmentDao.updateLocalCachePath(id, localCachePath)
         }
 
-        override suspend fun deletePartyCascade(partyId: String): List<String> {
+        override suspend fun deletePartyCascade(partyId: String): List<CascadeDeletedAttachment> {
             val now = clock.instant()
             // Children first — mirrors the server FK order (attachments → expenses → party).
             val attachments = attachmentDao.liveForParty(partyId)
@@ -168,7 +185,20 @@ class RoomExpensesLedgerRepository
             }
             partyDao.tombstone(partyId, now)
             outboxWriter.enqueue("parties", partyId, OutboxOperation.DELETE, deletePayload(partyId, now))
-            return attachments.mapNotNull { it.localCachePath }
+            return attachments.map { CascadeDeletedAttachment(it.id, it.driveFileId, it.localCachePath) }
+        }
+
+        override suspend fun deleteExpenseCascade(expenseId: String): List<CascadeDeletedAttachment> {
+            val now = clock.instant()
+            // Children first — attachments, then the entry (ADR-063 entry cascade).
+            val attachments = attachmentDao.liveForExpense(expenseId)
+            attachments.forEach { attachment ->
+                attachmentDao.tombstone(attachment.id, now)
+                outboxWriter.enqueue("expense_attachments", attachment.id, OutboxOperation.DELETE, deletePayload(attachment.id, now))
+            }
+            expenseDao.tombstone(expenseId, now)
+            outboxWriter.enqueue("expenses", expenseId, OutboxOperation.DELETE, deletePayload(expenseId, now))
+            return attachments.map { CascadeDeletedAttachment(it.id, it.driveFileId, it.localCachePath) }
         }
 
         private fun deletePayload(

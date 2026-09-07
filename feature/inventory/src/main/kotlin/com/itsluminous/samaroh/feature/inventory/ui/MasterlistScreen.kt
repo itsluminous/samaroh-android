@@ -43,6 +43,7 @@ import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
+import com.itsluminous.samaroh.feature.inventory.image.ItemPhoto
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 
 /**
@@ -139,7 +140,8 @@ private fun MasterItemRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val imageModel = rememberItemImageModel(item.imagePath)
+            val imageModel =
+                rememberItemImageModel(ItemPhoto(itemId = item.id, imagePath = item.imagePath, driveImageId = item.driveImageId))
             if (imageModel != null) {
                 AsyncImage(
                     model = imageModel,

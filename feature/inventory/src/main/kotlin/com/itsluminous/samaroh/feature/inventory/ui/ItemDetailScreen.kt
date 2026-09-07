@@ -68,9 +68,9 @@ import com.itsluminous.samaroh.feature.inventory.ItemDetailViewModel
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
 import com.itsluminous.samaroh.feature.inventory.SavedTransaction
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import com.itsluminous.samaroh.feature.inventory.image.ItemPhoto
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
-import java.io.File
 import kotlin.math.roundToLong
 
 /**
@@ -96,7 +96,7 @@ fun ItemDetailScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var dialogType by remember { mutableStateOf<TxnType?>(null) }
-    var expandedImagePath by remember { mutableStateOf<String?>(null) }
+    var expandedPhoto by remember { mutableStateOf<ItemPhoto?>(null) }
     var overflowMenu by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -174,12 +174,12 @@ fun ItemDetailScreen(
                     ItemDetailHeader(
                         name = item.name,
                         unit = item.unit,
-                        imagePath = item.imagePath,
+                        photo = ItemPhoto(itemId = item.id, imagePath = item.imagePath, driveImageId = item.driveImageId),
                         currentQuantity = uiState.currentQuantity,
                         totalValuePaise = uiState.totalValuePaise,
                         showTransactionButtons = canRecord,
                         masked = !canViewAmounts,
-                        onImageTap = { path -> expandedImagePath = path },
+                        onImageTap = { photo -> expandedPhoto = photo },
                         onAdd = { dialogType = TxnType.ADD },
                         onRemove = { dialogType = TxnType.REMOVE },
                     )
@@ -254,12 +254,13 @@ fun ItemDetailScreen(
 
     // ADR-053 viewer: fullscreen + save-to-Downloads (local-file photos only); photo
     // removal lives in the masterlist editor, not here.
-    expandedImagePath?.let { path ->
+    expandedPhoto?.let { photo ->
+        val resolved = rememberItemImageModel(photo)
         ImageViewerDialog(
-            model = rememberItemImageModel(path),
+            model = resolved,
             contentDescription = stringResource(R.string.inventory_image_expanded),
-            onDismiss = { expandedImagePath = null },
-            downloadSource = File(path).takeIf { it.exists() },
+            onDismiss = { expandedPhoto = null },
+            downloadSource = resolved?.takeIf { it.exists() },
             downloadMimeType = "image/webp",
         )
     }
@@ -284,12 +285,12 @@ fun savedTransactionMessage(
 private fun ItemDetailHeader(
     name: String,
     unit: String,
-    imagePath: String?,
+    photo: ItemPhoto,
     currentQuantity: Double,
     totalValuePaise: Long,
     showTransactionButtons: Boolean,
     masked: Boolean,
-    onImageTap: (String) -> Unit,
+    onImageTap: (ItemPhoto) -> Unit,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
@@ -297,8 +298,8 @@ private fun ItemDetailHeader(
     Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                val imageModel = rememberItemImageModel(imagePath)
-                if (imageModel != null && imagePath != null) {
+                val imageModel = rememberItemImageModel(photo)
+                if (imageModel != null) {
                     AsyncImage(
                         model = imageModel,
                         contentDescription = name,
@@ -306,7 +307,7 @@ private fun ItemDetailHeader(
                             Modifier
                                 .size(72.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable { onImageTap(imagePath) },
+                                .clickable { onImageTap(photo) },
                     )
                 } else {
                     Icon(

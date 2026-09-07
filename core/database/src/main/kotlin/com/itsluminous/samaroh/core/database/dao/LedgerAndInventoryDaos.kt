@@ -200,6 +200,14 @@ interface ExpenseAttachmentDao {
     suspend fun liveForParty(partyId: String): List<ExpenseAttachmentEntity>
 
     /**
+     * One-shot live attachments of one entry — the entry-delete cascade input (ADR-063,
+     * extending the ADR-028 party-cascade shape): rows are tombstoned, their
+     * `local_cache_path` files removed and their Drive copies best-effort deleted.
+     */
+    @Query("SELECT * FROM expense_attachments WHERE expense_id = :expenseId AND deleted_at IS NULL")
+    suspend fun liveForExpense(expenseId: String): List<ExpenseAttachmentEntity>
+
+    /**
      * ADDITIVE view-attachment support (ADR-052): stamps the device-local cache path after
      * a Drive download. `local_cache_path` is Room-only state — callers never enqueue an
      * outbox op for this write.
@@ -265,14 +273,34 @@ interface MasterItemDao {
     suspend fun byId(id: String): MasterItemEntity?
 
     /**
-     * Candidates for the Drive item-photo mirror (ADR-055/058, additive): live rows with
-     * a photo but no Drive copy yet. The caller further requires the photo to be a
-     * mirrored Storage path and sources the bytes from the device-local file or an
-     * authenticated Storage download — those checks live in Kotlin (file-system and
-     * network state have no place in SQL).
+     * Candidates for the Drive item-photo mirror (ADR-055/063, additive): live rows with
+     * a photo but no Drive copy yet. The caller further requires a device-local source
+     * file (the row's local `image_path` or the legacy `{itemId}.webp` original) — only
+     * the device that took a photo can mirror it (file-system state has no place in SQL).
      */
     @Query("SELECT * FROM master_items WHERE drive_image_id IS NULL AND image_path IS NOT NULL AND deleted_at IS NULL")
     suspend fun pendingDriveImageMirror(): List<MasterItemEntity>
+
+    /**
+     * ADDITIVE (ADR-063): live rows whose Drive photo still lacks the anyone-with-link
+     * reader permission — the item-photo half of the ADR-059 repair pass. Oldest first
+     * so the backlog drains deterministically across throttled runs.
+     */
+    @Query(
+        """
+        SELECT * FROM master_items
+        WHERE drive_image_id IS NOT NULL AND drive_permission_ensured = 0 AND deleted_at IS NULL
+        ORDER BY updated_at ASC LIMIT :limit
+        """,
+    )
+    suspend fun pendingDrivePermissionRepair(limit: Int): List<MasterItemEntity>
+
+    /**
+     * ADDITIVE (ADR-063): stamps the device-only permission flag. Like the
+     * `expense_attachments` twin, callers never enqueue an outbox op — it never syncs.
+     */
+    @Query("UPDATE master_items SET drive_permission_ensured = 1 WHERE id = :id")
+    suspend fun markDrivePermissionEnsured(id: String)
 
     @Query("UPDATE master_items SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
@@ -292,6 +320,8 @@ data class CurrentInventoryRow(
     val name: String,
     val unit: String,
     val imagePath: String?,
+    /** Drive photo id (ADR-063) — the serving source when no local file exists. */
+    val driveImageId: String?,
     val currentQuantity: Double,
     /** Long paise (ADR-002); per-lot products are rounded to whole paise. */
     val totalValuePaise: Long,
@@ -307,6 +337,7 @@ interface InventoryTransactionDao {
     @Query(
         """
         SELECT mi.id AS masterItemId, mi.name AS name, mi.unit AS unit, mi.image_path AS imagePath,
+            mi.drive_image_id AS driveImageId,
             COALESCE(SUM(CASE t.transaction_type WHEN 'add' THEN t.quantity WHEN 'remove' THEN -t.quantity END), 0)
                 AS currentQuantity,
             CAST(ROUND(COALESCE(SUM(

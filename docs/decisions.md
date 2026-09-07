@@ -2266,3 +2266,73 @@ rejected:
 **Consequences.** After one online sync, the whole inventory (list, detail, expand
 viewer) renders with airplane mode on. Item photos are WebP ≤320px (ADR-025), so a full
 warm-up is a few MB once; subsequent syncs are cache probes only.
+
+## ADR-063 — Drive-first item photos: Drive is THE image store (2026-09-07)
+
+**Status:** accepted. Owner-directed pivot. Frozen-contract touches, per ADR-001:
+Room migration 10→11 (`master_items.drive_permission_ensured`, device-only),
+additive `MasterItemDao` queries, `ItemImageResolver` signature revised,
+`ExpensesLedgerRepository.deletePartyCascade` return widened + additive
+`deleteExpenseCascade`, `CurrentInventoryLine/Row.driveImageId`. Supersedes the
+serving/mirroring halves of ADR-023 and the storage-download half of ADR-058; extends
+ADR-052/059 (resolver ladder + link sharing), ADR-053 (delete cascades), ADR-055
+(Drive upload), ADR-062 (offline warm-up).
+
+**Context.** The owner deleted the Supabase `inventory-images` bucket believing the
+Drive migration complete — Storage serving is DEAD. All 33 item photos exist in his
+Drive with `drive_image_id` set (ADR-055/058 mirror). Bills already serve from Drive
+for every member (ADR-059). Drive is now THE image store for item photos too.
+
+**Decision.**
+1. **Serving ladder** (`LocalFirstItemImageResolver`, `core:data`; binding moved from
+   `core:auth` to `DataModule`): (1) the row's local `image_path` file → (2) the legacy
+   `{itemId}.webp` original → (3) the Drive-download cache
+   `inventory-images/drive-{driveImageId}.webp` → (4) `drive_image_id` set → download
+   own-token `files.get?alt=media`, fall back to the PUBLIC LINK (`uc?export=download`,
+   HTML-interstitial guard upstream) — the exact ADR-052/059 attachment ladder — cache
+   the file, re-render → (5) placeholder. `ItemPhotoDriveFetcher` (feature:inventory)
+   downloads via temp-file + rename (a torn download is never a cache hit) and dedupes
+   concurrent requests per id. Rendering passes `ItemPhoto(itemId, imagePath,
+   driveImageId)`; the Coil remote path (authenticated Storage URLs, ADR-023 §2) is
+   retired.
+2. **Offline warm-up pivots with it** (ADR-062): `ItemImagePrefetcher` now downloads
+   not-yet-cached Drive photos into the file cache after every completed pull and
+   sweeps orphaned `drive-*.webp` entries (a replaced photo = a NEW drive id, so the
+   cache never serves stale bytes and never grows unbounded). ADR-062's "don't write
+   into the local convention" concern is void: the mirror now keys off local ORIGINALS
+   (`{itemId}.webp` / local `image_path`), never `drive-*` cache files.
+3. **New photos upload DIRECTLY to Drive** — the ADR-023 Storage upload
+   (`StorageItemImageMirror`, the engine's `ensureItemImageMirrored` outbox patch) is
+   retired. `image_path` KEEPS the local-file convention and syncs as-is (meaningless
+   on other devices by design); `drive_image_id` is the cross-device source of truth.
+   The ADR-055 mirror's pending predicate becomes "no `drive_image_id` + local bytes
+   exist"; the ADR-058 Storage downloader is deleted (bucket gone — a hypothetical
+   storage-only row without a drive id simply keeps its placeholder). Unlinked users:
+   the photo stays local-only and renders locally; the mirror picks it up on the first
+   sync after linking (unchanged pending-until-linked semantics). Item rows are NEVER
+   blocked on the photo upload (unlike bills, §8) — the row pushes immediately.
+4. **Anyone-with-link sharing, like bills** (ADR-059 posture): the mirror ensures the
+   reader permission inline on every new upload (best-effort, stamped into the new
+   device-only `master_items.drive_permission_ensured`, preserved across pulls by
+   `LocalApplier` and across edits while `drive_image_id` is unchanged), and the
+   ADR-059 repair pass now covers `master_items` too — 10 rows per set per sync run,
+   oldest first, 403/404 = not-my-file = stop retrying locally. The existing 33 photos
+   repair from the owner's phone within ~4 syncs. THREAT MODEL unchanged from ADR-059:
+   anyone WITH a link can view that one photo; ids are high-entropy, discovery is off,
+   ids live behind RLS. ADR-059 §6 ("item-photo mirrors are deliberately NOT shared")
+   is superseded — serving from Drive requires the permission.
+5. **Deleting an expense ENTRY (and the party cascade) also deletes Drive bills**:
+   `deleteExpenseCascade` tombstones the entry's attachments + the entry (children
+   first, one outbox DELETE each); both cascades return
+   `CascadeDeletedAttachment(driveFileId, localCachePath)` and the ViewModel hands
+   them to `AttachmentDeleter.cleanUpCascade` — local cache removed, best-effort Drive
+   `files.delete`, non-fatal on failure, skipped when unlinked (ADR-053 semantics
+   extended from the viewer to cascades).
+
+**Consequences.** Inventory photos render from Drive on every device (members via the
+public link once repaired), keep working fully offline via the file cache, and new
+photos take one upload instead of two. `master_items.image_path` on the server now
+carries device-local paths for Android-added photos — readers must treat
+`drive_image_id` as authoritative (web change tracked separately). Failure modes log
+under `SamarohItemImage` (fetch), `SamarohDriveMirror` (upload), `SamarohDriveRepair`
+(permissions).

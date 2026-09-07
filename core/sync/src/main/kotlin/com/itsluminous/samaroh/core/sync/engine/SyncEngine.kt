@@ -1,6 +1,5 @@
 package com.itsluminous.samaroh.core.sync.engine
 
-import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
@@ -29,7 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -75,8 +73,7 @@ class SyncEngine
         private val applier: LocalApplier,
         private val remoteStoreProvider: RemoteStoreProvider,
         private val attachmentUploader: Optional<AttachmentUploader>,
-        private val itemImageMirror: ItemImageMirror,
-        /** Drive durable-copy mirror for item photos (ADR-055) — bound by `core:google`. */
+        /** Drive-first item-photo upload (ADR-055/063) — bound by `core:google`. */
         private val itemPhotoDriveMirror: Optional<ItemPhotoDriveMirror>,
         /** Link-shares Drive bills so members can view them (ADR-059) — bound by `core:google`. */
         private val attachmentPermissionRepair: Optional<AttachmentPermissionRepair>,
@@ -105,10 +102,10 @@ class SyncEngine
                     val pushResult = push(remote)
                     pushed = pushResult.first
                     itemErrors = pushResult.second
-                    // ADR-055: AFTER the push (so a new photo's Storage upload already
-                    // succeeded), silently mirror pending item photos to Drive. A
-                    // successful mirror enqueues the row upsert carrying drive_image_id;
-                    // drain those in the same run. Never blocks or fails the sync.
+                    // ADR-055/063: AFTER the push, silently upload pending item photos
+                    // to Drive (the image store since ADR-063). A successful mirror
+                    // enqueues the row upsert carrying drive_image_id; drain those in
+                    // the same run. Never blocks or fails the sync.
                     val mirrored =
                         itemPhotoDriveMirror.orElse(null)?.let { mirror ->
                             runCatching { mirror.mirrorPending() }.getOrDefault(0)
@@ -118,9 +115,9 @@ class SyncEngine
                         pushed += drain.first
                         itemErrors += drain.second
                     }
-                    // ADR-059: ensure link-reader permissions on Drive bills (retroactive
-                    // repair + inline-failure retry). Writes only the device-local flag —
-                    // no outbox drain needed. Never blocks or fails the sync.
+                    // ADR-059/063: ensure link-reader permissions on Drive bills AND
+                    // item photos (retroactive repair + inline-failure retry). Writes
+                    // only device-local flags — no outbox drain. Never blocks the sync.
                     attachmentPermissionRepair.orElse(null)?.let { repair ->
                         runCatching { repair.repairPending() }
                     }
@@ -218,9 +215,9 @@ class SyncEngine
             if (entry.entityType == ATTACHMENTS_TABLE && entry.operation == OutboxOperation.UPSERT.wire) {
                 payloadJson = ensureAttachmentUploaded(entry, payloadJson)
             }
-            if (entry.entityType == MASTER_ITEMS_TABLE && entry.operation == OutboxOperation.UPSERT.wire) {
-                payloadJson = ensureItemImageMirrored(entry, payloadJson)
-            }
+            // master_items rows push as-is (ADR-063): a device-local `image_path` is no
+            // longer rewritten to a Storage object path — the bucket is gone; other
+            // devices serve the photo from `drive_image_id` (stamped by the Drive mirror).
             val spec = SyncTables.byName(entry.entityType)
             when (OutboxOperation.fromWire(entry.operation)) {
                 OutboxOperation.UPSERT -> remote.upsert(entry.entityType, WireConverter.toWire(entry.entityType, payloadJson))
@@ -267,40 +264,6 @@ class SyncEngine
                         throw RemoteRejectedException(result.message)
                     }
             }
-        }
-
-        /**
-         * Local item photos are mirrored to Storage BEFORE the row op pushes (ADR-023) —
-         * mirrors the attachment queue contract. A device-local `image_path` is patched
-         * to the uploaded Storage object path (or null when the file vanished) in the
-         * outbox payload AND Room, so a local file path never reaches the server.
-         */
-        private suspend fun ensureItemImageMirrored(
-            entry: OutboxEntity,
-            payloadJson: String,
-        ): String {
-            val payload = json.parseToJsonElement(payloadJson).jsonObject
-            val imagePath =
-                payload["image_path"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
-                    ?: return payloadJson
-            if (!isLocalItemImagePath(imagePath)) return payloadJson
-            val businessId =
-                payload["business_id"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
-                    ?: return payloadJson
-            val patchedPath: JsonElement =
-                when (val result = itemImageMirror.mirror(businessId, entry.entityId, imagePath)) {
-                    is ItemImageMirror.Result.Uploaded -> JsonPrimitive(result.storagePath)
-                    // Dead local reference (file cleaned up): push the row without a photo
-                    // rather than blocking every later edit of the item forever.
-                    ItemImageMirror.Result.MissingFile -> JsonNull
-                    is ItemImageMirror.Result.Retriable -> throw AttachmentPendingException(result.message)
-                    is ItemImageMirror.Result.Rejected -> throw RemoteRejectedException(result.message)
-                }
-            val patched = JsonObject(payload + ("image_path" to patchedPath))
-            val patchedJson = patched.toString()
-            outboxDao.rewritePayload(entry.id, patchedJson)
-            applier.apply(MASTER_ITEMS_TABLE, patched)
-            return patchedJson
         }
 
         // ---------------------------------------------------------------- pull
@@ -573,7 +536,6 @@ class SyncEngine
             /** Re-enumeration bound: pass 1 covers known businesses, later passes catch mid-run arrivals. */
             private const val MAX_PULL_PASSES = 3
             private const val ATTACHMENTS_TABLE = "expense_attachments"
-            private const val MASTER_ITEMS_TABLE = "master_items"
 
             /** Machine-readable error code; the Settings sync-status UI maps it to a localized string. */
             const val ERROR_STORAGE_NOT_LINKED = "attachment-pending-storage-link"

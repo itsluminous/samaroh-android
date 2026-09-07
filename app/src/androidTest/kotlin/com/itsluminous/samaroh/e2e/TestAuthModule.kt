@@ -8,11 +8,9 @@ import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.auth.SessionActiveBusinessProvider
 import com.itsluminous.samaroh.core.auth.SessionCurrentUserProvider
 import com.itsluminous.samaroh.core.auth.SessionHolder
-import com.itsluminous.samaroh.core.auth.StorageItemImageResolver
 import com.itsluminous.samaroh.core.auth.SupabaseAuthManager
 import com.itsluminous.samaroh.core.auth.SupabaseMembershipRefresher
 import com.itsluminous.samaroh.core.auth.di.AuthModule
-import com.itsluminous.samaroh.core.data.image.ItemImageResolver
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import dagger.Binds
@@ -46,8 +44,6 @@ abstract class TestAuthModule {
     @Binds abstract fun bindActiveBusinessProvider(impl: SessionActiveBusinessProvider): ActiveBusinessProvider
 
     @Binds abstract fun bindCurrentUserProvider(impl: SessionCurrentUserProvider): CurrentUserProvider
-
-    @Binds abstract fun bindItemImageResolver(impl: StorageItemImageResolver): ItemImageResolver
 
     companion object {
         /** Blank values = unconfigured; every consumer degrades to offline-only. */

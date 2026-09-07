@@ -263,6 +263,7 @@ class RecordTransactionViewModelTest {
         name = name,
         unit = "pcs",
         imagePath = null,
+        driveImageId = null,
         currentQuantity = quantity,
         totalValuePaise = 0L,
         lastTransactionAt = null,

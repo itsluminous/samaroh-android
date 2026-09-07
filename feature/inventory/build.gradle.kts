@@ -44,6 +44,8 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:data"))
     implementation(project(":core:auth"))
+    // Drive-hosted item photos (ADR-063): download-on-render + post-sync prefetch.
+    implementation(project(":core:google"))
 
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.activity.compose)

@@ -18,6 +18,7 @@ class InventoryValuationCalculatorTest {
         name = "item-$id",
         unit = "pcs",
         imagePath = null,
+        driveImageId = null,
         currentQuantity = quantity,
         totalValuePaise = valuePaise,
         lastTransactionAt = Fixtures.NOW,

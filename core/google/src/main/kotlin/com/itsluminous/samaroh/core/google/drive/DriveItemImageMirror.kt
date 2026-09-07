@@ -2,7 +2,6 @@ package com.itsluminous.samaroh.core.google.drive
 
 import android.content.Context
 import android.util.Log
-import com.itsluminous.samaroh.core.data.image.ItemPhotoStorageDownloader
 import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
 import com.itsluminous.samaroh.core.data.image.localItemImageFile
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
@@ -20,26 +19,24 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * [ItemPhotoDriveMirror] over the shared [DriveUploader] (ADR-055 + ADR-058): uploads each
- * pending item photo to `Samaroh/{Business}/images/inventory/` (§9.1) as
- * `{item name}-{yyyyMMdd-HHmmss}.webp` ([DriveNameFactory]) and stamps the returned file
- * id into `master_items.drive_image_id` (Room + outbox upsert, so it syncs and the
- * ADR-023 backup manifest can reference it).
+ * [ItemPhotoDriveMirror] over the shared [DriveUploader] (ADR-055/058, Drive-first since
+ * ADR-063): uploads each pending item photo to `Samaroh/{Business}/images/inventory/`
+ * (§9.1) as `{item name}-{yyyyMMdd-HHmmss}.webp` ([DriveNameFactory]), best-effort
+ * shares it anyone-with-link (members and the web render from Drive now — the exact
+ * ADR-059 bill posture) and stamps the returned file id into
+ * `master_items.drive_image_id` (Room + outbox upsert, so it syncs and other devices can
+ * serve the photo).
  *
- * A photo is pending when its row has no `drive_image_id` and its `image_path` is already
- * a Storage object path (the ADR-023 serving upload succeeded first — Drive is only the
- * durable copy). The bytes come from either of two sources:
- *
- * - the device-local `{itemId}.webp` file when THIS device took the photo (free, never
- *   throttled), or
- * - a Supabase Storage download ([ItemPhotoStorageDownloader]) for rows with NO local
- *   file — web imports and legacy photos (the ADR-055 gap). Downloads cost a full
- *   round-trip each, so at most [MAX_STORAGE_DOWNLOADS_PER_RUN] rows download per sync
- *   run; the rest simply stay pending and the next run continues where this one stopped
- *   (a 100-item import drains across ~10 runs instead of hammering one).
+ * A photo is pending when its live row has no `drive_image_id` and a device-local source
+ * file exists: the row's own local `image_path` (ADR-063 form) or the legacy
+ * `{itemId}.webp` original. Only the device that took a photo can mirror it — Supabase
+ * Storage (the ADR-058 download source for web imports) is gone, so rows without a local
+ * file stay as they are (all migrated rows already carry a `drive_image_id`).
  *
  * Not-linked stops the whole pass silently; per-item failures are logged and left pending
- * for the next sync run.
+ * for the next sync run. A failed inline permission never fails the upload — the row's
+ * device-only `drive_permission_ensured` flag stays unset and the ADR-059/063 repair
+ * pass retries.
  */
 @Singleton
 class DriveItemImageMirror
@@ -49,7 +46,7 @@ class DriveItemImageMirror
         private val masterItemDao: MasterItemDao,
         private val businessDao: BusinessDao,
         private val driveUploader: DriveUploader,
-        private val storageDownloader: ItemPhotoStorageDownloader,
+        private val driveService: DriveService,
         private val nameFactory: DriveNameFactory,
         private val outboxWriter: OutboxWriter,
         private val clock: Clock,
@@ -59,71 +56,68 @@ class DriveItemImageMirror
         override suspend fun mirrorPending(): Int {
             val candidates = masterItemDao.pendingDriveImageMirror()
             var mirrored = 0
-            var downloadsUsed = 0
             for (row in candidates) {
-                val imagePath = row.imagePath ?: continue
-                // Storage upload not done yet (or a path form we don't own): not our turn.
-                if (isLocalItemImagePath(imagePath)) continue
-                val business = businessDao.byId(row.businessId) ?: continue
-                val localFile = localItemImageFile(context, row.id)
-                val isTemp: Boolean
-                val sourceFile: File
-                if (localFile.isFile) {
-                    // This device took the photo — mirror straight from disk (ADR-055).
-                    sourceFile = localFile
-                    isTemp = false
-                } else {
-                    // Storage-only row (web import / legacy, ADR-058): download, throttled.
-                    if (downloadsUsed >= MAX_STORAGE_DOWNLOADS_PER_RUN) continue
-                    downloadsUsed++
-                    val bytes = storageDownloader.download(imagePath).getOrNull()
-                    if (bytes == null || bytes.isEmpty()) {
-                        Log.w(TAG, "storage download failed for ${row.id}; row stays pending")
-                        continue
-                    }
-                    sourceFile =
-                        File
-                            .createTempFile("drive-mirror-", ".webp", context.cacheDir)
-                            .apply { writeBytes(bytes) }
-                    isTemp = true
-                }
-                try {
-                    val result =
-                        driveUploader.upload(
-                            businessName = business.name,
-                            target = DriveTarget.InventoryImages,
-                            fileName = nameFactory.fileName(row.name, fallbackBase = "item", extension = ".webp"),
-                            mimeType = "image/webp",
-                            sourceFile = sourceFile,
-                        )
-                    result.fold(
-                        onSuccess = { ref ->
-                            stampDriveImageId(row, ref.fileId)
-                            mirrored++
-                            Log.i(TAG, "item photo mirrored to Drive: item=${row.id} driveId=${ref.fileId}")
-                        },
-                        onFailure = { error ->
-                            if (error is DriveNotAvailableException) {
-                                // Not linked/configured: everything stays pending, silently
-                                // (ADR-055 — the mirror never prompts). Stop the whole pass.
-                                return mirrored
-                            }
-                            // Transient (offline, quota): leave pending; the next run retries.
-                            Log.w(TAG, "item photo mirror failed for ${row.id}: ${error.message}")
-                        },
+                val sourceFile = localSourceFile(row) ?: continue
+                val result =
+                    driveUploader.upload(
+                        businessName = (businessDao.byId(row.businessId) ?: continue).name,
+                        target = DriveTarget.InventoryImages,
+                        fileName = nameFactory.fileName(row.name, fallbackBase = "item", extension = ".webp"),
+                        mimeType = "image/webp",
+                        sourceFile = sourceFile,
                     )
-                } finally {
-                    if (isTemp) sourceFile.delete()
-                }
+                result.fold(
+                    onSuccess = { ref ->
+                        // ADR-063: item photos serve members/web via the public link, so
+                        // share like bills (ADR-059). Best-effort — the repair pass retries.
+                        val permissionEnsured =
+                            runCatching { driveService.ensureAnyoneReaderPermission(ref.fileId) }
+                                .onFailure { Log.w(TAG, "inline permission failed for ${row.id}; repair will retry") }
+                                .isSuccess
+                        stampDriveImageId(row, ref.fileId, permissionEnsured)
+                        mirrored++
+                        Log.i(TAG, "item photo uploaded to Drive: item=${row.id} driveId=${ref.fileId} shared=$permissionEnsured")
+                    },
+                    onFailure = { error ->
+                        if (error is DriveNotAvailableException) {
+                            // Not linked/configured: everything stays pending, silently
+                            // (ADR-055 — the mirror never prompts). Stop the whole pass.
+                            return mirrored
+                        }
+                        // Transient (offline, quota): leave pending; the next run retries.
+                        Log.w(TAG, "item photo upload failed for ${row.id}: ${error.message}")
+                    },
+                )
             }
             return mirrored
+        }
+
+        /**
+         * The device-local bytes of a pending row, or null when this device never had
+         * them: the row's own `image_path` when it is a live local file (ADR-063 photos),
+         * else the legacy `{itemId}.webp` original (photos taken here before ADR-063
+         * rewrote `image_path` to a Storage object path).
+         */
+        private fun localSourceFile(row: MasterItemEntity): File? {
+            val imagePath = row.imagePath ?: return null
+            if (isLocalItemImagePath(imagePath)) {
+                val file = File(imagePath)
+                return if (file.isFile) file else null
+            }
+            return localItemImageFile(context, row.id).takeIf { it.isFile }
         }
 
         private suspend fun stampDriveImageId(
             row: MasterItemEntity,
             driveFileId: String,
+            permissionEnsured: Boolean,
         ) {
-            val updated = row.copy(driveImageId = driveFileId, updatedAt = clock.instant())
+            val updated =
+                row.copy(
+                    driveImageId = driveFileId,
+                    drivePermissionEnsured = permissionEnsured,
+                    updatedAt = clock.instant(),
+                )
             masterItemDao.upsert(updated)
             val model =
                 MasterItem(
@@ -147,15 +141,5 @@ class DriveItemImageMirror
 
         companion object {
             const val TAG = "SamarohDriveMirror"
-
-            /**
-             * Storage-download budget per sync run (ADR-058). Rationale: a download+upload
-             * is two full image round-trips per row; syncs run on every local mutation,
-             * on app foreground and periodically, so a 100-item web import drains in ~10
-             * unremarkable runs (typically within the hour) instead of one sync run doing
-             * 200 transfers back-to-back on a phone connection. Local-file mirrors are a
-             * single cheap upload and arrive one at a time in practice — not throttled.
-             */
-            const val MAX_STORAGE_DOWNLOADS_PER_RUN = 10
         }
     }

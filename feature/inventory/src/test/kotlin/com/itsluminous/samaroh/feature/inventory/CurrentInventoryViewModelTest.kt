@@ -28,6 +28,7 @@ class CurrentInventoryViewModelTest {
         name = name,
         unit = "pcs",
         imagePath = null,
+        driveImageId = null,
         currentQuantity = quantity,
         totalValuePaise = valuePaise,
         lastTransactionAt = Instant.parse("2026-08-20T09:00:00Z"),

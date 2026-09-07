@@ -3,7 +3,6 @@ package com.itsluminous.samaroh.core.google.drive
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
-import com.itsluminous.samaroh.core.data.image.ItemPhotoStorageDownloader
 import com.itsluminous.samaroh.core.data.image.localItemImageFile
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
@@ -24,9 +23,10 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 /**
- * ADR-055/058: the Drive item-photo mirror — pending selection (Storage path, local file
- * OR storage download), §9.1 upload target, human-readable naming, the per-run storage
- * download throttle, Room + outbox stamping, and silent not-linked/failure behavior.
+ * ADR-055/063: the Drive item-photo upload — pending selection (device-local bytes
+ * only: the row's local `image_path` or the legacy `{itemId}.webp` original), §9.1
+ * upload target, human-readable naming, inline anyone-with-link sharing, Room + outbox
+ * stamping, and silent not-linked/failure behavior.
  */
 @RunWith(RobolectricTestRunner::class)
 class DriveItemImageMirrorTest {
@@ -39,7 +39,7 @@ class DriveItemImageMirrorTest {
     private lateinit var context: Context
     private lateinit var db: SamarohDatabase
     private lateinit var uploader: RecordingDriveUploader
-    private lateinit var downloader: FakeStorageDownloader
+    private lateinit var driveService: RecordingPermissionDriveService
     private lateinit var outbox: RecordingOutboxWriter
     private lateinit var mirror: DriveItemImageMirror
 
@@ -48,7 +48,7 @@ class DriveItemImageMirrorTest {
         context = ApplicationProvider.getApplicationContext()
         db = inMemoryDatabase(context)
         uploader = RecordingDriveUploader()
-        downloader = FakeStorageDownloader()
+        driveService = RecordingPermissionDriveService()
         outbox = RecordingOutboxWriter()
         mirror = newMirror()
     }
@@ -60,7 +60,7 @@ class DriveItemImageMirrorTest {
             db.masterItemDao(),
             db.businessDao(),
             uploader,
-            downloader,
+            driveService,
             DriveNameFactory(clock, ZoneOffset.UTC),
             outbox,
             clock,
@@ -88,7 +88,7 @@ class DriveItemImageMirrorTest {
     private fun itemRow(
         id: String = "item-1",
         name: String = "Steel Plate",
-        imagePath: String? = "biz-1/$id/1.webp",
+        imagePath: String? = localItemImageFile(context, id).absolutePath,
         driveImageId: String? = null,
     ) = MasterItemEntity(
         id = id,
@@ -108,7 +108,7 @@ class DriveItemImageMirrorTest {
         }
 
     @Test
-    fun `mirrors a pending local photo and stamps the drive id in Room and the outbox`() =
+    fun `uploads a pending local photo, shares it and stamps the drive id`() =
         runTest {
             seedBusiness()
             db.masterItemDao().upsert(itemRow())
@@ -122,10 +122,12 @@ class DriveItemImageMirrorTest {
             assertThat(call.target).isEqualTo(DriveTarget.InventoryImages)
             assertThat(call.fileName).isEqualTo("Steel Plate-$stamp.webp")
             assertThat(call.mimeType).isEqualTo("image/webp")
-            // A local file means no storage download was needed.
-            assertThat(downloader.requests).isEmpty()
-            // Room converged...
-            assertThat(db.masterItemDao().byId("item-1")?.driveImageId).isEqualTo("drive-file-1")
+            // ADR-063: members/web serve from Drive, so the file is shared like a bill.
+            assertThat(driveService.ensuredPermissions).containsExactly("drive-file-1")
+            // Room converged (drive id + device-only permission flag)...
+            val row = db.masterItemDao().byId("item-1")
+            assertThat(row?.driveImageId).isEqualTo("drive-file-1")
+            assertThat(row?.drivePermissionEnsured).isTrue()
             // ...and the row upsert (carrying drive_image_id) is queued for sync.
             val enqueued = outbox.entries.single()
             assertThat(enqueued.entityType).isEqualTo("master_items")
@@ -134,11 +136,41 @@ class DriveItemImageMirrorTest {
         }
 
     @Test
-    fun `a still-local image path is not mirrored - storage upload goes first`() =
+    fun `a failed inline permission does not fail the upload - flag stays pending`() =
         runTest {
             seedBusiness()
-            db.masterItemDao().upsert(itemRow(imagePath = "/data/user/0/app/files/inventory-images/item-1.webp"))
+            db.masterItemDao().upsert(itemRow())
             writeLocalFile("item-1")
+            driveService.permissionResult = { Result.failure(IOException("offline")) }
+
+            assertThat(mirror.mirrorPending()).isEqualTo(1)
+            val row = db.masterItemDao().byId("item-1")
+            assertThat(row?.driveImageId).isEqualTo("drive-file-1")
+            // The repair pass (ADR-059/063) will retry this file.
+            assertThat(row?.drivePermissionEnsured).isFalse()
+            assertThat(db.masterItemDao().pendingDrivePermissionRepair(10).map { it.id })
+                .containsExactly("item-1")
+        }
+
+    @Test
+    fun `a legacy storage-path row with the original on disk still uploads`() =
+        runTest {
+            // Photos taken pre-ADR-063: image_path was rewritten to a Storage object
+            // path, but the {itemId}.webp original is still on this device.
+            seedBusiness()
+            db.masterItemDao().upsert(itemRow(imagePath = "biz-1/item-1/1.webp"))
+            writeLocalFile("item-1")
+
+            assertThat(mirror.mirrorPending()).isEqualTo(1)
+            assertThat(uploader.calls.single().sourceBytes).isEqualTo(listOf<Byte>(1, 2, 3))
+            assertThat(db.masterItemDao().byId("item-1")?.driveImageId).isEqualTo("drive-file-1")
+        }
+
+    @Test
+    fun `a row with no local bytes is skipped - storage is gone (ADR-063)`() =
+        runTest {
+            seedBusiness()
+            db.masterItemDao().upsert(itemRow(imagePath = "biz-1/item-1/1.webp"))
 
             assertThat(mirror.mirrorPending()).isEqualTo(0)
             assertThat(uploader.calls).isEmpty()
@@ -146,70 +178,13 @@ class DriveItemImageMirrorTest {
         }
 
     @Test
-    fun `a storage-only photo with no local file downloads and mirrors (ADR-058)`() =
+    fun `a local image path whose file vanished is skipped`() =
         runTest {
             seedBusiness()
             db.masterItemDao().upsert(itemRow())
 
-            val mirrored = mirror.mirrorPending()
-
-            assertThat(mirrored).isEqualTo(1)
-            assertThat(downloader.requests).containsExactly("biz-1/item-1/1.webp")
-            val call = uploader.calls.single()
-            assertThat(call.fileName).isEqualTo("Steel Plate-$stamp.webp")
-            assertThat(call.sourceBytes).isEqualTo(FakeStorageDownloader.BYTES)
-            assertThat(db.masterItemDao().byId("item-1")?.driveImageId).isEqualTo("drive-file-1")
-            assertThat(outbox.entries).hasSize(1)
-        }
-
-    @Test
-    fun `a failed storage download leaves the row pending and mirrors the rest`() =
-        runTest {
-            seedBusiness()
-            db.masterItemDao().upsert(itemRow(id = "item-1", name = "Broken"))
-            db.masterItemDao().upsert(itemRow(id = "item-2", name = "Fine"))
-            downloader.result = { path ->
-                if (path.contains("item-1")) {
-                    Result.failure(IOException("offline"))
-                } else {
-                    Result.success(FakeStorageDownloader.BYTES.toByteArray())
-                }
-            }
-
-            assertThat(mirror.mirrorPending()).isEqualTo(1)
-            assertThat(db.masterItemDao().byId("item-1")?.driveImageId).isNull()
-            assertThat(db.masterItemDao().byId("item-2")?.driveImageId).isEqualTo("drive-file-1")
-        }
-
-    @Test
-    fun `storage downloads are throttled per run - the next run continues`() =
-        runTest {
-            seedBusiness()
-            val total = DriveItemImageMirror.MAX_STORAGE_DOWNLOADS_PER_RUN + 2
-            repeat(total) { i ->
-                db.masterItemDao().upsert(itemRow(id = "item-$i", name = "Item $i", imagePath = "biz-1/item-$i/1.webp"))
-            }
-
-            assertThat(mirror.mirrorPending()).isEqualTo(DriveItemImageMirror.MAX_STORAGE_DOWNLOADS_PER_RUN)
-            assertThat(downloader.requests).hasSize(DriveItemImageMirror.MAX_STORAGE_DOWNLOADS_PER_RUN)
-
-            // Next sync run: the remaining rows mirror (already-stamped rows are excluded).
-            assertThat(mirror.mirrorPending()).isEqualTo(2)
-            assertThat(db.masterItemDao().pendingDriveImageMirror()).isEmpty()
-        }
-
-    @Test
-    fun `a local-file mirror is not counted against the download throttle`() =
-        runTest {
-            seedBusiness()
-            repeat(DriveItemImageMirror.MAX_STORAGE_DOWNLOADS_PER_RUN) { i ->
-                db.masterItemDao().upsert(itemRow(id = "item-s$i", name = "Storage $i", imagePath = "biz-1/item-s$i/1.webp"))
-            }
-            db.masterItemDao().upsert(itemRow(id = "item-1", name = "Local One"))
-            writeLocalFile("item-1")
-
-            // All storage rows use the budget AND the local-file row still mirrors.
-            assertThat(mirror.mirrorPending()).isEqualTo(DriveItemImageMirror.MAX_STORAGE_DOWNLOADS_PER_RUN + 1)
+            assertThat(mirror.mirrorPending()).isEqualTo(0)
+            assertThat(uploader.calls).isEmpty()
         }
 
     @Test
@@ -218,13 +193,15 @@ class DriveItemImageMirrorTest {
             seedBusiness()
             // Distinct row names (the DAO enforces per-business uniqueness) that sanitize
             // to the SAME base, mirrored under a fixed clock = the same-second collision.
-            db.masterItemDao().upsert(itemRow(id = "item-a", name = "Steel/Plate"))
-            db.masterItemDao().upsert(itemRow(id = "item-b", name = "Steel: Plate"))
+            db.masterItemDao().upsert(itemRow(id = "item-a", name = "Steel/Plate", imagePath = writeLocalFile("item-a").absolutePath))
+            db.masterItemDao().upsert(itemRow(id = "item-b", name = "Steel: Plate", imagePath = writeLocalFile("item-b").absolutePath))
 
             assertThat(mirror.mirrorPending()).isEqualTo(2)
             assertThat(uploader.calls.map { it.fileName })
                 .containsExactly("Steel Plate-$stamp.webp", "Steel Plate-$stamp-2.webp")
                 .inOrder()
+            localItemImageFile(context, "item-a").delete()
+            localItemImageFile(context, "item-b").delete()
         }
 
     @Test
@@ -295,19 +272,45 @@ private class RecordingDriveUploader : DriveUploader {
     }
 }
 
-private class FakeStorageDownloader : ItemPhotoStorageDownloader {
-    val requests = mutableListOf<String>()
+/** Records permission calls; every other [DriveService] operation is unreachable here. */
+private class RecordingPermissionDriveService : DriveService {
+    val ensuredPermissions = mutableListOf<String>()
 
-    var result: (String) -> Result<ByteArray> = { Result.success(BYTES.toByteArray()) }
+    var permissionResult: (() -> Result<Unit>)? = null
 
-    override suspend fun download(objectPath: String): Result<ByteArray> {
-        requests += objectPath
-        return result(objectPath)
+    override suspend fun ensureAnyoneReaderPermission(fileId: String) {
+        permissionResult?.invoke()?.getOrThrow()
+        ensuredPermissions += fileId
     }
 
-    companion object {
-        val BYTES = listOf<Byte>(9, 8, 7)
-    }
+    override suspend fun findFolder(
+        name: String,
+        parentId: String?,
+    ): String? = throw UnsupportedOperationException()
+
+    override suspend fun createFolder(
+        name: String,
+        parentId: String?,
+    ): String = throw UnsupportedOperationException()
+
+    override suspend fun uploadFile(
+        name: String,
+        mimeType: String,
+        parentId: String,
+        sourceFile: File,
+    ): DriveFileRef = throw UnsupportedOperationException()
+
+    override suspend fun downloadFile(
+        fileId: String,
+        target: File,
+    ): Unit = throw UnsupportedOperationException()
+
+    override suspend fun downloadPublicFile(
+        fileId: String,
+        target: File,
+    ): Unit = throw UnsupportedOperationException()
+
+    override suspend fun deleteFile(fileId: String): Unit = throw UnsupportedOperationException()
 }
 
 private class RecordingOutboxWriter : OutboxWriter {

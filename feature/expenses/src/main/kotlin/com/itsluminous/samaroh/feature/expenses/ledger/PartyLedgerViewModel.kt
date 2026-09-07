@@ -193,10 +193,16 @@ class PartyLedgerViewModel
             val googleUnlinked: Boolean = false,
         )
 
-        /** Tombstone delete (§4.2); the row disappears locally and the delete syncs as a tombstone. */
+        /**
+         * Tombstone delete (§4.2), cascading to the entry's attachments (ADR-063): the
+         * rows disappear locally, each delete syncs as a tombstone, local cache files
+         * are removed and Drive copies are best-effort deleted (non-fatal, ADR-053
+         * semantics) — a deleted bill no longer lingers in the uploader's Drive.
+         */
         fun deleteEntry(expenseId: String) {
             viewModelScope.launch {
-                expensesRepository.deleteExpense(expenseId)
+                val deletedAttachments = ledgerRepository.deleteExpenseCascade(expenseId)
+                attachmentDeleter.cleanUpCascade(deletedAttachments)
             }
         }
 
@@ -358,15 +364,16 @@ class PartyLedgerViewModel
         }
 
         /**
-         * Delete party (ADR-028): cascade-tombstones the party, its expenses and their
-         * attachments (one outbox DELETE per row), removes the local cached attachment
-         * files, then emits [PartyLedgerEvent.PartyDeleted] so the UI navigates back.
+         * Delete party (ADR-028, Drive cleanup added by ADR-063): cascade-tombstones the
+         * party, its expenses and their attachments (one outbox DELETE per row), removes
+         * the local cached attachment files, best-effort deletes the Drive copies, then
+         * emits [PartyLedgerEvent.PartyDeleted] so the UI navigates back.
          */
         fun deleteParty() {
             val party = state.value.party ?: return
             viewModelScope.launch {
-                val localCachePaths = ledgerRepository.deletePartyCascade(party.id)
-                localCachePaths.forEach { path -> runCatching { File(path).delete() } }
+                val deletedAttachments = ledgerRepository.deletePartyCascade(party.id)
+                attachmentDeleter.cleanUpCascade(deletedAttachments)
                 _events.emit(PartyLedgerEvent.PartyDeleted(party.name))
             }
         }

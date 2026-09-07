@@ -137,6 +137,7 @@ class ReportDetailViewModelTest {
                         name = "fixture-item",
                         unit = "pcs",
                         imagePath = null,
+                        driveImageId = null,
                         currentQuantity = 7.0,
                         totalValuePaise = 700_00L,
                         lastTransactionAt = Fixtures.NOW,

@@ -239,7 +239,13 @@ class RoomInventoryRepository
         ): List<MasterItem> = masterItemDao.searchByName(businessId, query).map { it.toModel() }
 
         override suspend fun saveMasterItem(item: MasterItem) {
-            masterItemDao.upsert(item.toEntity())
+            // Device-only permission flag (ADR-063): survives edits while the Drive photo
+            // is unchanged; a cleared/replaced `driveImageId` resets it so the NEW Drive
+            // file gets its own anyone-with-link permission (inline or via repair).
+            val existing = masterItemDao.byId(item.id)
+            val keepEnsured =
+                existing != null && existing.driveImageId == item.driveImageId && existing.drivePermissionEnsured
+            masterItemDao.upsert(item.toEntity(drivePermissionEnsured = keepEnsured))
             outboxWriter.enqueue("master_items", item.id, OutboxOperation.UPSERT, json.encodeToString(MasterItem.serializer(), item))
         }
 

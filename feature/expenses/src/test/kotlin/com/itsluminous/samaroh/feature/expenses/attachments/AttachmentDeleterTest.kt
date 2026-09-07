@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.expenses.attachments
 
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
+import com.itsluminous.samaroh.core.data.repository.CascadeDeletedAttachment
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.feature.expenses.FakeDriveService
@@ -113,6 +114,51 @@ class AttachmentDeleterTest {
             deleter.delete(tapped)
 
             assertThat(ledgerRepository.deletedAttachmentIds).containsExactly(tapped.attachment.id)
+            assertThat(driveService.deletedFileIds).isEmpty()
+        }
+
+    // ---- Cascade cleanup (entry tombstone / party cascade, ADR-063) --------------------
+
+    @Test
+    fun `cascade cleanup removes cache files and best-effort deletes drive copies`() =
+        runTest {
+            val cached = tempFolder.newFile("cascade-bill.jpg")
+
+            deleter.cleanUpCascade(
+                listOf(
+                    CascadeDeletedAttachment("att-1", "drive-1", cached.absolutePath),
+                    CascadeDeletedAttachment("att-2", "drive-2", null),
+                    CascadeDeletedAttachment("att-3", null, "/nonexistent/gone.jpg"),
+                ),
+            )
+
+            assertThat(cached.exists()).isFalse()
+            assertThat(driveService.deletedFileIds).containsExactly("drive-1", "drive-2")
+        }
+
+    @Test
+    fun `cascade cleanup drive failure is non-fatal and the remaining files still delete`() =
+        runTest {
+            driveService.deleteError = IOException("offline")
+
+            deleter.cleanUpCascade(
+                listOf(
+                    CascadeDeletedAttachment("att-1", "drive-1", null),
+                    CascadeDeletedAttachment("att-2", "drive-2", null),
+                ),
+            ) // must not throw
+        }
+
+    @Test
+    fun `cascade cleanup leaves drive copies when not linked`() =
+        runTest {
+            linker.state.value = GoogleLinkState.NotLinked
+            val cached = tempFolder.newFile("cascade-bill2.jpg")
+
+            deleter.cleanUpCascade(listOf(CascadeDeletedAttachment("att-1", "drive-1", cached.absolutePath)))
+
+            // Local cache still cleaned; the Drive copy merely lingers (ADR-053 spirit).
+            assertThat(cached.exists()).isFalse()
             assertThat(driveService.deletedFileIds).isEmpty()
         }
 }

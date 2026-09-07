@@ -1,5 +1,7 @@
 package com.itsluminous.samaroh.core.data.di
 
+import com.itsluminous.samaroh.core.data.image.ItemImageResolver
+import com.itsluminous.samaroh.core.data.image.LocalFirstItemImageResolver
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
@@ -38,6 +40,9 @@ abstract class DataModule {
     @Binds abstract fun bindBusinessRepository(impl: RoomBusinessRepository): BusinessRepository
 
     @Binds abstract fun bindMemberRepository(impl: RoomMemberRepository): MemberRepository
+
+    /** Item-photo display resolution — Drive-first ladder, pure file checks (ADR-063). */
+    @Binds abstract fun bindItemImageResolver(impl: LocalFirstItemImageResolver): ItemImageResolver
 
     /** Sign-out local-data wipe (ADR-040). */
     @Binds abstract fun bindSignOutCleaner(impl: DefaultSignOutCleaner): SignOutCleaner

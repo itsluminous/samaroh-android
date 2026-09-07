@@ -32,6 +32,7 @@ class ItemDetailViewModelTest {
                     name = "Steel Plate",
                     unit = "pcs",
                     imagePath = null,
+                    driveImageId = null,
                     currentQuantity = 12.0,
                     totalValuePaise = 3_600_00L,
                     lastTransactionAt = Instant.parse("2026-08-20T09:00:00Z"),

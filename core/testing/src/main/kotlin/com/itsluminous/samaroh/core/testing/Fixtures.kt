@@ -119,6 +119,7 @@ object Fixtures {
         name: String = "fixture-item",
         unit: String = "pcs",
         imagePath: String? = null,
+        driveImageId: String? = null,
         deletedAt: Instant? = null,
     ): MasterItem =
         MasterItem(
@@ -127,6 +128,7 @@ object Fixtures {
             name = name,
             unit = unit,
             imagePath = imagePath,
+            driveImageId = driveImageId,
             createdAt = NOW,
             updatedAt = NOW,
             deletedAt = deletedAt,

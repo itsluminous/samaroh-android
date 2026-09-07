@@ -159,15 +159,34 @@ class PartyLedgerViewModelTest {
         }
 
     @Test
-    fun `deleteEntry delegates to the repository tombstone`() =
+    fun `deleteEntry cascades attachments and best-effort deletes their drive copies`() =
         runTest {
+            // ADR-063: an entry delete also tombstones its attachments, removes local
+            // cache files and best-effort deletes the Drive copies.
+            val cacheFile = java.io.File.createTempFile("entry-cascade", ".jpg")
             val entry = Fixtures.expense(partyId = party.id)
             expensesRepository.expenses.value = listOf(entry)
+            ledgerRepository.expenses.value = listOf(entry)
+            ledgerRepository.saveAttachment(
+                ExpenseAttachment(
+                    id = "att-entry",
+                    expenseId = entry.id,
+                    businessId = Fixtures.BUSINESS_ID,
+                    driveFileId = "drive-entry-1",
+                    mimeType = "image/jpeg",
+                    fileName = "bill.jpg",
+                    createdAt = Fixtures.NOW,
+                ),
+                localCachePath = cacheFile.absolutePath,
+            )
 
+            linker.state.value = GoogleLinkState.Linked("owner@example.com", emptyList())
             val viewModel = viewModel()
             viewModel.deleteEntry(entry.id)
 
-            assertThat(expensesRepository.deletedExpenseIds).containsExactly(entry.id)
+            assertThat(ledgerRepository.cascadeDeletedExpenseIds).containsExactly(entry.id)
+            assertThat(cacheFile.exists()).isFalse()
+            assertThat(driveService.deletedFileIds).containsExactly("drive-entry-1")
         }
 
     @Test
@@ -391,6 +410,8 @@ class PartyLedgerViewModelTest {
 
                     assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.PartyDeleted(party.name))
                     assertThat(cacheFile.exists()).isFalse()
+                    // ADR-063: no drive id on this attachment — no Drive call either.
+                    assertThat(driveService.deletedFileIds).isEmpty()
                 }
                 cancelAndIgnoreRemainingEvents()
             }

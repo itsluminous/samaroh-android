@@ -56,9 +56,9 @@ import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
+import com.itsluminous.samaroh.feature.inventory.image.ItemPhoto
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
 import kotlinx.coroutines.launch
-import java.io.File
 
 /**
  * Current Inventory screen (§4.3): searchable per-item stock list with image
@@ -83,7 +83,7 @@ fun CurrentInventoryScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var showTransactionDialog by remember { mutableStateOf(false) }
-    var expandedImagePath by remember { mutableStateOf<String?>(null) }
+    var expandedPhoto by remember { mutableStateOf<ItemPhoto?>(null) }
 
     Scaffold(
         modifier = modifier,
@@ -146,7 +146,7 @@ fun CurrentInventoryScreen(
                                 line = line,
                                 masked = !canViewAmounts,
                                 onClick = { onOpenItem(line.masterItemId) },
-                                onImageTap = { path -> expandedImagePath = path },
+                                onImageTap = { photo -> expandedPhoto = photo },
                                 modifier = animatedListItem(),
                             )
                         }
@@ -167,12 +167,13 @@ fun CurrentInventoryScreen(
     // ADR-053 viewer: fullscreen + save-to-Downloads. Download only offers when the photo
     // is a local file (remote Storage photos resolve to an authenticated request, not
     // bytes on disk); delete stays in the masterlist editor's "Remove photo".
-    expandedImagePath?.let { path ->
+    expandedPhoto?.let { photo ->
+        val resolved = rememberItemImageModel(photo)
         ImageViewerDialog(
-            model = rememberItemImageModel(path),
+            model = resolved,
             contentDescription = stringResource(R.string.inventory_image_expanded),
-            onDismiss = { expandedImagePath = null },
-            downloadSource = File(path).takeIf { it.exists() },
+            onDismiss = { expandedPhoto = null },
+            downloadSource = resolved?.takeIf { it.exists() },
             downloadMimeType = "image/webp",
         )
     }
@@ -183,7 +184,7 @@ private fun CurrentInventoryRowCard(
     line: CurrentInventoryLine,
     masked: Boolean,
     onClick: () -> Unit,
-    onImageTap: (String) -> Unit,
+    onImageTap: (ItemPhoto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // ADR-057: zero-stock rows render dimmed (0 qty, ₹0 value) so in-stock items stand
@@ -201,7 +202,8 @@ private fun CurrentInventoryRowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val imageModel = rememberItemImageModel(line.imagePath)
+            val photo = ItemPhoto(itemId = line.masterItemId, imagePath = line.imagePath, driveImageId = line.driveImageId)
+            val imageModel = rememberItemImageModel(photo)
             if (imageModel != null) {
                 AsyncImage(
                     model = imageModel,
@@ -210,7 +212,7 @@ private fun CurrentInventoryRowCard(
                         Modifier
                             .size(56.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { onImageTap(line.imagePath ?: return@clickable) },
+                            .clickable { onImageTap(photo) },
                 )
             } else {
                 Icon(

@@ -66,7 +66,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -250,6 +250,22 @@ abstract class SamarohDatabase : RoomDatabase() {
             object : Migration(9, 10) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("ALTER TABLE sync_cursors ADD COLUMN last_pulled_raw TEXT")
+                }
+            }
+
+        /**
+         * ADR-063: `master_items.drive_permission_ensured` — device-only flag (never
+         * synced, exactly like the ADR-059 `expense_attachments` twin) marking that this
+         * device confirmed the anyone-with-link reader permission on the item's Drive
+         * photo. Existing rows start unset, so the repair pass covers every pre-ADR-063
+         * Drive mirror retroactively.
+         */
+        val MIGRATION_10_11: Migration =
+            object : Migration(10, 11) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE master_items ADD COLUMN drive_permission_ensured INTEGER NOT NULL DEFAULT 0",
+                    )
                 }
             }
     }
