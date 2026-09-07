@@ -23,12 +23,14 @@ import javax.inject.Inject
 /** UI state of the Current Inventory screen (§4.3). */
 data class CurrentInventoryUiState(
     val loading: Boolean = true,
-    /** Search-filtered IN-STOCK rows (quantity > 0), sorted by item name. */
+    /**
+     * Search-filtered rows: in-stock items (quantity > 0) first, then zero-stock items,
+     * each group sorted by name (ADR-057 — zero-stock masterlist items no longer vanish
+     * from the stock screen; they render dimmed with 0 quantity and ₹0 value).
+     */
     val lines: List<CurrentInventoryLine> = emptyList(),
     /** True when a non-blank search filtered out every row. */
     val noSearchResults: Boolean = false,
-    /** True when master items exist but every one is at zero stock (parity: hasStock). */
-    val allZero: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -66,16 +68,17 @@ class CurrentInventoryViewModel
                 },
                 query,
             ) { lines, q ->
-                // Zero-quantity items stay on the Masterlist but are hidden from the
-                // stock screen (parity: the stock list shows current_quantity > 0 only).
-                val inStock = lines.filter { it.currentQuantity > 0 }
+                // ADR-057: zero-quantity items are SHOWN, after the in-stock rows —
+                // hiding them made users think their masterlist items vanished. The DAO
+                // orders by name, and partition is stable, so each group stays
+                // alphabetical. Search matches zero-stock items too.
                 val trimmed = q.trim()
-                val filtered = if (trimmed.isEmpty()) inStock else inStock.filter { it.name.contains(trimmed, ignoreCase = true) }
+                val matches = if (trimmed.isEmpty()) lines else lines.filter { it.name.contains(trimmed, ignoreCase = true) }
+                val (inStock, zeroStock) = matches.partition { it.currentQuantity > 0 }
                 CurrentInventoryUiState(
                     loading = false,
-                    lines = filtered,
-                    noSearchResults = trimmed.isNotEmpty() && filtered.isEmpty() && inStock.isNotEmpty(),
-                    allZero = lines.isNotEmpty() && inStock.isEmpty(),
+                    lines = inStock + zeroStock,
+                    noSearchResults = trimmed.isNotEmpty() && matches.isEmpty() && lines.isNotEmpty(),
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CurrentInventoryUiState())
 

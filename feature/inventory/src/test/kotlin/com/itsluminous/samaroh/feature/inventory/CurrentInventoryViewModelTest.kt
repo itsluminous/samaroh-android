@@ -96,45 +96,68 @@ class CurrentInventoryViewModelTest {
         }
 
     @Test
-    fun `zero-quantity items are hidden from the stock list`() =
+    fun `zero-quantity items appear after in-stock items, each group alphabetical`() =
         runTest {
+            // The repository emits name-sorted rows (DAO ORDER BY name).
             inventory.linesFlow.value =
                 listOf(
+                    line("item-bowl", "Bowl", quantity = 0.0, valuePaise = 0L),
+                    line("item-chair", "Plastic Chair", quantity = 0.0, valuePaise = 0L),
+                    line("item-spoon", "Spoon", quantity = 2.0),
                     line("item-plate", "Steel Plate", quantity = 7.0),
-                    line("item-chair", "Plastic Chair", quantity = 0.0),
-                    line("item-spoon", "Spoon", quantity = -0.0),
                 )
             viewModel.uiState.test {
                 val state = expectMostRecentItem()
-                assertThat(state.lines.map { it.name }).containsExactly("Steel Plate")
-                assertThat(state.allZero).isFalse()
+                // In-stock first (alphabetical), zero-stock appended (alphabetical).
+                assertThat(state.lines.map { it.name })
+                    .containsExactly("Spoon", "Steel Plate", "Bowl", "Plastic Chair")
+                    .inOrder()
+                val bowl = state.lines.first { it.masterItemId == "item-bowl" }
+                assertThat(bowl.currentQuantity).isEqualTo(0.0)
+                assertThat(bowl.totalValuePaise).isEqualTo(0L)
             }
         }
 
     @Test
-    fun `all items at zero sets the allZero flag instead of the no-items empty state`() =
+    fun `search matches zero-stock items too`() =
         runTest {
             inventory.linesFlow.value =
                 listOf(
-                    line("item-plate", "Steel Plate", quantity = 0.0),
-                    line("item-chair", "Plastic Chair", quantity = 0.0),
+                    line("item-bowl", "Bowl", quantity = 0.0, valuePaise = 0L),
+                    line("item-plate", "Steel Plate", quantity = 7.0),
                 )
             viewModel.uiState.test {
+                expectMostRecentItem()
+                viewModel.onSearchQueryChange("bowl")
                 val state = expectMostRecentItem()
-                assertThat(state.lines).isEmpty()
-                assertThat(state.allZero).isTrue()
+                assertThat(state.lines.map { it.name }).containsExactly("Bowl")
                 assertThat(state.noSearchResults).isFalse()
             }
         }
 
     @Test
-    fun `no items at all leaves allZero false`() =
+    fun `all items at zero still lists every item`() =
+        runTest {
+            inventory.linesFlow.value =
+                listOf(
+                    line("item-plate", "Steel Plate", quantity = 0.0, valuePaise = 0L),
+                    line("item-chair", "Plastic Chair", quantity = 0.0, valuePaise = 0L),
+                )
+            viewModel.uiState.test {
+                val state = expectMostRecentItem()
+                assertThat(state.lines.map { it.name }).containsExactly("Steel Plate", "Plastic Chair")
+                assertThat(state.noSearchResults).isFalse()
+            }
+        }
+
+    @Test
+    fun `no items at all leaves the list empty`() =
         runTest {
             inventory.linesFlow.value = emptyList()
             viewModel.uiState.test {
                 val state = expectMostRecentItem()
                 assertThat(state.lines).isEmpty()
-                assertThat(state.allZero).isFalse()
+                assertThat(state.noSearchResults).isFalse()
             }
         }
 }

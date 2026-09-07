@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -60,10 +61,11 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Current Inventory screen (§4.3): searchable per-item stock list (in-stock items only)
- * with image (tap-to-expand), quantity + unit, FIFO total value and last-updated date.
- * Tapping a row opens the per-item detail (transaction history). The top-bar icon
- * toggles to the item (master) list; the FAB opens the record-transaction dialog.
+ * Current Inventory screen (§4.3): searchable per-item stock list with image
+ * (tap-to-expand), quantity + unit, FIFO total value and last-updated date. In-stock
+ * items lead; zero-stock masterlist items follow, dimmed, with 0 quantity and ₹0 value
+ * (ADR-057). Tapping a row opens the per-item detail (transaction history). The top-bar
+ * icon toggles to the item (master) list; the FAB opens the record-transaction dialog.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,13 +129,6 @@ fun CurrentInventoryScreen(
                         title = stringResource(R.string.inventory_list_no_results),
                         message = stringResource(R.string.inventory_list_empty_message),
                     )
-                // Items exist but every one is at zero: distinct from the no-items state.
-                !uiState.loading && uiState.lines.isEmpty() && uiState.allZero ->
-                    EmptyState(
-                        icon = Icons.Filled.Inventory2,
-                        title = stringResource(R.string.inventory_list_all_zero_title),
-                        message = stringResource(R.string.inventory_list_all_zero_message),
-                    )
                 !uiState.loading && uiState.lines.isEmpty() ->
                     EmptyState(
                         icon = Icons.Filled.Inventory2,
@@ -191,7 +186,16 @@ private fun CurrentInventoryRowCard(
     onImageTap: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier = modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    // ADR-057: zero-stock rows render dimmed (0 qty, ₹0 value) so in-stock items stand
+    // out — they used to be hidden, which read as "my masterlist item vanished".
+    val zeroStock = line.currentQuantity <= 0.0
+    Card(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .alpha(if (zeroStock) 0.55f else 1f)
+                .clickable(onClick = onClick),
+    ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
