@@ -124,6 +124,15 @@ data class BookingCalendarUiState(
     val actor: BookingActor? = null,
 )
 
+/**
+ * Pending non-blocking restore warning (ADR-054): the cancelled booking's dates now
+ * carry [count] other live bookings; the user may still restore (never blocked).
+ */
+data class RestoreConflict(
+    val bookingId: String,
+    val count: Int,
+)
+
 /** One-shot UI events (toasts / share launches). */
 sealed interface BookingEvent {
     data object PaymentRecorded : BookingEvent
@@ -159,6 +168,10 @@ class BookingCalendarViewModel
     ) : ViewModel() {
         private val month = MutableStateFlow(YearMonth.now(clock))
         private val selectedBookingId = MutableStateFlow<String?>(null)
+
+        /** Pending non-blocking restore-conflict warning (ADR-054), null = no dialog. */
+        private val _restoreConflict = MutableStateFlow<RestoreConflict?>(null)
+        val restoreConflict: StateFlow<RestoreConflict?> = _restoreConflict
 
         /** Loaded date window of the events (full agenda) view — grows on edge scroll. */
         private val agendaWindow = MutableStateFlow(EventsAgenda.initialWindow(LocalDate.now(clock)))
@@ -463,6 +476,85 @@ class BookingCalendarViewModel
                     .remindersForBooking(bookingId)
                     .filter { it.status == ReminderStatus.PENDING }
                     .forEach { bookingRepository.saveReminder(it.copy(status = ReminderStatus.DISMISSED, updatedAt = now)) }
+                selectedBookingId.value = null
+                syncScheduler.requestImmediateSync()
+            }
+        }
+
+        /**
+         * Restore a CANCELLED booking (ADR-054): back to CONFIRMED — the pre-cancellation
+         * status is not stored anywhere (cancel overwrites it in place), so Confirmed is
+         * the deliberate, documented landing state. Gated on `booking.edit` like every
+         * other status mutation. When the booking's dates meanwhile gained other live
+         * bookings, a NON-BLOCKING conflict warning surfaces first (same semantics as the
+         * add-form's double-booking popup — halls can host multiple events, §4.1);
+         * [confirmRestore] proceeds anyway. The saveBooking outbox write re-triggers the
+         * calendar push (ADR-046), which re-creates the event deleted at cancel time.
+         */
+        fun requestRestore(bookingId: String) {
+            viewModelScope.launch {
+                val actor = uiState.value.actor ?: return@launch
+                if (!(actor.isOwner || actor.permissions.edit)) return@launch
+                val booking = bookingRepository.booking(bookingId) ?: return@launch
+                if (booking.status != BookingStatus.CANCELLED) return@launch
+                val conflicts = restoreConflictCount(booking)
+                if (conflicts > 0) {
+                    _restoreConflict.value = RestoreConflict(bookingId, conflicts)
+                } else {
+                    performRestore(bookingId)
+                }
+            }
+        }
+
+        /** "Restore anyway" on the non-blocking conflict warning. */
+        fun confirmRestore() {
+            val pending = _restoreConflict.value ?: return
+            _restoreConflict.value = null
+            viewModelScope.launch { performRestore(pending.bookingId) }
+        }
+
+        /** "Go back" on the non-blocking conflict warning. */
+        fun dismissRestoreConflict() {
+            _restoreConflict.value = null
+        }
+
+        private suspend fun performRestore(bookingId: String) {
+            val actor = uiState.value.actor ?: return
+            if (!(actor.isOwner || actor.permissions.edit)) return
+            val booking = bookingRepository.booking(bookingId) ?: return
+            bookingRepository.saveBooking(
+                booking.copy(status = BookingStatus.CONFIRMED, updatedBy = actor.userId, updatedAt = clock.instant()),
+            )
+            selectedBookingId.value = null
+            syncScheduler.requestImmediateSync()
+        }
+
+        /** Max per-day count of OTHER live bookings across the restored range (mirrors the form). */
+        private suspend fun restoreConflictCount(booking: Booking): Int {
+            var maxCount = 0
+            var date = booking.startDate
+            while (!date.isAfter(booking.endDate)) {
+                // The booking itself is CANCELLED, so the live count never includes it.
+                maxCount = maxOf(maxCount, bookingRepository.countBookingsOn(booking.businessId, date))
+                date = date.plusDays(1)
+            }
+            return maxCount
+        }
+
+        /**
+         * Permanently delete a CANCELLED booking (ADR-054): soft-delete tombstone
+         * (`deleted_at`) + outbox DELETE push — released from every list, calendar cell
+         * and device. Gated on `booking.delete`. The Google Calendar event was already
+         * removed at cancel time (ADR-051); the tombstone push keeps the planner's
+         * delete-on-vanish branch as a residue backstop.
+         */
+        fun deleteBookingPermanently(bookingId: String) {
+            viewModelScope.launch {
+                val actor = uiState.value.actor ?: return@launch
+                if (!(actor.isOwner || actor.permissions.delete)) return@launch
+                val booking = bookingRepository.booking(bookingId) ?: return@launch
+                if (booking.status != BookingStatus.CANCELLED) return@launch
+                bookingRepository.deleteBooking(bookingId)
                 selectedBookingId.value = null
                 syncScheduler.requestImmediateSync()
             }

@@ -59,6 +59,7 @@ import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.displayIcon
+import com.itsluminous.samaroh.feature.booking.domain.BookingCardActionState
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
@@ -81,6 +82,8 @@ import java.time.ZoneOffset
  * MARKER bookings (ADR-041/ADR-044) have no money, so the whole payment surface —
  * amounts, payment history, record-payment / invoice / payment-reminder actions —
  * is omitted; only customer, dates, audit line, edit and cancel remain.
+ * CANCELLED bookings (ADR-054) offer exactly two actions: Restore and Delete
+ * permanently — [actions] carries the whole status × permission matrix.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,10 +93,7 @@ internal fun BookingCardSheet(
     presets: List<EventType>,
     bookingColors: BookingColorCatalog,
     creatorName: String,
-    canEdit: Boolean,
-    canDelete: Boolean,
-    canRecordPayment: Boolean,
-    canInvoice: Boolean,
+    actions: BookingCardActionState,
     canViewAmounts: Boolean,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
@@ -102,10 +102,13 @@ internal fun BookingCardSheet(
     onInvoiceText: () -> Unit,
     onWhatsApp: () -> Unit,
     onCancelBooking: () -> Unit,
+    onRestoreBooking: () -> Unit,
+    onDeleteBooking: () -> Unit,
 ) {
     val booking = detail.booking
     val context = LocalContext.current
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var invoiceChooser by rememberSaveable { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -225,17 +228,17 @@ internal fun BookingCardSheet(
 
             HorizontalDivider()
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                if (canEdit) {
+                if (actions.showEdit) {
                     ExplainableIcon(icon = Icons.Filled.Edit, explanationRes = R.string.common_action_edit, onClick = onEdit)
                 }
-                if (canRecordPayment && !detail.isMarker) {
+                if (actions.showRecordPayment) {
                     ExplainableIcon(
                         icon = Icons.Filled.CurrencyRupee,
                         explanationRes = R.string.booking_card_action_record_payment,
                         onClick = onRecordPayment,
                     )
                 }
-                if (canInvoice && !detail.isMarker) {
+                if (actions.showInvoice) {
                     ExplainableIcon(
                         icon = Icons.Filled.Print,
                         explanationRes = R.string.booking_card_action_invoice,
@@ -244,7 +247,7 @@ internal fun BookingCardSheet(
                 }
                 // The share action is specifically a payment REMINDER text (due amount
                 // included), so markers — which have no dues — drop it too (ADR-044).
-                if (!detail.isMarker) {
+                if (actions.showWhatsAppReminder) {
                     ExplainableIcon(
                         icon = Icons.Filled.Share,
                         explanationRes = R.string.booking_card_action_whatsapp,
@@ -252,12 +255,31 @@ internal fun BookingCardSheet(
                     )
                 }
             }
-            if (canDelete) {
+            if (actions.showCancel) {
                 TextButton(onClick = { confirmCancel = true }) {
                     Text(
                         text = stringResource(R.string.booking_card_action_cancel_booking),
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+            }
+            // Cancelled card (ADR-054): the two ways forward — bring it back or
+            // remove it for good — replace the whole active-action surface.
+            if (actions.showRestore || actions.showDelete) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (actions.showRestore) {
+                        TextButton(onClick = onRestoreBooking) {
+                            Text(text = stringResource(R.string.booking_card_action_restore_booking))
+                        }
+                    }
+                    if (actions.showDelete) {
+                        TextButton(onClick = { confirmDelete = true }) {
+                            Text(
+                                text = stringResource(R.string.booking_card_action_delete_booking),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -276,6 +298,29 @@ internal fun BookingCardSheet(
             },
             dismissButton = {
                 TextButton(onClick = { confirmCancel = false }) { Text(stringResource(R.string.common_action_close)) }
+            },
+        )
+    }
+
+    // Permanent delete is irreversible on EVERY device — always confirmed (ADR-054).
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.booking_card_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.booking_card_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDeleteBooking()
+                }) {
+                    Text(
+                        text = stringResource(R.string.booking_card_action_delete_booking),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_action_close)) }
             },
         )
     }

@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.booking.ui.calendar
 
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.DateBlock
@@ -22,6 +23,7 @@ import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeInvoiceGenerator
 import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
 import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
+import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
@@ -51,12 +53,12 @@ class BookingCalendarViewModelTest {
     private val syncScheduler = RecordingSyncScheduler()
     private val calendarPrefs = FakeBookingCalendarPrefs()
 
-    private fun viewModel() =
+    private fun viewModel(actorProvider: FakeActorProvider = FakeActorProvider()) =
         BookingCalendarViewModel(
             bookingRepository = repository,
             businessRepository = businessRepository,
             memberRepository = memberRepository,
-            actorProvider = FakeActorProvider(),
+            actorProvider = actorProvider,
             invoiceGenerator = invoiceGenerator,
             syncScheduler = syncScheduler,
             eventTypeRepository = eventTypeRepository,
@@ -539,6 +541,235 @@ class BookingCalendarViewModelTest {
             viewModel().uiState.test {
                 val state = awaitItemMatching { it.loaded && it.grid != null }
                 assertThat(state.pendingConfirmations).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- cancelled-card restore + permanent delete (ADR-054) ----
+
+    private fun nonPrivilegedActor(
+        edit: Boolean = false,
+        delete: Boolean = false,
+    ) = FakeActorProvider(
+        BookingActor(
+            userId = "member-user",
+            displayName = "member",
+            isOwner = false,
+            permissions = BookingPermissions(view = true, edit = edit, delete = delete),
+        ),
+    )
+
+    @Test
+    fun `restore returns a cancelled booking to CONFIRMED and requests sync`() =
+        runTest {
+            val cancelled = Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED)
+            repository.bookings.value = listOf(cancelled)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelled.id)
+
+                val restored = repository.bookings.value.single()
+                assertThat(restored.status).isEqualTo(BookingStatus.CONFIRMED)
+                assertThat(restored.updatedBy).isEqualTo("test-user")
+                assertThat(vm.restoreConflict.value).isNull()
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `restore onto a date with other bookings warns first and restores on confirm`() =
+        runTest {
+            val cancelled = Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED)
+            val other = Fixtures.booking(startDate = today.plusDays(3))
+            repository.bookings.value = listOf(cancelled, other)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelled.id)
+
+                // Non-blocking warning surfaced; nothing mutated yet.
+                assertThat(vm.restoreConflict.value).isEqualTo(RestoreConflict(cancelled.id, 1))
+                assertThat(
+                    repository.bookings.value
+                        .first { it.id == cancelled.id }
+                        .status,
+                ).isEqualTo(BookingStatus.CANCELLED)
+
+                vm.confirmRestore()
+
+                assertThat(vm.restoreConflict.value).isNull()
+                assertThat(
+                    repository.bookings.value
+                        .first { it.id == cancelled.id }
+                        .status,
+                ).isEqualTo(BookingStatus.CONFIRMED)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `dismissing the restore conflict warning leaves the booking cancelled`() =
+        runTest {
+            val cancelled = Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED)
+            repository.bookings.value = listOf(cancelled)
+            repository.conflictCounts = mapOf(today.plusDays(3) to 2)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelled.id)
+                assertThat(vm.restoreConflict.value?.count).isEqualTo(2)
+
+                vm.dismissRestoreConflict()
+
+                assertThat(vm.restoreConflict.value).isNull()
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .status,
+                ).isEqualTo(BookingStatus.CANCELLED)
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `restore conflict counts the max per-day overlap across the whole range`() =
+        runTest {
+            val cancelled =
+                Fixtures.booking(
+                    startDate = today.plusDays(1),
+                    endDate = today.plusDays(3),
+                    status = BookingStatus.CANCELLED,
+                )
+            repository.bookings.value = listOf(cancelled)
+            repository.conflictCounts =
+                mapOf(today.plusDays(1) to 0, today.plusDays(2) to 3, today.plusDays(3) to 1)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelled.id)
+
+                assertThat(vm.restoreConflict.value?.count).isEqualTo(3)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `restore is refused without booking edit permission`() =
+        runTest {
+            val cancelled = Fixtures.booking(status = BookingStatus.CANCELLED)
+            repository.bookings.value = listOf(cancelled)
+
+            val vm = viewModel(nonPrivilegedActor(edit = false, delete = true))
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelled.id)
+
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .status,
+                ).isEqualTo(BookingStatus.CANCELLED)
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `restore ignores a booking that is not cancelled`() =
+        runTest {
+            val active = Fixtures.booking(status = BookingStatus.TENTATIVE)
+            repository.bookings.value = listOf(active)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(active.id)
+
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .status,
+                ).isEqualTo(BookingStatus.TENTATIVE)
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `permanent delete tombstones a cancelled booking and requests sync`() =
+        runTest {
+            val cancelled = Fixtures.booking(status = BookingStatus.CANCELLED)
+            repository.bookings.value = listOf(cancelled)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.deleteBookingPermanently(cancelled.id)
+
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .deletedAt,
+                ).isNotNull()
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `permanent delete is refused without booking delete permission`() =
+        runTest {
+            val cancelled = Fixtures.booking(status = BookingStatus.CANCELLED)
+            repository.bookings.value = listOf(cancelled)
+
+            val vm = viewModel(nonPrivilegedActor(edit = true, delete = false))
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.deleteBookingPermanently(cancelled.id)
+
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .deletedAt,
+                ).isNull()
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `permanent delete ignores a booking that is not cancelled`() =
+        runTest {
+            val active = Fixtures.booking(status = BookingStatus.CONFIRMED)
+            repository.bookings.value = listOf(active)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.deleteBookingPermanently(active.id)
+
+                assertThat(
+                    repository.bookings.value
+                        .single()
+                        .deletedAt,
+                ).isNull()
+                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
                 cancelAndIgnoreRemainingEvents()
             }
         }

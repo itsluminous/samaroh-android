@@ -1862,3 +1862,56 @@ surfaces inherit the actions. Compression is owner-tunable within safe bands;
 `SamarohAttach` byte logs make the effect observable. Drive-side deletion is
 opportunistic by design — devices that never link simply leave the file, exactly like
 the pre-existing party-cascade behavior (ADR-028).
+
+## ADR-054 — Cancelled booking card: Restore + permanent Delete (2026-09-07)
+
+**Status:** accepted. Feature-module change only; no frozen-contract edits (the
+existing `BookingRepository.deleteBooking` tombstone path and `countBookingsOn`
+conflict query are reused as-is).
+
+**Context.** Opening a CANCELLED booking (events/agenda view, day sheet, month grid —
+anywhere the card opens) still offered "Cancel booking" plus the full active-action
+surface (edit, record payment, invoice, WhatsApp payment reminder). Cancelling an
+already-cancelled booking is a no-op wearing a destructive label, and recording a
+payment or sending a payment reminder against a cancelled event is nonsense. There was
+also no way OUT of the cancelled state: no un-cancel, and no way to permanently remove
+the dead record.
+
+**Decision.**
+1. **Action matrix is a pure function.** `BookingCardActions.forBooking(status,
+   isMarker, permissions…)` derives every card action's visibility; the sheet renders
+   exactly that state. Cancelled cards show ONLY Restore + Delete; active cards keep
+   the pre-existing rules (including the ADR-041/044 marker money blackout). Edit,
+   record-payment, invoice and the WhatsApp payment-reminder are all HIDDEN on a
+   cancelled card — a cancelled booking has no editable future, no collectible dues.
+2. **Restore → CONFIRMED, gated `booking.edit`.** The pre-cancellation status is NOT
+   recoverable — `cancelBooking` overwrites `status` in place and no history column
+   exists (adding one would break the frozen `core:model`/`core:database` contract for
+   marginal value). Confirmed is the deliberate landing state: it is the app-wide
+   default status and matches the tentative-follow-up "Confirm booking" precedent. The
+   web track (shared `web-booking` fragment) landed the same semantics concurrently.
+3. **Restore conflict warning — non-blocking, form-consistent.** If the booking's date
+   range meanwhile gained other live bookings, an AlertDialog warns first (max per-day
+   `countBookingsOn` across the range, mirroring the add-form's `conflictCount`; the
+   cancelled booking itself is excluded by the query's `status != 'cancelled'` filter).
+   "Restore anyway" proceeds — halls can host multiple events (§4.1), so restore is
+   never blocked.
+4. **Calendar re-push rides the existing mutation trigger.** Restore is a plain
+   `saveBooking` → outbox UPSERT → `BookingMutationCalendarTrigger` → calendar
+   one-shot. At cancel time the engine deleted the event AND cleared `gcalEventId`
+   (ADR-051), so the planner sees no pushed state and plans a CREATE — the event
+   reappears with a fresh id (logcat `SamarohGcal: created event …`).
+5. **Delete = permanent tombstone, gated `booking.delete`, always confirmed.** Reuses
+   `deleteBooking` (sets `deleted_at`, enqueues outbox DELETE): the booking leaves
+   every list, calendar cell, agenda row and — via sync — every device. The
+   confirmation dialog says exactly that ("This will permanently remove the booking on
+   every device.", localized). No gcal residue: the event was already deleted at
+   cancel time, and the planner's delete-on-vanish branch backstops any leftover state
+   entry when the tombstone push triggers one more pass.
+
+**Consequences.** The cancelled card is honest: two actions, both labeled with their
+real effect. Restore/Delete visibility is unit-tested as a status × permission matrix
+(`BookingCardActionsTest`); restore status/conflict logic and delete tombstoning are
+ViewModel-tested. Strings live in the shared `booking` fragment (en + hi); the
+duplicate keys the web track added concurrently were converged into the canonical
+`booking.card.*` set in the same shared commit.

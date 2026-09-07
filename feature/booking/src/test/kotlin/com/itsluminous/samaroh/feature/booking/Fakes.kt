@@ -69,7 +69,11 @@ class FakeBookingRepository : BookingRepository {
     }
 
     override suspend fun deleteBooking(id: String) {
-        bookings.value = bookings.value.filterNot { it.id == id }
+        // Mirrors production: soft-delete tombstone, never a hard row removal (§8).
+        bookings.value =
+            bookings.value.map {
+                if (it.id == id) it.copy(deletedAt = java.time.Instant.parse("2026-08-25T09:30:00Z")) else it
+            }
     }
 
     override suspend fun countBookingsOn(

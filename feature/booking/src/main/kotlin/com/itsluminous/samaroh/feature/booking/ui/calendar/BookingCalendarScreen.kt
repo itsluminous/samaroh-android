@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -44,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -62,6 +64,7 @@ import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.feature.booking.domain.BookingCardActions
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
@@ -93,6 +96,7 @@ fun BookingCalendarScreen(
     val eventsView by viewModel.eventsView.collectAsState()
     val eventsAgenda by viewModel.eventsAgenda.collectAsState()
     val presets by viewModel.presets.collectAsState()
+    val restoreConflict by viewModel.restoreConflict.collectAsState()
 
     var monthPicker by remember { mutableStateOf(false) }
     var blockDialog by remember { mutableStateOf(false) }
@@ -486,10 +490,15 @@ fun BookingCalendarScreen(
             bookingColors = bookingColors,
             // Audit line: the CREATOR's name (bookings.created_by), never the viewer's.
             creatorName = current.creatorName ?: stringResource(R.string.booking_card_audit_added_unknown_member),
-            canEdit = canEdit,
-            canDelete = canDelete,
-            canRecordPayment = canRecordPayment,
-            canInvoice = canInvoice,
+            actions =
+                BookingCardActions.forBooking(
+                    status = current.booking.status,
+                    isMarker = current.isMarker,
+                    canEdit = canEdit,
+                    canDelete = canDelete,
+                    canRecordPayment = canRecordPayment,
+                    canInvoice = canInvoice,
+                ),
             canViewAmounts = canViewAmounts,
             onDismiss = viewModel::dismissBookingCard,
             onEdit = {
@@ -501,6 +510,28 @@ fun BookingCalendarScreen(
             onInvoiceText = { viewModel.shareInvoiceText(current.booking.id) },
             onWhatsApp = { BookingShare.whatsAppReminder(context, whatsappMessage) },
             onCancelBooking = { viewModel.cancelBooking(current.booking.id) },
+            onRestoreBooking = { viewModel.requestRestore(current.booking.id) },
+            onDeleteBooking = { viewModel.deleteBookingPermanently(current.booking.id) },
+        )
+    }
+
+    // ★ Non-blocking restore-conflict warning (ADR-054): same semantics as the
+    // add-form's double-booking popup — warn, never block.
+    restoreConflict?.let { conflict ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissRestoreConflict,
+            title = { Text(stringResource(R.string.booking_form_conflict_title)) },
+            text = { Text(pluralStringResource(R.plurals.booking_form_conflict_message, conflict.count, conflict.count)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmRestore) {
+                    Text(stringResource(R.string.booking_card_restore_conflict_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissRestoreConflict) {
+                    Text(stringResource(R.string.booking_form_conflict_go_back))
+                }
+            },
         )
     }
 
