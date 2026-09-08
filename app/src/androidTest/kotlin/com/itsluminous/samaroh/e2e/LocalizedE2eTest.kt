@@ -102,6 +102,7 @@ abstract class LocalizedE2eTest(
     @Before
     fun setUpHarness() {
         hiltRule.inject()
+        grantNotificationPermission()
         runBlocking {
             database.clearAllTables()
             settings.edit { it.clear() }
@@ -109,6 +110,23 @@ abstract class LocalizedE2eTest(
         applyPerAppLocale()
         runBlocking { seed() }
         scenario = ActivityScenario.launch(MainActivity::class.java)
+    }
+
+    /**
+     * Pre-grants POST_NOTIFICATIONS: the suite reinstalls the app every run, so the
+     * contextual first-form-open request (ADR-044) would otherwise fire the SYSTEM
+     * permission dialog mid-test — the activity pauses behind it and the compose tree
+     * is unreachable ("No compose hierarchies found") until the dialog is dismissed,
+     * which no test does. Granting up front keeps the production request path a
+     * silent no-op (already granted).
+     */
+    private fun grantNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        InstrumentationRegistry
+            .getInstrumentation()
+            .uiAutomation
+            .grantRuntimePermission(app.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /**
@@ -181,6 +199,20 @@ abstract class LocalizedE2eTest(
 
     // ---- synchronization helpers ----
 
+    /**
+     * True when [nodes] currently matches at least one node. A poll instant with NO
+     * compose hierarchy at all — the activity is still launching, or is being RECREATED
+     * by the per-app-locale application on a cold emulator image — counts as "not yet"
+     * instead of aborting the enclosing `waitUntil` with `IllegalStateException`
+     * ("No compose hierarchies found in the app").
+     */
+    private fun hasAnyNode(nodes: androidx.compose.ui.test.SemanticsNodeInteractionCollection): Boolean =
+        try {
+            nodes.fetchSemanticsNodes().isNotEmpty()
+        } catch (_: IllegalStateException) {
+            false
+        }
+
     protected fun waitForText(
         text: String,
         substring: Boolean = false,
@@ -188,7 +220,7 @@ abstract class LocalizedE2eTest(
     ): SemanticsNodeInteraction {
         try {
             compose.waitUntil(timeoutMillis) {
-                compose.onAllNodesWithText(text, substring = substring, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+                hasAnyNode(compose.onAllNodesWithText(text, substring = substring, useUnmergedTree = true))
             }
         } catch (_: androidx.compose.ui.test.ComposeTimeoutException) {
             dumpTree("timed out waiting for text '$text'")
@@ -204,10 +236,7 @@ abstract class LocalizedE2eTest(
     ): SemanticsNodeInteraction {
         try {
             compose.waitUntil(timeoutMillis) {
-                compose
-                    .onAllNodesWithContentDescription(description, substring = substring, useUnmergedTree = true)
-                    .fetchSemanticsNodes()
-                    .isNotEmpty()
+                hasAnyNode(compose.onAllNodesWithContentDescription(description, substring = substring, useUnmergedTree = true))
             }
         } catch (_: androidx.compose.ui.test.ComposeTimeoutException) {
             dumpTree("timed out waiting for content description '$description'")
@@ -225,7 +254,7 @@ abstract class LocalizedE2eTest(
     ): SemanticsNodeInteraction {
         val matcher = hasText(text) and hasAnyAncestor(isPopup())
         compose.waitUntil(timeoutMillis) {
-            compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            hasAnyNode(compose.onAllNodes(matcher, useUnmergedTree = true))
         }
         return compose.onAllNodes(matcher, useUnmergedTree = true).onFirst()
     }
@@ -236,7 +265,7 @@ abstract class LocalizedE2eTest(
         timeoutMillis: Long = UI_TIMEOUT_MS,
     ) {
         compose.waitUntil(timeoutMillis) {
-            compose.onAllNodesWithText(text, substring = substring, useUnmergedTree = true).fetchSemanticsNodes().isEmpty()
+            !hasAnyNode(compose.onAllNodesWithText(text, substring = substring, useUnmergedTree = true))
         }
     }
 
