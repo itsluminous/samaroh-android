@@ -218,6 +218,26 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `unexpected link failure surfaces the underlying error detail`() =
+        runTest(dispatcherRule.dispatcher) {
+            linker.linkResult =
+                Result.failure(
+                    com.itsluminous.samaroh.core.google.auth.GoogleLinkException
+                        .Failed(RuntimeException("[28444] Developer console is not set up correctly")),
+                )
+            viewModel.linkGoogle(context)
+            runCurrent()
+            assertThat(viewModel.message.value)
+                .isEqualTo(com.itsluminous.samaroh.core.i18n.R.string.settings_google_link_failed)
+            assertThat(viewModel.messageDetail.value)
+                .isEqualTo("[28444] Developer console is not set up correctly")
+
+            viewModel.onMessageShown()
+            assertThat(viewModel.message.value).isNull()
+            assertThat(viewModel.messageDetail.value).isNull()
+        }
+
+    @Test
     fun `successful link updates state and unlink reverts it`() =
         runTest(dispatcherRule.dispatcher) {
             val collector = launch { viewModel.uiState.collect {} }

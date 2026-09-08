@@ -65,6 +65,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val messageDetail by viewModel.messageDetail.collectAsStateWithLifecycle()
     val consentIntent by viewModel.consentIntent.collectAsStateWithLifecycle()
     val showRemoveEventsDialog by viewModel.showRemoveEventsDialog.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -85,6 +86,7 @@ fun SettingsScreen(
         titleRes = R.string.settings_title,
         onBack = onBack,
         messageRes = message,
+        messageDetail = messageDetail,
         onMessageShown = viewModel::onMessageShown,
     ) {
         // Language (§4.4: full-screen picker).

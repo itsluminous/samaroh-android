@@ -89,6 +89,12 @@ class CredentialManagerGoogleAccountLinker
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    // The most common release-only cause: the Cloud console clients don't
+                    // match this build (e.g. an Android client id passed as the "server
+                    // client id", or a missing Android client for the release cert) —
+                    // Credential Manager then fails with [28444] "Developer console is
+                    // not set up correctly". Log it so Settings failures are diagnosable.
+                    android.util.Log.w("SamarohGcal", "google account pick failed", e)
                     return Result.failure(GoogleLinkException.Failed(e))
                 }
 

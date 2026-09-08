@@ -41,12 +41,19 @@ fun MenuScreenScaffold(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     @StringRes messageRes: Int? = null,
+    messageDetail: String? = null,
     onMessageShown: () -> Unit = {},
     scrollable: Boolean = true,
     content: @Composable (Modifier) -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
-    val messageText = messageRes?.let { stringResource(it) }
+    val messageText =
+        messageRes?.let { res ->
+            val base = stringResource(res)
+            // Untranslated technical detail (e.g. the underlying Google error code) so
+            // failures are diagnosable from the snackbar itself.
+            if (messageDetail.isNullOrBlank()) base else "$base ($messageDetail)"
+        }
     LaunchedEffect(messageText) {
         if (messageText != null) {
             snackbarHostState.showSnackbar(messageText)

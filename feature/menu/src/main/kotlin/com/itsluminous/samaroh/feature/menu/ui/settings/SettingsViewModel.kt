@@ -134,6 +134,14 @@ class SettingsViewModel
         private val _message = MutableStateFlow<Int?>(null)
         val message: StateFlow<Int?> = _message.asStateFlow()
 
+        /**
+         * Optional untranslated technical detail appended to the snackbar (e.g. the
+         * underlying Credential Manager error for a failed Google link) so the failure
+         * is diagnosable from Settings instead of a bare "try again".
+         */
+        private val _messageDetail = MutableStateFlow<String?>(null)
+        val messageDetail: StateFlow<String?> = _messageDetail.asStateFlow()
+
         /** Pending Google scope-consent sheet the screen must launch, then call [completeGoogleConsent]. */
         private val _consentIntent = MutableStateFlow<PendingIntent?>(null)
         val consentIntent: StateFlow<PendingIntent?> = _consentIntent.asStateFlow()
@@ -144,6 +152,7 @@ class SettingsViewModel
 
         fun onMessageShown() {
             _message.value = null
+            _messageDetail.value = null
         }
 
         fun setThemeMode(mode: ThemeMode) {
@@ -222,7 +231,15 @@ class SettingsViewModel
                 is GoogleLinkException.Cancelled -> Unit
                 is GoogleLinkException.NotSignedIn -> _message.value = R.string.settings_google_not_signed_in
                 is GoogleLinkException.NotConfigured -> _message.value = R.string.settings_google_not_configured
-                else -> _message.value = R.string.settings_google_link_failed
+                else -> {
+                    // Keep the localized message but append the underlying code (e.g.
+                    // "[28444] Developer console is not set up correctly") — without it a
+                    // release-build console misconfiguration is indistinguishable from a
+                    // network blip. Also logged so `adb logcat -s SamarohGcal` suffices.
+                    android.util.Log.w("SamarohGcal", "google link failed", error)
+                    _messageDetail.value = (error.cause?.message ?: error.message)?.take(120)
+                    _message.value = R.string.settings_google_link_failed
+                }
             }
         }
 
