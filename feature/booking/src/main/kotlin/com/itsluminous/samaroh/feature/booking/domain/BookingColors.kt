@@ -102,4 +102,16 @@ object AgendaRowAppearance {
                     ?.let { AgendaRowLook.Tinted(it) }
                     ?: AgendaRowLook.Themed
         }
+
+    /**
+     * Whether the row shows the trailing status label. A booking whose type resolves
+     * to a MARKER-kind preset (ADR-041) hides it entirely — an auspicious-day marker
+     * has no meaningful Confirmed/Tentative state, and "Confirmed" on a Lagan row read
+     * as noise. Cancelled markers keep the struck-through treatment (the look above);
+     * only the textual status chip disappears. Real bookings are untouched.
+     */
+    fun showsStatus(
+        booking: Booking,
+        presets: List<EventType>,
+    ): Boolean = !EventTypeKinds.isMarker(presets, booking.eventType)
 }

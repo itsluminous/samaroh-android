@@ -118,10 +118,15 @@ internal fun BookingAgendaRow(
                 color = contentColor,
             )
         }
-        Text(
-            text = statusLabel(booking.status),
-            style = MaterialTheme.typography.labelLarge,
-            color = statusTextColor,
-        )
+        // Marker rows (ADR-041/044) carry no meaningful status — hide the label
+        // entirely; real bookings keep it. Same rule in all three hosts (day sheet,
+        // month agenda, events view) because they all render through this row.
+        if (AgendaRowAppearance.showsStatus(booking, presets)) {
+            Text(
+                text = statusLabel(booking.status),
+                style = MaterialTheme.typography.labelLarge,
+                color = statusTextColor,
+            )
+        }
     }
 }

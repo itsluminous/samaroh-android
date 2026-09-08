@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.feature.booking.FakeBookingColorCatalog
+import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import org.junit.Test
 
@@ -61,5 +62,42 @@ class AgendaRowAppearanceTest {
     fun `completed bookings tint like confirmed ones`() {
         val booking = Fixtures.booking(status = BookingStatus.COMPLETED).copy(color = "grape")
         assertThat(look(booking)).isEqualTo(AgendaRowLook.Tinted(colors.byKey("grape")!!))
+    }
+
+    // --- Status-label visibility (marker rows hide it, ADR-041/044) ---
+
+    private val presetsWithMarker =
+        presets +
+            presetFixture(
+                "Lagan",
+                color = "sky",
+                sortOrder = 10,
+                kind = com.itsluminous.samaroh.core.model.EventTypeKind.MARKER,
+            )
+
+    @Test
+    fun `real bookings show the status label`() {
+        val booking = Fixtures.booking()
+        assertThat(AgendaRowAppearance.showsStatus(booking, presetsWithMarker)).isTrue()
+    }
+
+    @Test
+    fun `marker bookings hide the status label`() {
+        val booking = Fixtures.booking().copy(eventType = "Lagan")
+        assertThat(AgendaRowAppearance.showsStatus(booking, presetsWithMarker)).isFalse()
+    }
+
+    @Test
+    fun `cancelled markers also hide the status label`() {
+        // The struck-through Cancelled LOOK stays; only the textual status disappears.
+        val booking = Fixtures.booking(status = BookingStatus.CANCELLED).copy(eventType = "lagan")
+        assertThat(AgendaRowAppearance.showsStatus(booking, presetsWithMarker)).isFalse()
+        assertThat(look(booking)).isEqualTo(AgendaRowLook.Cancelled)
+    }
+
+    @Test
+    fun `free-text type matching no preset keeps its status`() {
+        val booking = Fixtures.booking().copy(eventType = "family-function")
+        assertThat(AgendaRowAppearance.showsStatus(booking, presetsWithMarker)).isTrue()
     }
 }
