@@ -2441,3 +2441,37 @@ and bills — Drive is the one image store, the logo the one Storage object. Rea
 the server schema use `drive_image_id`/`drive_file_id` exclusively. The owner runs
 `alter-drop-image-path.sql` once, AFTER all devices run this app version (older
 versions would push the dropped column and wedge their outbox).
+
+## ADR-066 — Periodic calendar catch-up reconciled at app start (2026-09-08)
+
+**Status:** accepted. Additive: one new query on `GoogleAccountLinkDao`
+(`hasAnyLink`, `core:database` frozen-contract touch per ADR-001), everything else
+within `core:google` over existing `BusinessRepository` reads.
+
+**Problem.** The 6-hour periodic calendar catch-up (`samaroh-gcal-periodic-{biz}`) was
+scheduled ONLY from the Settings gcal toggle. A reinstall, a sign-in on a new device, or
+a sync-delivered enable (another member flipping the toggle) never scheduled it on this
+device: booking edits made offline then NEVER reached Google Calendar, because the
+on-change triggers (ADR-046/047) cover mutations, not the backlog. Same bug class as
+ADR-024 (reminder worker only scheduled on Booking-tab entry).
+
+**Decision.** `CalendarPeriodicReconciler` (`core:google`) reconciles WorkManager with
+LOCAL state — no network: per non-deleted business, `business_settings.gcal_sync_enabled`
+(Room) × `GoogleAccountLinkDao.hasAnyLink()` (Room). The link check is deliberately NOT
+the session-derived `GoogleAccountLinker.linkState`: at process ON_START the Supabase
+session restore has not completed, so a session-gated state races to "not linked" and the
+startup pass silently no-ops (observed on-device); sign-out wipes all local data
+(ADR-040), so any `google_accounts` row belongs to the current user. Enabled AND linked →
+`ensurePeriodicSync` (idempotent KEEP); disabled → `cancelPeriodicSync` (new narrow
+cancel — a sync-delivered disable must not leave a zombie job; unlike `disable()` it
+leaves one-shots alone); enabled but NOT linked → leave as-is (scheduling would only burn
+quiet skips; the link flow kicks a sync and the next pass schedules). Trigger points:
+
+1. **Every process ON_START** via `CalendarSyncStartupInitializer` (androidx.startup +
+   ProcessLifecycleOwner, own manifest entry — the §8 data-sync / ADR-024 pattern);
+   reconcile runs on a background scope, failures logged, never crash app start.
+2. **After any sync run that applied `business_settings` rows** — the reconciler is a
+   second multibound `RemoteChangeListener` (ADR-047 mechanism), so a remote
+   enable/disable takes effect without waiting for an app restart. By listener time the
+   pulled `google_accounts` link row is also in Room, so a new-device sign-in schedules
+   on the first sync run.

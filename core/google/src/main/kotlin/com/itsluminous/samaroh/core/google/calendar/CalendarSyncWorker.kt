@@ -180,6 +180,16 @@ class CalendarSyncScheduler
             )
         }
 
+        /**
+         * Cancels ONLY the periodic catch-up — the reconcile path (ADR-066) for a business
+         * whose gcal sync is off. Unlike [disable] it leaves pending one-shots alone: a
+         * sync-delivered disable enqueues its own cleanup via the engine, and cancelling
+         * an unrelated in-flight push here would tear it.
+         */
+        fun cancelPeriodicSync(businessId: String) {
+            WorkManager.getInstance(context).cancelUniqueWork(CalendarSyncWorker.periodicWorkName(businessId))
+        }
+
         /** Stops pushing; with [removeEvents] also deletes every synced event (§4.1 disable). */
         fun disable(
             businessId: String,

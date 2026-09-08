@@ -276,6 +276,8 @@ class CalendarSyncEngineTest {
 
         override suspend fun byId(userId: String): GoogleAccountLinkEntity? = link.value?.takeIf { it.userId == userId }
 
+        override suspend fun hasAnyLink(): Boolean = link.value != null
+
         override suspend fun unlink(userId: String) {
             link.value = null
         }

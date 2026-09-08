@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.core.google.auth.GoogleAccessTokenProvider
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.PlayServicesAccessTokenProvider
 import com.itsluminous.samaroh.core.google.calendar.BookingMutationCalendarTrigger
+import com.itsluminous.samaroh.core.google.calendar.CalendarPeriodicReconciler
 import com.itsluminous.samaroh.core.google.calendar.CalendarService
 import com.itsluminous.samaroh.core.google.calendar.GcalSyncStateStore
 import com.itsluminous.samaroh.core.google.calendar.RemoteBookingCalendarTrigger
@@ -69,4 +70,9 @@ abstract class GoogleModule {
     @Binds
     @IntoSet
     abstract fun bindRemoteBookingCalendarTrigger(impl: RemoteBookingCalendarTrigger): RemoteChangeListener
+
+    /** Sync-applied `business_settings` (remote gcal enable/disable) reconcile the periodic catch-up (ADR-066). */
+    @Binds
+    @IntoSet
+    abstract fun bindCalendarPeriodicReconciler(impl: CalendarPeriodicReconciler): RemoteChangeListener
 }

@@ -82,6 +82,15 @@ interface GoogleAccountLinkDao {
     @Query("SELECT * FROM google_accounts WHERE user_id = :userId")
     suspend fun byId(userId: String): GoogleAccountLinkEntity?
 
+    /**
+     * Any linked Google account on this device (ADR-066, additive). The periodic-calendar
+     * reconcile runs at process ON_START, BEFORE the Supabase session restore completes —
+     * a session-derived link state races to "not linked" there, so the check must be pure
+     * local Room. Sign-out wipes local data (ADR-040), so any row belongs to the current user.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM google_accounts)")
+    suspend fun hasAnyLink(): Boolean
+
     @Query("DELETE FROM google_accounts WHERE user_id = :userId")
     suspend fun unlink(userId: String)
 }
