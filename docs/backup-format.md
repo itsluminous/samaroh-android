@@ -53,8 +53,8 @@ to images — never the image bytes themselves:
   row JSON as plain strings but are meaningless off-device (they never sync — the
   server tables do not carry them; drop them when seeding Postgres).
 - **The business logo is the sole exception.** `businesses.logo_path` points at a file
-  that is *not* Drive-mirrored (device files dir on Android; the `logos` Storage bucket
-  for web uploads) — the one asset a total-loss disaster would otherwise destroy. When
+  that is *not* Drive-mirrored (a device file on Android; the `logos` Storage bucket
+  copy is what web reads for invoices) — the one asset a total-loss disaster would otherwise destroy. When
   the business has a logo and its file is readable on the exporting device, its bytes are
   embedded as `logo.<ext>` (normally `logo.webp`, ≤320px WebP per ADR-050). A safety cap
   of 1 MiB (`BackupArchive.MAX_LOGO_BYTES`) skips oversized legacy files so the archive

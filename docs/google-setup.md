@@ -88,6 +88,10 @@ primary calendar; Settings shows a re-link hint under the calendar-sync toggle.
 - `GetCredentialException` / developer console error → the Android client's package
   name or SHA-1 does not match the APK. Recheck step 3–4 (emulator/AS installs sign with
   the debug keystore of the machine that built the APK).
+- Developer-console error `[28444]` at link time → `GOOGLE_WEB_CLIENT_ID` holds an
+  **Android** client's ID. It must be the **Web application** client's ID (step 4.2) —
+  the Android clients exist only for app verification; their IDs are never copied
+  anywhere.
 - Consent screen loops or `access_denied` → your account is not in **Test users**.
 - Token fetch returns null after linking → the grant was revoked at
   <https://myaccount.google.com/permissions>; relink from Settings.

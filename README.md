@@ -44,7 +44,7 @@ app for bookings, expenses and inventory.
   **interactive square photo crop** on upload.
 
 ### 📊 Reports
-- Nine reports with hand-rolled Compose charts: revenue, profit (cash-basis), expense
+- Ten reports with hand-rolled Compose charts: revenue, profit (cash-basis), expense
   summary, dues, occupancy, and more — date-range filtered.
 - **Personal expenses** report (monthly + by-party) from the personal-party flag.
 - Every tabular money report ends in a **TOTAL row**, on screen and in exports.
@@ -97,6 +97,11 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # + Supabase/Googl
 ./gradlew assembleDebug        # APK at app/build/outputs/apk/debug/Samaroh-debug.apk
 ```
 
+Google features need `GOOGLE_WEB_CLIENT_ID` in `local.properties` — and the value must
+be the **Web application** OAuth client's ID, never an Android client's (the wrong type
+fails account linking with developer-console error `[28444]`). Full walkthrough in
+[docs/google-setup.md](docs/google-setup.md).
+
 ## Test & quality gate
 
 ```bash
@@ -123,6 +128,7 @@ Instrumented e2e tests (`app/src/androidTest`, en + hi) run on an emulator via
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — contributor/agent handbook
-- [docs/decisions.md](docs/decisions.md) — architecture decision records (ADR-001…029)
+- [docs/decisions.md](docs/decisions.md) — architecture decision records (ADR-001…068)
+- [docs/google-setup.md](docs/google-setup.md) — Google Cloud setup (Sign-In, Drive, Calendar)
 - [docs/backlog.md](docs/backlog.md) — v2+ feature backlog
 - [docs/backup-format.md](docs/backup-format.md) — backup ZIP format

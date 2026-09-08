@@ -31,7 +31,7 @@ Sign-In, Drive backups and Calendar sync.
 | `feature:inventory` | stock + masterlist, FIFO (ADR-012), item detail w/ txn history, `ui/MasterItemDialogs.kt` (shared add/edit/delete dialogs), `InventorySession` perm gate | done |
 | `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate) | done |
 | `feature:onboarding` | sign-in/sign-up, create/join business, Google link, offline continue | done |
-| `feature:reports` | nine reports, Compose charts, totals rows, personal-expenses report, CSV/PDF export | done |
+| `feature:reports` | ten reports, Compose charts, totals rows, personal-expenses report, CSV/PDF export | done |
 
 Feature modules depend ONLY on `core:*`, never on each other. `app` wires the graphs.
 
@@ -177,7 +177,9 @@ passes and NO Supabase Storage calls for item photos or bills — do not reintro
 ## Supabase env setup
 
 `local.properties` (git-ignored) carries `sdk.dir` plus `SUPABASE_URL`,
-`SUPABASE_ANON_KEY`, `GOOGLE_WEB_CLIENT_ID` — empty values are safe defaults; the app
+`SUPABASE_ANON_KEY`, `GOOGLE_WEB_CLIENT_ID` (the **Web application** OAuth client's ID —
+never an Android client's; wrong type fails linking with developer-console error
+`[28444]`, see `docs/google-setup.md`) — empty values are safe defaults; the app
 builds and runs fully offline without them. Create a Supabase project, `supabase link`,
 `supabase db push` from `shared/supabase/migrations/`, then fill in the values.
 
