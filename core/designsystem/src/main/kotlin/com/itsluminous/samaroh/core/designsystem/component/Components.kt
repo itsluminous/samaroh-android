@@ -204,4 +204,3 @@ fun PermissionGate(
         if (allowed) content() else deniedContent()
     }
 }
-
