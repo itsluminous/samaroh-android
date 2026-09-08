@@ -57,6 +57,20 @@ class CatalogUsageAuditTest {
             .map(CatalogTestSupport::androidResourceName)
             .toSet()
 
+    /**
+     * Keys owned by `fragments/web-*.json` — web-track vocabulary that is EXPECTED to be
+     * unreferenced on Android. Excluded from the unused-key warning so the report only
+     * ever lists genuinely suspicious keys (duplicate keys across files are a codegen
+     * hard error, so file ownership is unambiguous).
+     */
+    private fun webFragmentResourceNames(): Set<String> =
+        File(CatalogTestSupport.stringsDir(), "fragments")
+            .listFiles { f -> f.name.startsWith("web-") && f.name.endsWith(".en.json") }
+            .orEmpty()
+            .flatMap(CatalogTestSupport::topLevelKeys)
+            .map(CatalogTestSupport::androidResourceName)
+            .toSet()
+
     @Test
     fun `every string resource referenced in code exists in the catalog`() {
         val missing = referencedResourceNames() - catalogResourceNames()
@@ -70,13 +84,18 @@ class CatalogUsageAuditTest {
     @Test
     fun `unused catalog keys are reported as warnings`() {
         val referenced = referencedResourceNames()
+        val webOwned = webFragmentResourceNames()
         val unused =
             catalogResourceNames()
                 .filterNot { it in referenced }
+                .filterNot { it in webOwned }
                 .filterNot { name -> dynamicKeyAllowlist.any { it.matches(name) } }
                 .sorted()
         if (unused.isNotEmpty()) {
-            println("WARNING: ${unused.size} catalog key(s) unreferenced from Android code (may be web-only):")
+            println(
+                "WARNING: ${unused.size} catalog key(s) unreferenced from Android code " +
+                    "(web-* fragments excluded; may still be web-consumed):",
+            )
             unused.forEach { println("  - $it") }
         }
         // Intentionally never fails (see class KDoc) — the report keeps the catalog honest.
