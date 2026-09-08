@@ -13,6 +13,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import java.net.URLEncoder
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -304,12 +306,12 @@ internal fun GcalEvent.toRequestBody(): String =
         } else {
             putJsonObject("start") {
                 put("date", JsonNull)
-                put("dateTime", startDateTime.toString())
+                put("dateTime", startDateTime!!.toRfc3339Local())
                 put("timeZone", timeZone)
             }
             putJsonObject("end") {
                 put("date", JsonNull)
-                put("dateTime", endDateTime.toString())
+                put("dateTime", endDateTime!!.toRfc3339Local())
                 put("timeZone", timeZone)
             }
         }
@@ -321,3 +323,16 @@ internal fun GcalEvent.toRequestBody(): String =
             }
         }
     }.toString()
+
+/**
+ * Calendar v3 `dateTime` values must be RFC3339, which makes SECONDS mandatory.
+ * `LocalDateTime.toString()` omits `:00` seconds (ISO-8601 allows it, RFC3339 does
+ * not), and Google rejects the truncated form with a bare HTTP 400 `badRequest` —
+ * which is exactly what every whole-minute booking produced (the "calendar exists but
+ * stays empty" incident, 2026-09-08). The zone offset is intentionally absent: the
+ * body carries an explicit `timeZone` field, which the API documents as the case
+ * where the offset may be omitted.
+ */
+private val RFC3339_LOCAL: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+
+internal fun LocalDateTime.toRfc3339Local(): String = format(RFC3339_LOCAL)

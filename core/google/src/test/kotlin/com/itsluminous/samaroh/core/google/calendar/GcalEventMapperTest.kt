@@ -208,4 +208,19 @@ class GcalEventMapperTest {
         assertThat(body).contains("\"samarohBookingId\":\"b-42\"")
         assertThat(body).contains("\"samarohManaged\":\"1\"")
     }
+
+    @Test
+    fun `timed request body carries RFC3339 dateTime with mandatory seconds`() {
+        // Regression (2026-09-08): LocalDateTime.toString() drops ":00" seconds, which
+        // RFC3339 forbids — Google rejected EVERY whole-minute event with HTTP 400 and
+        // the dedicated calendar stayed empty.
+        val booking =
+            Fixtures.booking(startDate = LocalDate.of(2026, 9, 10)).copy(
+                startTime = LocalTime.of(18, 30),
+                endTime = LocalTime.of(23, 0),
+            )
+        val body = map(booking).toRequestBody()
+        assertThat(body).contains("\"dateTime\":\"2026-09-10T18:30:00\"")
+        assertThat(body).contains("\"dateTime\":\"2026-09-10T23:00:00\"")
+    }
 }
