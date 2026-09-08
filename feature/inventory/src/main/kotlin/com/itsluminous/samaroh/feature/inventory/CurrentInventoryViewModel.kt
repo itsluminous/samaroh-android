@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
+import com.itsluminous.samaroh.core.data.settings.ListSortOrder
+import com.itsluminous.samaroh.core.data.settings.ListSortPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -18,19 +20,25 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import java.time.Instant
 import javax.inject.Inject
 
 /** UI state of the Current Inventory screen (§4.3). */
 data class CurrentInventoryUiState(
     val loading: Boolean = true,
     /**
-     * Search-filtered rows: in-stock items (quantity > 0) first, then zero-stock items,
-     * each group sorted by name (ADR-057 — zero-stock masterlist items no longer vanish
-     * from the stock screen; they render dimmed with 0 quantity and ₹0 value).
+     * Search-filtered rows: in-stock items (quantity > 0) first, then zero-stock items
+     * (ADR-057 — zero-stock masterlist items no longer vanish from the stock screen;
+     * they render dimmed with 0 quantity and ₹0 value). WITHIN each group rows follow
+     * the chosen [sortOrder] (ADR-069): last-updated (newest first, default) or name
+     * A→Z / Z→A — the zero-stock-at-end partition always wins over the sort.
      */
     val lines: List<CurrentInventoryLine> = emptyList(),
     /** True when a non-blank search filtered out every row. */
     val noSearchResults: Boolean = false,
+    /** The persisted sort order applied to [lines] (ADR-069). */
+    val sortOrder: ListSortOrder = ListSortOrder.LAST_UPDATED,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -41,6 +49,7 @@ class CurrentInventoryViewModel
         activeBusinessProvider: ActiveBusinessProvider,
         overviewRepository: InventoryOverviewRepository,
         session: InventorySession,
+        private val sortPreferences: ListSortPreferences,
     ) : ViewModel() {
         private val query = MutableStateFlow("")
         val searchQuery: StateFlow<String> = query.asStateFlow()
@@ -67,22 +76,42 @@ class CurrentInventoryViewModel
                     if (id == null) flowOf(emptyList()) else overviewRepository.currentInventory(id)
                 },
                 query,
-            ) { lines, q ->
+                sortPreferences.inventoryStockSort,
+            ) { lines, q, sort ->
                 // ADR-057: zero-quantity items are SHOWN, after the in-stock rows —
-                // hiding them made users think their masterlist items vanished. The DAO
-                // orders by name, and partition is stable, so each group stays
-                // alphabetical. Search matches zero-stock items too.
+                // hiding them made users think their masterlist items vanished. The
+                // partition is stable, so each group keeps the chosen sort (ADR-069):
+                // last-updated newest first (default; never-moved items last, name
+                // tiebreak) or name A→Z / Z→A. Search matches zero-stock items too.
                 val trimmed = q.trim()
                 val matches = if (trimmed.isEmpty()) lines else lines.filter { it.name.contains(trimmed, ignoreCase = true) }
-                val (inStock, zeroStock) = matches.partition { it.currentQuantity > 0 }
+                val sorted = matches.sortedWith(sort.lineComparator())
+                val (inStock, zeroStock) = sorted.partition { it.currentQuantity > 0 }
                 CurrentInventoryUiState(
                     loading = false,
                     lines = inStock + zeroStock,
                     noSearchResults = trimmed.isNotEmpty() && matches.isEmpty() && lines.isNotEmpty(),
+                    sortOrder = sort,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CurrentInventoryUiState())
 
         fun onSearchQueryChange(value: String) {
             query.value = value
         }
+
+        /** Persists the chosen order (per device, inventory-list key — ADR-069). */
+        fun onSortOrderChange(order: ListSortOrder) {
+            viewModelScope.launch { sortPreferences.setInventoryStockSort(order) }
+        }
+
+        private fun ListSortOrder.lineComparator(): Comparator<CurrentInventoryLine> =
+            when (this) {
+                // Items that never moved (null lastTransactionAt) sink to the end of
+                // their group; equal timestamps fall back to name for a stable order.
+                ListSortOrder.LAST_UPDATED ->
+                    compareByDescending<CurrentInventoryLine> { it.lastTransactionAt ?: Instant.MIN }
+                        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+                ListSortOrder.NAME_ASC -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+                ListSortOrder.NAME_DESC -> compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.name }
+            }
     }

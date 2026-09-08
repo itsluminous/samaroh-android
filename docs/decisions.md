@@ -2566,3 +2566,41 @@ stamping, and deterministic overwrite naming; inventory keeps temp-file + rename
 in-flight dedupe. Net effect on expenses: it GAINS the empty-file guard (safer; a 0-byte
 own-token "success" now falls through to the public rung instead of opening an empty
 file).
+
+## ADR-069 — User-selectable sort for the stock and party lists (2026-09-08)
+
+**Status:** accepted. Presentation-level feature in `feature:inventory` +
+`feature:expenses`; additive `core:data` settings class and `core:designsystem`
+component. No DAO/repository contract changes.
+
+**Context.** The Current Inventory (stock) list and the Expenses party list had fixed
+orderings (DAO `ORDER BY name COLLATE NOCASE ASC`). Users asked to see recent activity
+first, and to be able to flip back to alphabetical.
+
+**Decision.** Both lists gain a compact sort menu (shared
+`core:designsystem` `SortMenuButton` — sort icon, dropdown, selected checkmark,
+localized `common.sort.*` labels): **Last updated** (default), **Name A→Z**,
+**Name Z→A**. The choice persists PER DEVICE and PER LIST in the settings DataStore
+(`ListSortPreferences`, keys `sort_order_inventory_stock` /
+`sort_order_expenses_parties`; unset/unknown values fall back to last-updated).
+Sorting is applied in the ViewModels over the DAO's stable name ordering — queries are
+untouched.
+
+- **"Last updated" semantics** (newest first): a party's `lastEntryAt` =
+  `MAX(expenses.created_at)` over live entries (the value the row already displays);
+  an item's `lastTransactionAt` = `MAX(inventory_transactions.transaction_date)` over
+  live rows. Rows with no activity yet (null) sink to the end of their group; ties
+  fall back to name ascending so every order is deterministic.
+- **ADR-057 interaction:** the zero-stock-at-the-end partition ALWAYS wins over the
+  chosen sort — the list is sorted first, then stably partitioned, so the in-stock
+  group leads and BOTH groups follow the same selected order internally.
+- **Search** filters first, then the sort applies within the results.
+- UI placement: inventory puts the menu in its own `TopAppBar` actions; the expenses
+  home has no nested top bar (the app bar is business-level), so its menu sits at the
+  trailing edge of the search row — the list's header line.
+
+**Consequences.** The party list's DEFAULT order changes from alphabetical to
+last-entry-first (matching the ledger mental model); alphabetical remains one tap away
+and the device remembers the choice. The expenses "last entry" display basis
+(`created_at`, not `expense_date`) is now load-bearing for ordering — if the data-fix
+track changes that basis, the sort follows automatically via the same query.

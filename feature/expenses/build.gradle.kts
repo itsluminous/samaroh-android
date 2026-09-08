@@ -63,6 +63,7 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.datastore.preferences)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core.ktx)
     // Writing EXIF orientation onto test JPEGs (upright-attachment regression, ADR-050).

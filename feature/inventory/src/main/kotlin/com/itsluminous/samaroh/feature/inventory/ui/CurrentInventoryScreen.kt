@@ -47,11 +47,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
+import com.itsluminous.samaroh.core.data.settings.ListSortOrder
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
+import com.itsluminous.samaroh.core.designsystem.component.SortMenuButton
+import com.itsluminous.samaroh.core.designsystem.component.SortMenuEntry
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.inventory.CurrentInventoryViewModel
@@ -92,6 +95,12 @@ fun CurrentInventoryScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.inventory_list_title), modifier = Modifier.semantics { heading() }) },
                 actions = {
+                    // ADR-069: compact sort menu — persisted per device for this list.
+                    SortMenuButton(
+                        entries = listSortMenuEntries(),
+                        selected = uiState.sortOrder,
+                        onSelect = viewModel::onSortOrderChange,
+                    )
                     ExplainableIcon(
                         icon = Icons.AutoMirrored.Filled.ListAlt,
                         explanationRes = R.string.inventory_toggle_masterlist,
@@ -249,3 +258,12 @@ private fun CurrentInventoryRowCard(
         }
     }
 }
+
+/** The three list orders with localized labels, in menu order (ADR-069). */
+@Composable
+internal fun listSortMenuEntries(): List<SortMenuEntry<ListSortOrder>> =
+    listOf(
+        SortMenuEntry(ListSortOrder.LAST_UPDATED, stringResource(R.string.common_sort_last_updated)),
+        SortMenuEntry(ListSortOrder.NAME_ASC, stringResource(R.string.common_sort_name_asc)),
+        SortMenuEntry(ListSortOrder.NAME_DESC, stringResource(R.string.common_sort_name_desc)),
+    )

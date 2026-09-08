@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.ExpenseTotals
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
+import com.itsluminous.samaroh.core.data.settings.ListSortOrder
+import com.itsluminous.samaroh.core.data.settings.ListSortPreferences
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.Instant
 import javax.inject.Inject
 
@@ -45,6 +48,8 @@ data class ExpensesHomeState(
     val canManageParties: Boolean = false,
     /** ADR-039 gate: `expenses.view_amounts`; masks totals and net balances as ₹••• when false. */
     val canViewAmounts: Boolean = true,
+    /** The persisted sort order applied to [parties] (ADR-069). */
+    val sortOrder: ListSortOrder = ListSortOrder.LAST_UPDATED,
 )
 
 @HiltViewModel
@@ -54,6 +59,7 @@ class ExpensesHomeViewModel
         expensesRepository: ExpensesRepository,
         ledgerRepository: ExpensesLedgerRepository,
         session: ExpensesSession,
+        private val sortPreferences: ListSortPreferences,
     ) : ViewModel() {
         private val searchQuery = MutableStateFlow("")
 
@@ -66,10 +72,14 @@ class ExpensesHomeViewModel
                         ledgerRepository.totals(businessId),
                         ledgerRepository.lastEntryPerParty(businessId),
                         searchQuery,
-                        // Both session gates as one source (keeps the combine at 5 flows).
-                        combine(session.canManageParties, session.canViewAmounts) { manage, amounts -> manage to amounts },
+                        // Both session gates + the sort pref as one source (keeps the combine at 5 flows).
+                        combine(
+                            session.canManageParties,
+                            session.canViewAmounts,
+                            sortPreferences.expensesPartiesSort,
+                        ) { manage, amounts, sort -> Triple(manage, amounts, sort) },
                     ) { parties, totals, lastEntries, query, gates ->
-                        val (canManageParties, canViewAmounts) = gates
+                        val (canManageParties, canViewAmounts, sortOrder) = gates
                         val items =
                             parties.map {
                                 PartyListItem(
@@ -81,10 +91,11 @@ class ExpensesHomeViewModel
                         ExpensesHomeState(
                             totals = totals,
                             searchQuery = query,
-                            parties = items.filterBy(query),
+                            parties = items.filterBy(query).sortedWith(sortOrder.partyComparator()),
                             hasAnyParty = items.isNotEmpty(),
                             canManageParties = canManageParties,
                             canViewAmounts = canViewAmounts,
+                            sortOrder = sortOrder,
                         )
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExpensesHomeState())
@@ -92,6 +103,22 @@ class ExpensesHomeViewModel
         fun onSearchQueryChange(query: String) {
             searchQuery.value = query
         }
+
+        /** Persists the chosen order (per device, party-list key — ADR-069). */
+        fun onSortOrderChange(order: ListSortOrder) {
+            viewModelScope.launch { sortPreferences.setExpensesPartiesSort(order) }
+        }
+
+        private fun ListSortOrder.partyComparator(): Comparator<PartyListItem> =
+            when (this) {
+                // Parties with no entries yet (null lastEntryAt) sink to the end;
+                // equal times fall back to name for a stable order.
+                ListSortOrder.LAST_UPDATED ->
+                    compareByDescending<PartyListItem> { it.lastEntryAt ?: Instant.MIN }
+                        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.party.name }
+                ListSortOrder.NAME_ASC -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.party.name }
+                ListSortOrder.NAME_DESC -> compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.party.name }
+            }
 
         private fun List<PartyListItem>.filterBy(query: String): List<PartyListItem> {
             val normalized = FuzzyNameMatcher.normalize(query)

@@ -28,6 +28,8 @@ import javax.inject.Singleton
  * - `onboarding_complete` (`:app` first-launch routing)
  * - `image_quality_bills`, `image_quality_item_photos` ([ImageQualityPreferences];
  *   written by menu Settings, read by the expense-attachment and item-photo encoders)
+ * - `sort_order_inventory_stock`, `sort_order_expenses_parties` ([ListSortPreferences];
+ *   written by the stock/party lists' sort menus, read by their ViewModels — ADR-069)
  */
 @Qualifier
 @Retention(AnnotationRetention.BINARY)

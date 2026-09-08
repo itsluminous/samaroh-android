@@ -33,11 +33,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itsluminous.samaroh.core.data.settings.ListSortOrder
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
 import com.itsluminous.samaroh.core.designsystem.component.SamarohExtendedFab
+import com.itsluminous.samaroh.core.designsystem.component.SortMenuButton
+import com.itsluminous.samaroh.core.designsystem.component.SortMenuEntry
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.expenses.PersonalPartyTag
@@ -72,13 +75,26 @@ fun ExpensesHomeScreen(
                 masked = !state.canViewAmounts,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = viewModel::onSearchQueryChange,
-                label = { Text(stringResource(R.string.expenses_home_search_hint)) },
-                singleLine = true,
+            // ADR-069: the party list's header row — search plus the compact sort menu
+            // (this screen has no nested top bar; the global app bar is business-level).
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
+            ) {
+                OutlinedTextField(
+                    value = state.searchQuery,
+                    onValueChange = viewModel::onSearchQueryChange,
+                    label = { Text(stringResource(R.string.expenses_home_search_hint)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                SortMenuButton(
+                    entries = partySortMenuEntries(),
+                    selected = state.sortOrder,
+                    onSelect = viewModel::onSortOrderChange,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
             if (!state.hasAnyParty) {
                 EmptyState(
                     icon = Icons.Filled.Group,
@@ -205,3 +221,12 @@ private fun InitialsAvatar(
         }
     }
 }
+
+/** The three party-list orders with localized labels, in menu order (ADR-069). */
+@Composable
+private fun partySortMenuEntries(): List<SortMenuEntry<ListSortOrder>> =
+    listOf(
+        SortMenuEntry(ListSortOrder.LAST_UPDATED, stringResource(R.string.common_sort_last_updated)),
+        SortMenuEntry(ListSortOrder.NAME_ASC, stringResource(R.string.common_sort_name_asc)),
+        SortMenuEntry(ListSortOrder.NAME_DESC, stringResource(R.string.common_sort_name_desc)),
+    )
