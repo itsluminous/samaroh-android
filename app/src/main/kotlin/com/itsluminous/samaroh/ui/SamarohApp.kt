@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -238,7 +239,15 @@ fun SamarohApp(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        // consumeWindowInsets is the IME-gap fix: every form screen pins its action row
+        // with `imePadding()`, but the shell already spent the bottom-bar + nav-bar
+        // insets via `padding` here. Without marking them consumed, each screen's inner
+        // Scaffold re-adds the nav-bar inset AND `imePadding()` adds the FULL keyboard
+        // height on top of the bottom-bar padding — a dead gap the size of the bottom
+        // bar between the save row and the keyboard. Consuming makes descendants pad
+        // only the REMAINING inset (keyboard minus what's already padded), so pinned
+        // rows sit snugly above the IME on every tab with one shell-level fix.
+        Column(modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             // Offline-banner slot (§4.5): persistent thin banner while disconnected.
             val bannerReducedMotion = rememberReducedMotion()
             AnimatedVisibility(
