@@ -18,9 +18,6 @@ interface BookingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(booking: BookingEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAll(bookings: List<BookingEntity>)
-
     @Query("SELECT * FROM bookings WHERE id = :id")
     suspend fun byId(id: String): BookingEntity?
 
@@ -237,13 +234,6 @@ interface PaymentReminderDao {
         businessId: String,
         onOrBefore: LocalDate,
     ): Flow<List<PaymentReminderEntity>>
-
-    @Query("UPDATE payment_reminders SET status = :status, updated_at = :at WHERE id = :id")
-    suspend fun updateStatus(
-        id: String,
-        status: String,
-        at: Instant,
-    )
 
     /** All live reminders of one booking, newest remind_on first. Additive W1-A extension (ADR-007). */
     @Query(

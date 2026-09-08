@@ -88,7 +88,7 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE id = :id")
     suspend fun byId(id: String): ExpenseEntity?
 
-    /** Live variant of [totalPaise] — drives the "You gave"/"You got" header totals card (W1-B additive; ADR-007). */
+    /** Live sum of live expenses by direction — drives the "You gave"/"You got" header totals card (W1-B additive; ADR-007). */
     @Query(
         """
         SELECT COALESCE(SUM(amountPaise), 0) FROM expenses
@@ -144,17 +144,6 @@ interface ExpenseDao {
         from: LocalDate,
         to: LocalDate,
     ): Flow<List<ExpenseEntity>>
-
-    @Query(
-        """
-        SELECT COALESCE(SUM(amountPaise), 0) FROM expenses
-        WHERE business_id = :businessId AND direction = :direction AND deleted_at IS NULL
-        """,
-    )
-    suspend fun totalPaise(
-        businessId: String,
-        direction: String,
-    ): Long
 
     @Query("UPDATE expenses SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(

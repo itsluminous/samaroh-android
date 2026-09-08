@@ -1,6 +1,5 @@
 package com.itsluminous.samaroh.core.designsystem.component
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -206,20 +205,3 @@ fun PermissionGate(
     }
 }
 
-/**
- * Localized placeholder screen for not-yet-implemented destinations. [featureNameRes]
- * is the catalog-generated resource for the feature's display name.
- */
-@Composable
-fun PlaceholderScreen(
-    @StringRes featureNameRes: Int,
-    icon: ImageVector,
-    modifier: Modifier = Modifier,
-) {
-    EmptyState(
-        icon = icon,
-        title = stringResource(R.string.app_placeholder_title),
-        message = stringResource(R.string.app_placeholder_message, stringResource(featureNameRes)),
-        modifier = modifier,
-    )
-}

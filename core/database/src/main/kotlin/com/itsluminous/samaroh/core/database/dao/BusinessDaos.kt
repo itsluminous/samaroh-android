@@ -43,9 +43,6 @@ interface BusinessMemberDao {
         userId: String,
     ): BusinessMemberEntity?
 
-    @Query("SELECT * FROM business_members WHERE invited_email = :email COLLATE NOCASE AND deleted_at IS NULL ORDER BY created_at ASC")
-    fun membershipsForEmail(email: String): Flow<List<BusinessMemberEntity>>
-
     /** Row lookup for the sync no-op re-apply guard (ADR-051, additive). */
     @Query("SELECT * FROM business_members WHERE id = :id")
     suspend fun byId(id: String): BusinessMemberEntity?

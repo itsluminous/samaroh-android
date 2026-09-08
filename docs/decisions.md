@@ -2475,3 +2475,32 @@ quiet skips; the link flow kicks a sync and the next pass schedules). Trigger po
    enable/disable takes effect without waiting for an app restart. By listener time the
    pulled `google_accounts` link row is also in Room, so a new-device sign-in schedules
    on the first sync run.
+
+## ADR-067 — Dead-seam removals: unused DAO methods, retired Wave-0/1 scaffolding (2026-09-08)
+
+**Status:** accepted. Subtractive-only cleanup; zero behavior change (verified by full
+gate + connected e2e suite).
+
+**Context.** A holistic audit (2026-09-08) verified zero main-source AND zero test
+references for a set of never-wired seams. Per ADR-001, `core:database` DAO removals
+need this entry.
+
+**Removed:**
+
+1. `BusinessMemberDao.membershipsForEmail` — ADR-009's pending-invite auto-detection
+   query; the ADR-037 explicit-accept flow made it obsolete before it was ever wired.
+2. `ExpenseDao.totalPaise` — one-shot twin of `totalPaiseFlow` (the only variant used).
+3. `PaymentReminderDao.updateStatus` — reminder writes go through
+   `BookingRepository.saveReminder` (Room + outbox); a direct status UPDATE bypassing
+   the outbox would be a sync bug if ever used, so the method's existence was a trap.
+4. `BookingDao.upsertAll` — sync applies per-row via `LocalApplier`; bulk upsert never
+   had a caller.
+5. `LocalOnlyAttachmentUploadQueue` (core:data) — the Wave-1 no-op placeholder ADR-018
+   deprecated and unbound; the `AttachmentUploadQueue` interface stays (used by
+   `AddEntryViewModel`; `core:google` binds the Drive-backed impl).
+6. `PlaceholderScreen` (core:designsystem) — Wave-0 stub for not-yet-implemented
+   destinations; every feature shipped. Its `app.placeholder.*` catalog keys become
+   unused (removal is a shared-repo decision, tracked there).
+
+**Rule reaffirmed:** reminder/booking/expense status changes MUST go through the
+repository layer so the outbox sees every write; never add direct-UPDATE DAO shortcuts.

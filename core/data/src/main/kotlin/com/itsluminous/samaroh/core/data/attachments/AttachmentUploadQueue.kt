@@ -32,21 +32,3 @@ interface AttachmentUploadQueue {
         expenseId: String,
     )
 }
-
-/**
- * Wave-1 placeholder, RETIRED at integration: `core:google` binds the Drive-backed
- * implementation (docs/decisions.md ADR-018). Kept only for tests that need a no-op
- * queue; no production binding refers to it anymore.
- */
-@Deprecated("Superseded by the Drive-backed queue in core:google (ADR-018).")
-class LocalOnlyAttachmentUploadQueue
-    @javax.inject.Inject
-    constructor() : AttachmentUploadQueue {
-        override suspend fun enqueue(
-            localPath: String,
-            expenseId: String,
-        ) {
-            // Intentionally empty: the persisted metadata row (driveFileId == null) already
-            // records the pending upload; the Drive worker replaces this binding.
-        }
-    }
