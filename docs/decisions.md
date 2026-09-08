@@ -1074,6 +1074,12 @@ neither path goes through `OutboxWriter`, the only place the trigger lives.
 redundant but harmless (KEEP on a separate unique chain) and are left in place. The
 15-minute periodic job remains the safety net for pull-side freshness.
 
+**Amendment (2026-09-08, with ADR-067):** the 13 per-ViewModel nudges immediately
+following repository writes (booking form, booking calendar, event types) were removed —
+the enqueue trigger covers them. Link-flow nudges (AddEntry/PartyLedger: a fresh Drive
+scope must move pending uploads NOW), `PaymentReminderActionReceiver`, and onboarding
+sign-in/invite pulls stay: those are not post-write nudges.
+
 ## ADR-037 — Explicit invite accept for existing accounts (2026-08-28)
 
 **Context.** The §3 invite flow only auto-activated memberships via a trigger on

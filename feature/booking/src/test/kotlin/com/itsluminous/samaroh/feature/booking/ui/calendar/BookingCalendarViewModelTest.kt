@@ -22,7 +22,6 @@ import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeInvoiceGenerator
 import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
-import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
@@ -50,7 +49,6 @@ class BookingCalendarViewModelTest {
     private val memberRepository = FakeMemberRepository()
     private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
     private val invoiceGenerator = FakeInvoiceGenerator()
-    private val syncScheduler = RecordingSyncScheduler()
     private val calendarPrefs = FakeBookingCalendarPrefs()
 
     private fun viewModel(actorProvider: FakeActorProvider = FakeActorProvider()) =
@@ -60,7 +58,6 @@ class BookingCalendarViewModelTest {
             memberRepository = memberRepository,
             actorProvider = actorProvider,
             invoiceGenerator = invoiceGenerator,
-            syncScheduler = syncScheduler,
             eventTypeRepository = eventTypeRepository,
             eventTypesProvider = FakeEventTypeCatalog(),
             bookingColorsProvider = FakeBookingColorCatalog(),
@@ -137,7 +134,6 @@ class BookingCalendarViewModelTest {
                 assertThat(payment.amountPaise).isEqualTo(25_000_00L)
                 assertThat(payment.method).isEqualTo(PaymentMethod.UPI)
                 assertThat(payment.bookingId).isEqualTo(booking.id)
-                assertThat(syncScheduler.immediateSyncs).isAtLeast(1)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -560,7 +556,7 @@ class BookingCalendarViewModelTest {
     )
 
     @Test
-    fun `restore returns a cancelled booking to CONFIRMED and requests sync`() =
+    fun `restore returns a cancelled booking to CONFIRMED`() =
         runTest {
             val cancelled = Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED)
             repository.bookings.value = listOf(cancelled)
@@ -575,7 +571,6 @@ class BookingCalendarViewModelTest {
                 assertThat(restored.status).isEqualTo(BookingStatus.CONFIRMED)
                 assertThat(restored.updatedBy).isEqualTo("test-user")
                 assertThat(vm.restoreConflict.value).isNull()
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -635,7 +630,6 @@ class BookingCalendarViewModelTest {
                         .single()
                         .status,
                 ).isEqualTo(BookingStatus.CANCELLED)
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -681,7 +675,6 @@ class BookingCalendarViewModelTest {
                         .single()
                         .status,
                 ).isEqualTo(BookingStatus.CANCELLED)
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -703,13 +696,12 @@ class BookingCalendarViewModelTest {
                         .single()
                         .status,
                 ).isEqualTo(BookingStatus.TENTATIVE)
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
                 cancelAndIgnoreRemainingEvents()
             }
         }
 
     @Test
-    fun `permanent delete tombstones a cancelled booking and requests sync`() =
+    fun `permanent delete tombstones a cancelled booking`() =
         runTest {
             val cancelled = Fixtures.booking(status = BookingStatus.CANCELLED)
             repository.bookings.value = listOf(cancelled)
@@ -725,7 +717,6 @@ class BookingCalendarViewModelTest {
                         .single()
                         .deletedAt,
                 ).isNotNull()
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -747,7 +738,6 @@ class BookingCalendarViewModelTest {
                         .single()
                         .deletedAt,
                 ).isNull()
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -769,7 +759,6 @@ class BookingCalendarViewModelTest {
                         .single()
                         .deletedAt,
                 ).isNull()
-                assertThat(syncScheduler.immediateSyncs).isEqualTo(0)
                 cancelAndIgnoreRemainingEvents()
             }
         }

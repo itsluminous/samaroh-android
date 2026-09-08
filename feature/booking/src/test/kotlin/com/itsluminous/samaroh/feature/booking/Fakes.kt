@@ -7,7 +7,6 @@ import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
-import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingPermissions
@@ -285,19 +284,6 @@ class FakeInvoiceGenerator : InvoiceGenerator {
     override suspend fun buildInvoiceText(bookingId: String): String {
         textRequests += bookingId
         return text
-    }
-}
-
-class RecordingSyncScheduler : SyncScheduler {
-    var immediateSyncs = 0
-    var periodicEnsured = 0
-
-    override fun requestImmediateSync() {
-        immediateSyncs++
-    }
-
-    override fun ensurePeriodicSync() {
-        periodicEnsured++
     }
 }
 

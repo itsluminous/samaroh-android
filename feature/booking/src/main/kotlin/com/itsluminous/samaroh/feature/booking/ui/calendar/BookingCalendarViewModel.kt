@@ -8,7 +8,6 @@ import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
-import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingStatus
@@ -158,7 +157,6 @@ class BookingCalendarViewModel
         private val memberRepository: MemberRepository,
         private val actorProvider: BookingActorProvider,
         private val invoiceGenerator: InvoiceGenerator,
-        private val syncScheduler: SyncScheduler,
         eventTypeRepository: EventTypeRepository,
         val eventTypesProvider: EventTypeCatalog,
         /** Booking colour palette (ADR-030), exposed like [eventTypesProvider] for the UI. */
@@ -477,7 +475,6 @@ class BookingCalendarViewModel
                     .filter { it.status == ReminderStatus.PENDING }
                     .forEach { bookingRepository.saveReminder(it.copy(status = ReminderStatus.DISMISSED, updatedAt = now)) }
                 selectedBookingId.value = null
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -526,7 +523,6 @@ class BookingCalendarViewModel
                 booking.copy(status = BookingStatus.CONFIRMED, updatedBy = actor.userId, updatedAt = clock.instant()),
             )
             selectedBookingId.value = null
-            syncScheduler.requestImmediateSync()
         }
 
         /** Max per-day count of OTHER live bookings across the restored range (mirrors the form). */
@@ -556,7 +552,6 @@ class BookingCalendarViewModel
                 if (booking.status != BookingStatus.CANCELLED) return@launch
                 bookingRepository.deleteBooking(bookingId)
                 selectedBookingId.value = null
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -594,7 +589,6 @@ class BookingCalendarViewModel
                 )
                 settleReminderAfterPayment(booking, answeringReminderId)
                 events.trySend(BookingEvent.PaymentRecorded)
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -660,7 +654,6 @@ class BookingCalendarViewModel
                 PaymentReminderPlanner
                     .nextAfterAction(confirmation.reminder, due, LocalDate.now(clock), { UUID.randomUUID().toString() }, now)
                     ?.let { bookingRepository.saveReminder(it) }
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -677,7 +670,6 @@ class BookingCalendarViewModel
                     booking.copy(status = BookingStatus.CONFIRMED, updatedBy = actor.userId, updatedAt = now),
                 )
                 bookingRepository.saveReminder(followUp.reminder.copy(status = ReminderStatus.CONFIRMED, updatedAt = now))
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -699,7 +691,6 @@ class BookingCalendarViewModel
                         now = now,
                     ),
                 )
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -728,7 +719,6 @@ class BookingCalendarViewModel
                         updatedAt = now,
                     ),
                 )
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -737,7 +727,6 @@ class BookingCalendarViewModel
                 val actor = uiState.value.actor ?: return@launch
                 if (!(actor.isOwner || actor.permissions.edit)) return@launch
                 bookingRepository.deleteDateBlock(blockId)
-                syncScheduler.requestImmediateSync()
             }
         }
 

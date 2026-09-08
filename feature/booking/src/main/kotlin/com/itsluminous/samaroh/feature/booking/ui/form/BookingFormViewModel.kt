@@ -7,7 +7,6 @@ import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
-import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingSource
@@ -182,7 +181,6 @@ class BookingFormViewModel
         private val eventTypeRepository: EventTypeRepository,
         /** Booking colour palette (ADR-030), exposed for the form's picker row. */
         val bookingColorsProvider: BookingColorCatalog,
-        private val syncScheduler: SyncScheduler,
         fieldPrefs: BookingFormFieldPrefs,
         private val notificationPromptPrefs: NotificationPromptPrefs,
         private val clock: Clock,
@@ -504,7 +502,6 @@ class BookingFormViewModel
 
             reconcileFollowUp(booking, form)
 
-            syncScheduler.requestImmediateSync()
             _state.update { it.copy(blocker = null, saved = true) }
         }
 

@@ -18,7 +18,6 @@ import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.FakeFormFieldPrefs
 import com.itsluminous.samaroh.feature.booking.FakeNotificationPromptPrefs
-import com.itsluminous.samaroh.feature.booking.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
@@ -43,7 +42,6 @@ class BookingFormViewModelTest {
     private val repository = FakeBookingRepository()
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
     private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
-    private val syncScheduler = RecordingSyncScheduler()
     private val actorProvider = FakeActorProvider()
     private val fieldPrefs = FakeFormFieldPrefs()
     private val notificationPromptPrefs = FakeNotificationPromptPrefs()
@@ -58,7 +56,6 @@ class BookingFormViewModelTest {
         actorProvider = actorProvider,
         eventTypeRepository = eventTypeRepository,
         bookingColorsProvider = FakeBookingColorCatalog(),
-        syncScheduler = syncScheduler,
         fieldPrefs = fieldPrefs,
         notificationPromptPrefs = notificationPromptPrefs,
         clock = clock,
@@ -229,7 +226,6 @@ class BookingFormViewModelTest {
                 assertThat(advance.amountPaise).isEqualTo(50_000_00L)
                 assertThat(advance.paidOn).isEqualTo(today)
                 assertThat(advance.bookingId).isEqualTo(booking.id)
-                assertThat(syncScheduler.immediateSyncs).isAtLeast(1)
                 cancelAndIgnoreRemainingEvents()
             }
         }

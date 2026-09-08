@@ -6,7 +6,6 @@ import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
-import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.EventTypeKind
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -56,7 +55,6 @@ class EventTypesViewModel
         permissionGuard: PermissionGuard,
         /** Palette for the colour picker + row dots (moved to core:data in ADR-032). */
         val bookingColorsProvider: BookingColorCatalog,
-        private val syncScheduler: SyncScheduler,
         private val clock: Clock,
     ) : ViewModel() {
         @OptIn(ExperimentalCoroutinesApi::class)
@@ -146,7 +144,6 @@ class EventTypesViewModel
                     )
                 eventTypeRepository.savePreset(preset)
                 _draft.value = null
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -166,7 +163,6 @@ class EventTypesViewModel
             viewModelScope.launch {
                 eventTypeRepository.deletePreset(preset.id)
                 _pendingDelete.value = null
-                syncScheduler.requestImmediateSync()
             }
         }
 
@@ -192,7 +188,6 @@ class EventTypesViewModel
                 val bOrder = if (a.sortOrder != other.sortOrder) a.sortOrder else index
                 eventTypeRepository.savePreset(a.copy(sortOrder = aOrder, updatedAt = now))
                 eventTypeRepository.savePreset(other.copy(sortOrder = bOrder, updatedAt = now))
-                syncScheduler.requestImmediateSync()
             }
         }
     }

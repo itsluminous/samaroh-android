@@ -4,7 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.color.BookingColor
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
-import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.SettingsPermissions
@@ -80,16 +79,6 @@ class EventTypesViewModelTest {
         override suspend fun seedDefaults(businessId: String) = Unit
     }
 
-    private class RecordingSyncScheduler : SyncScheduler {
-        var immediateSyncs = 0
-
-        override fun requestImmediateSync() {
-            immediateSyncs++
-        }
-
-        override fun ensurePeriodicSync() = Unit
-    }
-
     private class FakeColors : BookingColorCatalog {
         override val colors: List<BookingColor> =
             listOf(BookingColor("tomato", "#C62828", "#FFFFFF", labelRes = 1))
@@ -113,7 +102,6 @@ class EventTypesViewModelTest {
 
     private lateinit var repository: FakeEventTypeRepository
     private lateinit var permissionGuard: FakePermissionGuard
-    private lateinit var syncScheduler: RecordingSyncScheduler
     private lateinit var viewModel: EventTypesViewModel
 
     @Before
@@ -123,7 +111,6 @@ class EventTypesViewModelTest {
                 listOf(preset("Wedding", 0, color = "tomato"), preset("Birthday", 1), preset("Custom", 2)),
             )
         permissionGuard = FakePermissionGuard()
-        syncScheduler = RecordingSyncScheduler()
         val businessRepository = FakeBusinessRepository(initialBusinesses = listOf(Fixtures.business()))
         viewModel =
             EventTypesViewModel(
@@ -131,7 +118,6 @@ class EventTypesViewModelTest {
                 eventTypeRepository = repository,
                 permissionGuard = permissionGuard,
                 bookingColorsProvider = FakeColors(),
-                syncScheduler = syncScheduler,
                 clock = Clock.fixed(now, ZoneOffset.UTC),
             )
     }
@@ -191,7 +177,6 @@ class EventTypesViewModelTest {
             assertThat(added.color).isEqualTo("tomato")
             assertThat(added.sortOrder).isEqualTo(3)
             assertThat(viewModel.draft.value).isNull()
-            assertThat(syncScheduler.immediateSyncs).isEqualTo(1)
         }
 
     @Test
