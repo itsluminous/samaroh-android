@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.expenses.attachments
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
+import com.itsluminous.samaroh.core.google.drive.DriveFileFetcher
 import com.itsluminous.samaroh.core.google.rest.GoogleApiException
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.feature.expenses.FakeDriveService
@@ -41,8 +42,7 @@ class AttachmentContentResolverTest {
         resolver =
             AttachmentContentResolver(
                 attachmentsDir = { attachmentsDir },
-                driveService = driveService,
-                googleAccountLinker = linker,
+                driveFileFetcher = DriveFileFetcher(driveService, linker),
                 ledgerRepository = ledgerRepository,
                 ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher(),
             )

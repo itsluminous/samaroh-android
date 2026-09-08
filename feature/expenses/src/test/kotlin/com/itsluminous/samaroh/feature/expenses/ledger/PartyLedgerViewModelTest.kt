@@ -62,8 +62,9 @@ class PartyLedgerViewModelTest {
             attachmentResolver =
                 AttachmentContentResolver(
                     attachmentsDir = { tempFolder.root },
-                    driveService = driveService,
-                    googleAccountLinker = linker,
+                    driveFileFetcher =
+                        com.itsluminous.samaroh.core.google.drive
+                            .DriveFileFetcher(driveService, linker),
                     ledgerRepository = ledgerRepository,
                     ioDispatcher = mainDispatcherRule.dispatcher,
                 ),

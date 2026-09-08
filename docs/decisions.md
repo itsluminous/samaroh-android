@@ -2510,3 +2510,24 @@ need this entry.
 
 **Rule reaffirmed:** reminder/booking/expense status changes MUST go through the
 repository layer so the outbox sees every write; never add direct-UPDATE DAO shortcuts.
+
+## ADR-068 — Shared Drive download ladder: `DriveFileFetcher` (2026-09-08)
+
+**Status:** accepted. Behavior-preserving convergence; additive `core:google` class,
+no contract-interface changes.
+
+**Problem.** The own-token → public-link download ladder existed twice with drifted
+details: expenses' `AttachmentContentResolver` (ADR-052/059) and inventory's
+`ItemPhotoDriveFetcher` (ADR-063). Only the inventory copy had the empty-file guard
+(an interstitial page must never be cached as content); only the expenses copy carried
+the link-prompt error discrimination.
+
+**Decision.** `core:google` `drive/DriveFileFetcher.fetchInto(driveFileId, target)`
+owns the two rungs + the empty-file guard + failure cleanup, returning
+`DriveFetchResult.Success` or `Failure(lastError, linked)`. Feature policy deliberately
+stays put: expenses keeps its 4-way `AttachmentOpenResult` mapping (incl.
+`NeedsGoogleLink` when `!linked && error is GoogleApiException`), Room cache-path
+stamping, and deterministic overwrite naming; inventory keeps temp-file + rename and
+in-flight dedupe. Net effect on expenses: it GAINS the empty-file guard (safer; a 0-byte
+own-token "success" now falls through to the public rung instead of opening an empty
+file).

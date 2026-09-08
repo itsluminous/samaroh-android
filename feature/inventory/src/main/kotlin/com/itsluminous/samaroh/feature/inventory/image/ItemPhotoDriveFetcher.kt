@@ -4,13 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.itsluminous.samaroh.core.data.image.driveItemImageCacheFile
 import com.itsluminous.samaroh.core.data.image.itemImageDir
-import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
-import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
-import com.itsluminous.samaroh.core.google.drive.DriveService
+import com.itsluminous.samaroh.core.google.drive.DriveFetchResult
+import com.itsluminous.samaroh.core.google.drive.DriveFileFetcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -20,17 +18,11 @@ import javax.inject.Singleton
 
 /**
  * Downloads a Drive-hosted item photo into the shared cache convention
- * (`inventory-images/drive-{id}.webp`, ADR-063) — the exact ADR-052/059 attachment
- * ladder, minus the Room stamp (the cache file IS the state):
- *
- * 1. Google linked → own-token `files.get?alt=media` (the uploader's own photos);
- * 2. own-token failed OR not linked → PUBLIC LINK download (`uc?export=download`, no
- *    credentials) — item photos are shared anyone-with-link at upload/repair, so a
- *    member whose token cannot read another account's file still gets the bytes. An
- *    HTML answer is rejected upstream ([DriveService.downloadPublicFile]) so an
- *    interstitial page is never cached as a photo;
- * 3. both failed (typically offline, or the permission repair has not reached the file
- *    yet) → null; the caller renders the placeholder and the next render/sync retries.
+ * (`inventory-images/drive-{id}.webp`, ADR-063) via the shared [DriveFileFetcher]
+ * ladder (own-token → anyone-with-link public download; ADR-052/059/063), minus the
+ * Room stamp the attachment resolver does — the cache file IS the state. Both-rungs
+ * failure (typically offline, or the permission repair has not reached the file yet)
+ * → null; the caller renders the placeholder and the next render/sync retries.
  *
  * Downloads write to a temp file first and rename into place, so a torn download never
  * becomes a cache hit. Concurrent requests for the same id share one download.
@@ -40,8 +32,7 @@ class ItemPhotoDriveFetcher
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
-        private val driveService: DriveService,
-        private val googleAccountLinker: GoogleAccountLinker,
+        private val driveFileFetcher: DriveFileFetcher,
     ) {
         private val inflight = mutableMapOf<String, Mutex>()
         private val inflightLock = Mutex()
@@ -68,18 +59,13 @@ class ItemPhotoDriveFetcher
         ): File? {
             itemImageDir(context).mkdirs()
             val temp = File(target.parentFile, "${target.name}.part")
-            val linked = googleAccountLinker.linkState.first() is GoogleLinkState.Linked
-            if (linked) {
-                val own = runCatching { driveService.downloadFile(driveImageId, temp) }
-                if (own.isSuccess && temp.length() > 0L) return commit(temp, target, driveImageId)
-                Log.i(TAG, "own-token photo download failed (drive=$driveImageId) — trying public link")
+            return when (driveFileFetcher.fetchInto(driveImageId, temp)) {
+                is DriveFetchResult.Success -> commit(temp, target, driveImageId)
+                is DriveFetchResult.Failure -> {
+                    Log.w(TAG, "item photo download failed (drive=$driveImageId)")
+                    null
+                }
             }
-            // ADR-059/063 member fallback: anyone-with-link files download without credentials.
-            val public = runCatching { driveService.downloadPublicFile(driveImageId, temp) }
-            if (public.isSuccess && temp.length() > 0L) return commit(temp, target, driveImageId)
-            Log.w(TAG, "item photo download failed (drive=$driveImageId)", public.exceptionOrNull())
-            temp.delete()
-            return null
         }
 
         private fun commit(

@@ -5,6 +5,7 @@ import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences
 import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
+import com.itsluminous.samaroh.core.google.drive.DriveFileFetcher
 import com.itsluminous.samaroh.core.google.drive.DriveService
 import dagger.Module
 import dagger.Provides
@@ -50,14 +51,12 @@ object AttachmentsModule {
     @Singleton
     fun provideAttachmentContentResolver(
         compressor: AttachmentCompressor,
-        driveService: DriveService,
-        googleAccountLinker: GoogleAccountLinker,
+        driveFileFetcher: DriveFileFetcher,
         ledgerRepository: ExpensesLedgerRepository,
     ): AttachmentContentResolver =
         AttachmentContentResolver(
             attachmentsDir = compressor::attachmentsDir,
-            driveService = driveService,
-            googleAccountLinker = googleAccountLinker,
+            driveFileFetcher = driveFileFetcher,
             ledgerRepository = ledgerRepository,
         )
 }
