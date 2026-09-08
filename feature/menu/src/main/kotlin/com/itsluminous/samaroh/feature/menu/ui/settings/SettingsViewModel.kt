@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.settings.ImageQualityPreferences
 import com.itsluminous.samaroh.core.google.GoogleServicesConfig
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
@@ -17,7 +18,6 @@ import com.itsluminous.samaroh.core.google.backup.BackupScheduler
 import com.itsluminous.samaroh.core.google.calendar.CalendarSyncScheduler
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BusinessSettings
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import com.itsluminous.samaroh.feature.menu.data.DeviceSettings
 import com.itsluminous.samaroh.feature.menu.data.SettingsPreferencesDataSource
 import com.itsluminous.samaroh.feature.menu.data.ThemeMode
@@ -67,7 +67,7 @@ data class SettingsUiState(
 class SettingsViewModel
     @Inject
     constructor(
-        currentBusinessProvider: CurrentBusinessProvider,
+        activeBusinessProvider: ActiveBusinessProvider,
         private val preferences: SettingsPreferencesDataSource,
         private val imageQuality: ImageQualityPreferences,
         private val googleAccountLinker: GoogleAccountLinker,
@@ -87,7 +87,7 @@ class SettingsViewModel
 
         @OptIn(ExperimentalCoroutinesApi::class)
         val uiState: StateFlow<SettingsUiState> =
-            currentBusinessProvider.currentBusiness
+            activeBusinessProvider.activeBusiness
                 .flatMapLatest { business ->
                     if (business == null) {
                         combine(devicePrefs, googleAccountLinker.linkState) { (device, bills, items), link ->

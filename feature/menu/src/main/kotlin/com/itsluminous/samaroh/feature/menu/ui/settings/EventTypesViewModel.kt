@@ -5,10 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.EventTypeKind
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +51,7 @@ data class EventTypesUiState(
 class EventTypesViewModel
     @Inject
     constructor(
-        currentBusinessProvider: CurrentBusinessProvider,
+        activeBusinessProvider: ActiveBusinessProvider,
         private val eventTypeRepository: EventTypeRepository,
         permissionGuard: PermissionGuard,
         /** Palette for the colour picker + row dots (moved to core:data in ADR-032). */
@@ -61,7 +61,7 @@ class EventTypesViewModel
     ) : ViewModel() {
         @OptIn(ExperimentalCoroutinesApi::class)
         val uiState: StateFlow<EventTypesUiState> =
-            currentBusinessProvider.currentBusiness
+            activeBusinessProvider.activeBusiness
                 .flatMapLatest { business ->
                     if (business == null) {
                         flowOf(EventTypesUiState(loading = false))

@@ -12,7 +12,6 @@ import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.SettingsPermissions
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import com.itsluminous.samaroh.feature.menu.data.SettingsPreferencesDataSource
 import com.itsluminous.samaroh.feature.menu.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeBusinessRepository
@@ -64,7 +63,7 @@ class SettingsViewModelTest {
         linker = FakeGoogleAccountLinker()
         viewModel =
             SettingsViewModel(
-                currentBusinessProvider = CurrentBusinessProvider(FakeActiveBusinessProvider(businessRepository)),
+                activeBusinessProvider = FakeActiveBusinessProvider(businessRepository),
                 preferences = SettingsPreferencesDataSource(dataStore),
                 imageQuality =
                     com.itsluminous.samaroh.core.data.settings

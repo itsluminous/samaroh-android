@@ -4,9 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.auth.SessionHolder
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.SignOutCleaner
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -48,7 +48,7 @@ sealed interface MenuHomeEvent {
 class MenuHomeViewModel
     @Inject
     constructor(
-        currentBusinessProvider: CurrentBusinessProvider,
+        activeBusinessProvider: ActiveBusinessProvider,
         permissionGuard: PermissionGuard,
         private val sessionHolder: SessionHolder,
         syncStatus: SyncStatus,
@@ -63,7 +63,7 @@ class MenuHomeViewModel
         @OptIn(ExperimentalCoroutinesApi::class)
         val uiState: StateFlow<MenuHomeUiState> =
             combine(
-                currentBusinessProvider.currentBusiness.flatMapLatest { business ->
+                activeBusinessProvider.activeBusiness.flatMapLatest { business ->
                     if (business == null) flowOf(false) else permissionGuard.isOwner(business.id)
                 },
                 sessionHolder.session,

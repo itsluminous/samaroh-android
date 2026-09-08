@@ -6,7 +6,6 @@ import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.menu.fakes.FakeMemberRepository
@@ -50,10 +49,8 @@ class MembersViewModelTest {
         permissionGuard = FakePermissionGuard()
         viewModel =
             MembersViewModel(
-                currentBusinessProvider =
-                    CurrentBusinessProvider(
-                        FakeActiveBusinessProvider(FakeBusinessRepository(initialBusinesses = listOf(Fixtures.business()))),
-                    ),
+                activeBusinessProvider =
+                    FakeActiveBusinessProvider(FakeBusinessRepository(initialBusinesses = listOf(Fixtures.business()))),
                 memberRepository = memberRepository,
                 permissionGuard = permissionGuard,
                 clock = clock,

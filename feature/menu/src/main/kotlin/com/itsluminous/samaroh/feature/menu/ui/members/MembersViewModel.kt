@@ -4,10 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,14 +34,14 @@ data class MembersUiState(
 class MembersViewModel
     @Inject
     constructor(
-        currentBusinessProvider: CurrentBusinessProvider,
+        activeBusinessProvider: ActiveBusinessProvider,
         private val memberRepository: MemberRepository,
         permissionGuard: PermissionGuard,
         private val clock: Clock,
     ) : ViewModel() {
         @OptIn(ExperimentalCoroutinesApi::class)
         val uiState: StateFlow<MembersUiState> =
-            currentBusinessProvider.currentBusiness
+            activeBusinessProvider.activeBusiness
                 .flatMapLatest { business ->
                     if (business == null) {
                         flowOf(MembersUiState(loading = false))

@@ -10,7 +10,6 @@ import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.SettingsPermissions
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.menu.fakes.FakePermissionGuard
@@ -128,7 +127,7 @@ class EventTypesViewModelTest {
         val businessRepository = FakeBusinessRepository(initialBusinesses = listOf(Fixtures.business()))
         viewModel =
             EventTypesViewModel(
-                currentBusinessProvider = CurrentBusinessProvider(FakeActiveBusinessProvider(businessRepository)),
+                activeBusinessProvider = FakeActiveBusinessProvider(businessRepository),
                 eventTypeRepository = repository,
                 permissionGuard = permissionGuard,
                 bookingColorsProvider = FakeColors(),

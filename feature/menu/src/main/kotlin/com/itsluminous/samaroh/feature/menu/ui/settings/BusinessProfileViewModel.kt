@@ -5,11 +5,11 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.designsystem.imaging.CompressionSpec
 import com.itsluminous.samaroh.core.designsystem.imaging.ImageCompression
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Business
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -30,12 +30,12 @@ class BusinessProfileViewModel
     @Inject
     constructor(
         @ApplicationContext private val appContext: Context,
-        currentBusinessProvider: CurrentBusinessProvider,
+        activeBusinessProvider: ActiveBusinessProvider,
         private val businessRepository: BusinessRepository,
         private val clock: Clock,
     ) : ViewModel() {
         val business: StateFlow<Business?> =
-            currentBusinessProvider.currentBusiness.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            activeBusinessProvider.activeBusiness.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         private val _message = MutableStateFlow<Int?>(null)
         val message: StateFlow<Int?> = _message.asStateFlow()

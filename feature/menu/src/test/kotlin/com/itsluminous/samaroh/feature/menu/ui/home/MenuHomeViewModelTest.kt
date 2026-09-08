@@ -4,7 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
-import com.itsluminous.samaroh.feature.menu.data.CurrentBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeActiveBusinessProvider
 import com.itsluminous.samaroh.feature.menu.fakes.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.menu.fakes.FakePermissionGuard
@@ -32,7 +31,7 @@ class MenuHomeViewModelTest {
 
     private fun viewModel(): MenuHomeViewModel =
         MenuHomeViewModel(
-            currentBusinessProvider = CurrentBusinessProvider(FakeActiveBusinessProvider(businessRepository)),
+            activeBusinessProvider = FakeActiveBusinessProvider(businessRepository),
             permissionGuard = permissionGuard,
             sessionHolder = sessionHolder,
             syncStatus = syncStatus,
