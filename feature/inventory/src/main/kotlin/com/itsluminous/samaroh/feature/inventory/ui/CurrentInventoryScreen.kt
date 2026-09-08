@@ -95,12 +95,6 @@ fun CurrentInventoryScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.inventory_list_title), modifier = Modifier.semantics { heading() }) },
                 actions = {
-                    // ADR-069: compact sort menu — persisted per device for this list.
-                    SortMenuButton(
-                        entries = listSortMenuEntries(),
-                        selected = uiState.sortOrder,
-                        onSelect = viewModel::onSortOrderChange,
-                    )
                     ExplainableIcon(
                         icon = Icons.AutoMirrored.Filled.ListAlt,
                         explanationRes = R.string.inventory_toggle_masterlist,
@@ -113,7 +107,8 @@ fun CurrentInventoryScreen(
             // §3 gate: members without inventory.create never see the FAB (hidden, not greyed).
             val canRecord by viewModel.canRecordTransactions.collectAsState()
             if (canRecord) {
-                SamarohFab(onClick = { showTransactionDialog = true }) {
+                // Icon-only FAB (ADR-071): long-press explains it, like ExplainableIcon.
+                SamarohFab(onClick = { showTransactionDialog = true }, explanationRes = R.string.inventory_fab_record_transaction) {
                     Icon(
                         imageVector = Icons.Filled.Add,
                         contentDescription = stringResource(R.string.inventory_fab_record_transaction),
@@ -123,14 +118,27 @@ fun CurrentInventoryScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = viewModel::onSearchQueryChange,
-                label = { Text(stringResource(R.string.inventory_list_search_placeholder)) },
-                leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
+            // ADR-069 placement (Expenses-home parity): the list's header row — search
+            // plus the compact per-device sort menu at its trailing edge.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = viewModel::onSearchQueryChange,
+                    label = { Text(stringResource(R.string.inventory_list_search_placeholder)) },
+                    leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                SortMenuButton(
+                    entries = listSortMenuEntries(),
+                    selected = uiState.sortOrder,
+                    onSelect = viewModel::onSortOrderChange,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
             when {
                 !uiState.loading && uiState.lines.isEmpty() && uiState.noSearchResults ->
                     EmptyState(
