@@ -198,6 +198,14 @@ class FakeInventoryOverviewRepository : InventoryOverviewRepository {
     override suspend fun canDeleteMasterItem(id: String): Boolean = true
 
     override suspend fun recordTransactionForValue(txn: com.itsluminous.samaroh.core.model.InventoryTransaction): Long = 0L
+
+    override suspend fun updateTransaction(
+        edited: com.itsluminous.samaroh.core.model.InventoryTransaction,
+    ): com.itsluminous.samaroh.core.data.repository.TransactionMutationResult =
+        com.itsluminous.samaroh.core.data.repository.TransactionMutationResult.SAVED
+
+    override suspend fun deleteTransaction(id: String): com.itsluminous.samaroh.core.data.repository.TransactionMutationResult =
+        com.itsluminous.samaroh.core.data.repository.TransactionMutationResult.SAVED
 }
 
 class FakeReportExporter : ReportExporter {

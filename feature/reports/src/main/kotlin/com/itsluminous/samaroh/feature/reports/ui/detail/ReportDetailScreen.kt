@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.DatePickerDialog
@@ -13,6 +15,7 @@ import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,7 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -276,9 +281,9 @@ private fun ReportTableGrid(table: ReportTable) {
         table.rows.forEach { row ->
             Row(modifier = Modifier.fillMaxWidth()) {
                 row.forEachIndexed { index, cell ->
-                    Text(
+                    ReportCell(
                         text = cell,
-                        style = MaterialTheme.typography.bodySmall,
+                        autoShrink = index in table.moneyColumns,
                         modifier = Modifier.weight(weights.getOrElse(index) { 1f }).padding(vertical = 4.dp),
                     )
                 }
@@ -288,9 +293,9 @@ private fun ReportTableGrid(table: ReportTable) {
             HorizontalDivider()
             Row(modifier = Modifier.fillMaxWidth()) {
                 totalRow.forEachIndexed { index, cell ->
-                    Text(
+                    ReportCell(
                         text = cell,
-                        style = MaterialTheme.typography.bodySmall,
+                        autoShrink = index in table.moneyColumns,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(weights.getOrElse(index) { 1f }).padding(vertical = 4.dp),
                     )
@@ -298,4 +303,41 @@ private fun ReportTableGrid(table: ReportTable) {
             }
         }
     }
+}
+
+/** A number cell never shrinks below this fraction of the table's cell font size. */
+private const val MONEY_CELL_MIN_FONT_SCALE = 0.6f
+
+/**
+ * One table cell. Money cells ([autoShrink]) that would WRAP instead shrink their font
+ * to fit on one line (BasicText autoSize, per-cell only — labels and other cells keep
+ * the fixed style), down to [MONEY_CELL_MIN_FONT_SCALE]; below that they ellipsize.
+ */
+@Composable
+private fun ReportCell(
+    text: String,
+    autoShrink: Boolean,
+    modifier: Modifier = Modifier,
+    fontWeight: FontWeight? = null,
+) {
+    val style = MaterialTheme.typography.bodySmall
+    if (!autoShrink) {
+        Text(text = text, style = style, fontWeight = fontWeight, modifier = modifier)
+        return
+    }
+    // BasicText applies no content color on its own — resolve it like material Text does.
+    val resolved = style.merge(TextStyle(color = LocalContentColor.current, fontWeight = fontWeight))
+    BasicText(
+        text = text,
+        style = resolved,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        autoSize =
+            TextAutoSize.StepBased(
+                minFontSize = style.fontSize * MONEY_CELL_MIN_FONT_SCALE,
+                maxFontSize = style.fontSize,
+            ),
+        modifier = modifier,
+    )
 }

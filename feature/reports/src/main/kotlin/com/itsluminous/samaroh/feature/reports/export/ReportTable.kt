@@ -31,6 +31,12 @@ data class ReportTable(
     val csvRows: List<List<String>>? = null,
     /** Machine-readable CSV replacement for [totalRow]; null = export [totalRow] as-is. */
     val csvTotalRow: List<String>? = null,
+    /**
+     * Column indices whose cells are MONEY amounts. The on-screen grid renders these
+     * cells (data + total rows) with per-cell auto-shrink: a value that would wrap
+     * shrinks its font to stay on one line instead (labels/headers untouched).
+     */
+    val moneyColumns: Set<Int> = emptySet(),
 )
 
 /** Export target formats of every report (§4.4). */

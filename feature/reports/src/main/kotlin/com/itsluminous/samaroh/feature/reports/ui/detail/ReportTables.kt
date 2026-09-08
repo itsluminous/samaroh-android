@@ -78,6 +78,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         CsvValues.rupees(total.outstandingPaise),
                         CsvValues.rupees(total.totalPaise),
                     ),
+                moneyColumns = setOf(1, 2, 3),
             )
         }
         is ReportData.Aging -> {
@@ -116,6 +117,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         )
                     },
                 csvTotalRow = listOf(totalLabel, "", "", "", CsvValues.rupees(totalDue)),
+                moneyColumns = setOf(4),
             )
         }
         is ReportData.Occupancy ->
@@ -162,6 +164,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         listOf(eventTypeLabel(it.eventType), CsvValues.count(it.bookings), CsvValues.rupees(it.revenuePaise))
                     },
                 csvTotalRow = listOf(totalLabel, CsvValues.count(total.bookings), CsvValues.rupees(total.revenuePaise)),
+                moneyColumns = setOf(2),
             )
         }
         is ReportData.Sources -> {
@@ -182,6 +185,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         listOf(sourceLabel(it.source), CsvValues.count(it.bookings), CsvValues.rupees(it.revenuePaise))
                     },
                 csvTotalRow = listOf(totalLabel, CsvValues.count(total.bookings), CsvValues.rupees(total.revenuePaise)),
+                moneyColumns = setOf(2),
             )
         }
         is ReportData.Expenses -> {
@@ -218,6 +222,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         CsvValues.rupees(total.inventoryPaise),
                         CsvValues.rupees(total.totalPaise),
                     ),
+                moneyColumns = setOf(1, 2, 3),
             )
         }
         is ReportData.Profit -> {
@@ -253,6 +258,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         CsvValues.rupees(total.expensePaise),
                         CsvValues.rupees(total.netPaise),
                     ),
+                moneyColumns = setOf(1, 2, 3),
             )
         }
         is ReportData.Inventory -> {
@@ -286,6 +292,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         )
                     },
                 csvTotalRow = listOf(totalLabel, "", CsvValues.rupees(totalValue)),
+                moneyColumns = setOf(2),
             )
         }
         is ReportData.Collection ->
@@ -345,6 +352,7 @@ fun rememberReportTable(state: ReportDetailUiState): ReportTable? {
                         listOf(CsvValues.month(it.month), displayPartyName(it.partyName, unknownParty), CsvValues.rupees(it.netPaise))
                     },
                 csvTotalRow = listOf(totalLabel, "", CsvValues.rupees(total)),
+                moneyColumns = setOf(2),
             )
         }
     }
@@ -384,6 +392,7 @@ fun rememberExpensePartiesTable(state: ReportDetailUiState): ReportTable? {
                 stringResource(R.string.reports_table_total_row),
                 AmountFormatter.format(ReportTotals.partySpendPaise(data.top10)),
             ),
+        moneyColumns = setOf(1),
     )
 }
 
