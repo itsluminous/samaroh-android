@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.CurrentInventoryLine
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryRepository
+import com.itsluminous.samaroh.core.data.repository.TransactionMutationResult
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.InventoryTransaction
@@ -76,6 +77,21 @@ class FakeInventoryRepository :
             com.itsluminous.samaroh.core.model.TxnType.ADD -> (txn.quantity * txn.unitPricePaise).toLong()
             com.itsluminous.samaroh.core.model.TxnType.REMOVE -> removeCostPaise
         }
+    }
+
+    /** ADR-070 mutation results + captured calls for ViewModel tests. */
+    var mutationResult: TransactionMutationResult = TransactionMutationResult.SAVED
+    val updatedTransactions = mutableListOf<InventoryTransaction>()
+    val deletedTransactionIds = mutableListOf<String>()
+
+    override suspend fun updateTransaction(edited: InventoryTransaction): TransactionMutationResult {
+        updatedTransactions += edited
+        return mutationResult
+    }
+
+    override suspend fun deleteTransaction(id: String): TransactionMutationResult {
+        deletedTransactionIds += id
+        return mutationResult
     }
 }
 

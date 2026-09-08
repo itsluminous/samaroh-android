@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -38,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,10 +58,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
-import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
+import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
@@ -67,6 +70,7 @@ import com.itsluminous.samaroh.core.model.TxnType
 import com.itsluminous.samaroh.feature.inventory.ItemDetailViewModel
 import com.itsluminous.samaroh.feature.inventory.MasterlistViewModel
 import com.itsluminous.samaroh.feature.inventory.SavedTransaction
+import com.itsluminous.samaroh.feature.inventory.TransactionMutationEvent
 import com.itsluminous.samaroh.feature.inventory.domain.formatQuantity
 import com.itsluminous.samaroh.feature.inventory.image.ItemPhoto
 import com.itsluminous.samaroh.feature.inventory.image.rememberItemImageModel
@@ -75,8 +79,10 @@ import kotlin.math.roundToLong
 
 /**
  * Per-item detail screen (§4.3 parity): header with photo, name, stock and FIFO total
- * value; Add/Remove buttons that open the transaction dialog pre-selected to this item;
- * and the newest-first transaction history, windowed 20 at a time with Load more.
+ * value; a bottom bar with two big Add/Remove buttons (party-ledger geometry, inventory
+ * colors) opening the transaction dialog pre-selected to this item; and the
+ * newest-first transaction history, windowed 20 at a time with Load more. Each history
+ * row carries an Edit/Delete overflow menu gated by inventory.edit/delete (ADR-070).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,12 +98,41 @@ fun ItemDetailScreen(
     val canManage by masterlistViewModel.canManageMasterItems.collectAsState()
     // ADR-039: inventory.view_amounts off masks values/prices as ₹••• (quantities stay).
     val canViewAmounts by viewModel.canViewAmounts.collectAsState()
+    // ADR-070 gates: per-row Edit/Delete in the transaction history's overflow menu.
+    val canEditTxns by viewModel.canEditTransactions.collectAsState()
+    val canDeleteTxns by viewModel.canDeleteTransactions.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var dialogType by remember { mutableStateOf<TxnType?>(null) }
     var expandedPhoto by remember { mutableStateOf<ItemPhoto?>(null) }
     var overflowMenu by remember { mutableStateOf(false) }
+    var editingTransaction by remember { mutableStateOf<InventoryTransaction?>(null) }
+    var editRejected by remember { mutableStateOf(false) }
+    var confirmDeleteTransactionId by remember { mutableStateOf<String?>(null) }
+
+    val updatedText = stringResource(R.string.inventory_txn_updated)
+    val deletedText = stringResource(R.string.inventory_txn_deleted)
+    val rejectedText = stringResource(R.string.inventory_txn_error_history_negative)
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                TransactionMutationEvent.UPDATED -> {
+                    editingTransaction = null
+                    editRejected = false
+                    snackbarHostState.showSnackbar(updatedText)
+                }
+                TransactionMutationEvent.DELETED -> snackbarHostState.showSnackbar(deletedText)
+                TransactionMutationEvent.REJECTED_NEGATIVE_STOCK ->
+                    if (editingTransaction != null) {
+                        // Keep the edit dialog open with the inline localized error.
+                        editRejected = true
+                    } else {
+                        snackbarHostState.showSnackbar(rejectedText)
+                    }
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -151,6 +186,34 @@ fun ItemDetailScreen(
                 },
             )
         },
+        bottomBar = {
+            // Add/Remove moved to a bottom bar (party-ledger parity: same two big
+            // 56dp weighted buttons, titleMedium labels) while KEEPING inventory's own
+            // button treatment — filled-primary Add, outlined Remove — instead of the
+            // ledger's red/green money semantics. §3 gate: hidden without inventory.create.
+            val canRecord by viewModel.canRecordTransactions.collectAsState()
+            if (canRecord && uiState.item != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = { dialogType = TxnType.ADD },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                    ) {
+                        Icon(imageVector = Icons.Filled.Add, contentDescription = null)
+                        Text(stringResource(R.string.inventory_txn_type_add), style = MaterialTheme.typography.titleMedium)
+                    }
+                    OutlinedButton(
+                        onClick = { dialogType = TxnType.REMOVE },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                    ) {
+                        Icon(imageVector = Icons.Filled.Remove, contentDescription = null)
+                        Text(stringResource(R.string.inventory_txn_type_remove), style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+        },
     ) { padding ->
         val item = uiState.item
         if (!uiState.loading && item == null) {
@@ -170,18 +233,14 @@ fun ItemDetailScreen(
         ) {
             item(key = "header") {
                 if (item != null) {
-                    val canRecord by viewModel.canRecordTransactions.collectAsState()
                     ItemDetailHeader(
                         name = item.name,
                         unit = item.unit,
                         photo = ItemPhoto(itemId = item.id, imagePath = item.imagePath, driveImageId = item.driveImageId),
                         currentQuantity = uiState.currentQuantity,
                         totalValuePaise = uiState.totalValuePaise,
-                        showTransactionButtons = canRecord,
                         masked = !canViewAmounts,
                         onImageTap = { photo -> expandedPhoto = photo },
-                        onAdd = { dialogType = TxnType.ADD },
-                        onRemove = { dialogType = TxnType.REMOVE },
                     )
                 }
             }
@@ -202,7 +261,19 @@ fun ItemDetailScreen(
                 }
             }
             items(uiState.transactions, key = { it.id }) { txn ->
-                TransactionRowCard(txn = txn, unit = item?.unit.orEmpty(), masked = !canViewAmounts, modifier = animatedListItem())
+                TransactionRowCard(
+                    txn = txn,
+                    unit = item?.unit.orEmpty(),
+                    masked = !canViewAmounts,
+                    canEdit = canEditTxns,
+                    canDelete = canDeleteTxns,
+                    onEdit = {
+                        editRejected = false
+                        editingTransaction = txn
+                    },
+                    onDelete = { confirmDeleteTransactionId = txn.id },
+                    modifier = animatedListItem(),
+                )
             }
             item(key = "footer") {
                 Column(
@@ -238,6 +309,39 @@ fun ItemDetailScreen(
             initialType = type,
             onSaved = { saved ->
                 scope.launch { snackbarHostState.showSnackbar(savedTransactionMessage(context, saved, masked = !canViewAmounts)) }
+            },
+        )
+    }
+
+    // ADR-070: per-row edit — saving runs the FIFO replay; a rejected save keeps the
+    // dialog open with the inline negative-stock error.
+    editingTransaction?.let { txn ->
+        EditTransactionDialog(
+            transaction = txn,
+            showRejectedError = editRejected,
+            onDismiss = {
+                editingTransaction = null
+                editRejected = false
+            },
+            onSave = viewModel::updateTransaction,
+        )
+    }
+
+    // ADR-070: per-row delete confirmation (entry-row convention) — a confirmed delete
+    // tombstones the row and replays the item's FIFO history.
+    confirmDeleteTransactionId?.let { pendingId ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteTransactionId = null },
+            title = { Text(stringResource(R.string.inventory_txn_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.inventory_txn_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteTransaction(pendingId)
+                    confirmDeleteTransactionId = null
+                }) { Text(stringResource(R.string.common_action_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteTransactionId = null }) { Text(stringResource(R.string.common_action_cancel)) }
             },
         )
     }
@@ -288,11 +392,8 @@ private fun ItemDetailHeader(
     photo: ItemPhoto,
     currentQuantity: Double,
     totalValuePaise: Long,
-    showTransactionButtons: Boolean,
     masked: Boolean,
     onImageTap: (ItemPhoto) -> Unit,
-    onAdd: () -> Unit,
-    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -338,21 +439,6 @@ private fun ItemDetailHeader(
                     }
                 }
             }
-            // Scrollable single line: weighted halves squash "Add"/"Remove" into
-            // character-per-line slivers on narrow screens (pills never wrap).
-            // §3 gate: hidden entirely without inventory.create.
-            if (showTransactionButtons) {
-                ChipRow {
-                    Button(onClick = onAdd) {
-                        Icon(imageVector = Icons.Filled.Add, contentDescription = null)
-                        Text(stringResource(R.string.inventory_txn_type_add))
-                    }
-                    OutlinedButton(onClick = onRemove) {
-                        Icon(imageVector = Icons.Filled.Remove, contentDescription = null)
-                        Text(stringResource(R.string.inventory_txn_type_remove))
-                    }
-                }
-            }
         }
     }
 }
@@ -362,6 +448,10 @@ private fun TransactionRowCard(
     txn: InventoryTransaction,
     unit: String,
     masked: Boolean,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -379,6 +469,11 @@ private fun TransactionRowCard(
                     style = MaterialTheme.typography.titleSmall,
                     masked = masked,
                 )
+                // ADR-070: per-row overflow menu (ledger entry-row parity), gated by
+                // inventory.edit / inventory.delete — hidden entirely without either.
+                PermissionGate(allowed = canEdit || canDelete) {
+                    TransactionRowMenu(showEdit = canEdit, showDelete = canDelete, onEdit = onEdit, onDelete = onDelete)
+                }
             }
             Text(
                 text =
@@ -395,6 +490,47 @@ private fun TransactionRowCard(
                     text = notes,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Three-dots Edit/Delete menu of one history row (expenses entry-menu parity, ADR-070). */
+@Composable
+private fun TransactionRowMenu(
+    showEdit: Boolean,
+    showDelete: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        ExplainableIcon(
+            icon = Icons.Filled.MoreVert,
+            explanationRes = R.string.inventory_txn_menu,
+            onClick = { expanded = true },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (showEdit) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.common_action_edit)) },
+                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onEdit()
+                    },
+                )
+            }
+            if (showDelete) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.common_action_delete)) },
+                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onDelete()
+                    },
                 )
             }
         }

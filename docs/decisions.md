@@ -2604,3 +2604,67 @@ last-entry-first (matching the ledger mental model); alphabetical remains one ta
 and the device remembers the choice. The expenses "last entry" display basis
 (`created_at`, not `expense_date`) is now load-bearing for ordering — if the data-fix
 track changes that basis, the sort follows automatically via the same query.
+
+## ADR-070 — Inventory transaction edit/delete with FIFO replay (2026-09-08)
+
+**Status:** accepted. Additive `core:database` query, additive
+`InventoryOverviewRepository` methods (`core:data`), presentation in
+`feature:inventory`.
+
+**Context.** Inventory transactions were append-only: a typo'd quantity or price could
+only be "fixed" with a compensating transaction, polluting the history. Expenses
+entries already have per-row Edit/Delete gated by `expenses.edit`/`expenses.delete`;
+inventory rows need parity. The complication is FIFO (ADR-007/012): every `remove`
+consumed specific `add` lots by decrementing their `remaining_quantity`, so mutating
+any historical row invalidates the stored lot remainders of everything after it.
+
+**Decision.** Per-row Edit + Delete in the item detail's transaction history, gated by
+`inventory.edit` / `inventory.delete` (new `InventorySession` gates). Edits change
+quantity, unit price (add rows only), date and notes; deletes tombstone (never hard
+delete — sync parity with every entity). Both run a **FIFO replay** of the affected
+item (`FifoReplay`, pure function in `core:data`):
+
+- Input: the item's LIVE transactions in chronological order (new DAO one-shot
+  `liveTransactionsChronological`: `transaction_date`, `created_at`, `id` ASC — a
+  deterministic total order) with the proposed mutation applied (and re-sorted, since
+  an edit can move `transaction_date`).
+- **Validation:** walking forward, a `remove` larger than the cumulative stock at its
+  point in time means the history would go negative → the whole mutation is REJECTED
+  with a localized error and NOTHING is written.
+- **Rewrite:** `add` lots get `remaining_quantity` recomputed from scratch;
+  `remove` rows get their FIFO weighted-average unit cost recomputed (an edit upstream
+  changes what a later remove consumed, so its cost follows). Only rows whose synced
+  fields actually changed are upserted (fresh `updated_at`) and outboxed — the same
+  changed-lots outboxing the incremental `removeFifo` path does, extended over the
+  whole history (mirrors the web migration tooling's replay approach).
+- A remove's typed unit price is ignored on edit — its cost is always derived.
+
+**Consequences.** Editing/deleting old rows is safe offline and syncs as ordinary row
+upserts + one tombstone; other devices converge via LWW. Replay cost is O(item
+history), acceptable because per-item histories are small. The negative-stock rule
+means some legitimate-looking edits are refused until the user fixes the later removes
+first — deliberate: silent negative stock corrupts the FIFO valuation.
+
+## ADR-071 — Icon-only explainable FABs (2026-09-08)
+
+**Status:** accepted. `core:designsystem` component change + call-site updates in
+`feature:expenses` (Add person) and `feature:inventory` (record transaction).
+
+**Context.** The expenses home used an extended FAB ("Add person" label); §6 requires
+every icon-only control to explain itself via long-press (`ExplainableIcon`). Owner
+direction: FABs should be icon-only (less occlusion over lists), but must not lose
+their meaning.
+
+**Decision.** `SamarohFab` gains an optional `explanationRes`: when set, the FAB is
+rendered as the same translucent-container + opaque-border surface with a
+`combinedClickable` — tap acts, **long-press shows the localized toast**, and the
+string doubles as the accessibility label (ExplainableIcon parity; Material's
+`FloatingActionButton` has no long-press slot, hence the Surface-backed twin with
+identical shape/colors/56dp container/1dp elevation). The expenses Add-person FAB
+drops its extended text and uses the icon + explanation; the inventory FAB keeps its
+icon and gains the explanation. `SamarohExtendedFab` remains for screens that keep a
+label (members).
+
+**Consequences.** All primary-action FABs read uniformly icon-only; discoverability is
+preserved through contentDescription + long-press. New FABs should pass
+`explanationRes` rather than relying on the label.

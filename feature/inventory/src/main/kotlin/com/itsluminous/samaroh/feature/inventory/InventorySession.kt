@@ -43,6 +43,14 @@ class InventorySession
         val canRecordTransactions: Flow<Boolean> =
             permissionGate { it.inventory.create }
 
+        /** Transaction-edit gate (ADR-070): `inventory.edit` shows Edit in the row menu. */
+        val canEditTransactions: Flow<Boolean> =
+            permissionGate { it.inventory.edit }
+
+        /** Transaction-delete gate (ADR-070): `inventory.delete` shows Delete in the row menu. */
+        val canDeleteTransactions: Flow<Boolean> =
+            permissionGate { it.inventory.delete }
+
         /**
          * `inventory.view_amounts` gate (ADR-039): masks unit prices, transaction values
          * and stock worth as ₹••• when false — quantities stay visible.

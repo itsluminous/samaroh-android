@@ -367,6 +367,23 @@ interface InventoryTransactionDao {
     ): Flow<List<InventoryTransactionEntity>>
 
     /**
+     * ADDITIVE (ADR-070): live transactions of one item in FIFO REPLAY order —
+     * chronological with deterministic tie-breaks (`created_at`, then `id`) so an
+     * edit/delete replay always walks the history the same way on every device.
+     */
+    @Query(
+        """
+        SELECT * FROM inventory_transactions
+        WHERE business_id = :businessId AND master_item_id = :masterItemId AND deleted_at IS NULL
+        ORDER BY transaction_date ASC, created_at ASC, id ASC
+        """,
+    )
+    suspend fun liveTransactionsChronological(
+        businessId: String,
+        masterItemId: String,
+    ): List<InventoryTransactionEntity>
+
+    /**
      * FIFO open lots: `add` transactions with unconsumed remainder, oldest first — the
      * consumption order for `remove` transactions (mirrors the Postgres partial index).
      */
