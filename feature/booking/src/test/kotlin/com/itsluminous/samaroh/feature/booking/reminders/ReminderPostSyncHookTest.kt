@@ -86,7 +86,7 @@ class ReminderPostSyncHookTest {
                     businessRepository = businessRepository,
                     eventTypeRepository = FakeEventTypeRepository(),
                     eventTypes = emptyCatalog, // labelFor falls back to the raw key — no resource ids in JVM tests
-                    notifier = BookingNotifier(context),
+                    notifier = BookingNotifier(context, FullScreenTakeover(context)),
                     prefs =
                         BookingReminderPrefs(
                             PreferenceDataStoreFactory.create(scope = storeScope) {

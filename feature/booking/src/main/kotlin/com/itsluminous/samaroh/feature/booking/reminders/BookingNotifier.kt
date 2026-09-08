@@ -35,6 +35,7 @@ class BookingNotifier
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
+        private val takeover: FullScreenTakeover,
     ) {
         companion object {
             const val CHANNEL_PAYMENT = "booking_payment_reminders"
@@ -122,7 +123,8 @@ class BookingNotifier
             soundUri: String?,
         ) {
             if (!canNotify()) return
-            val fullScreen = style == ReminderStyle.FULLSCREEN
+            val path = takeover.pathFor(style)
+            val fullScreen = path != FullScreenLaunchPolicy.LaunchPath.NOTIFICATION_ONLY
             val channel = ensurePaymentChannel(soundUri = soundUri.takeIf { fullScreen })
 
             val question =
@@ -176,6 +178,17 @@ class BookingNotifier
                     ).build()
 
             NotificationManagerCompat.from(context).notify(PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode(), notification)
+            if (path == FullScreenLaunchPolicy.LaunchPath.DIRECT_ACTIVITY) {
+                // ALWAYS style (ADR-072): take over even on an unlocked, in-use device.
+                takeover.launch(
+                    FullScreenReminderActivity.intent(
+                        context,
+                        booking.id,
+                        context.getString(R.string.booking_reminder_payment_title),
+                        question,
+                    ),
+                )
+            }
         }
 
         fun cancelPaymentReminder(reminderId: String) {
@@ -197,7 +210,8 @@ class BookingNotifier
             soundUri: String?,
         ) {
             if (!canNotify()) return
-            val fullScreen = style == ReminderStyle.FULLSCREEN
+            val path = takeover.pathFor(style)
+            val fullScreen = path != FullScreenLaunchPolicy.LaunchPath.NOTIFICATION_ONLY
             val channel = ensurePaymentChannel(soundUri = soundUri.takeIf { fullScreen })
             val question =
                 context.getString(
@@ -223,6 +237,16 @@ class BookingNotifier
                         requestCode = reminder.id.hashCode(),
                     ).build()
             NotificationManagerCompat.from(context).notify(PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode(), notification)
+            if (path == FullScreenLaunchPolicy.LaunchPath.DIRECT_ACTIVITY) {
+                takeover.launch(
+                    FullScreenReminderActivity.intent(
+                        context,
+                        booking.id,
+                        context.getString(R.string.booking_reminder_follow_up_title),
+                        question,
+                    ),
+                )
+            }
         }
 
         /** Simple upcoming-event notification: title line + "in {n} days" (§4.1). */
@@ -248,7 +272,11 @@ class BookingNotifier
 
         /**
          * Full-screen (alarm-style) upcoming reminder with the configured sound — posted
-         * by the exact-alarm receiver when the "fullscreen" style is selected (§4.1).
+         * by the exact-alarm receiver when a full-screen style is selected (§4.1). With
+         * the ALWAYS style (ADR-072) and an available launch exemption (overlay grant or
+         * app foreground), the popup activity is ALSO started directly so it takes over
+         * even on an unlocked, in-use device; the notification still posts for sound,
+         * the shade record and the locked-screen takeover (singleInstance dedups).
          */
         @SuppressLint("MissingPermission") // guarded by canNotify()
         fun postFullScreenUpcomingReminder(
@@ -256,13 +284,15 @@ class BookingNotifier
             title: String,
             daysAway: Int,
             soundUri: String?,
+            style: ReminderStyle = ReminderStyle.FULLSCREEN,
         ) {
             if (!canNotify()) return
+            val activityIntent = FullScreenReminderActivity.intent(context, bookingId, title, daysAway)
             val fullScreenIntent =
                 PendingIntent.getActivity(
                     context,
                     bookingId.hashCode(),
-                    FullScreenReminderActivity.intent(context, bookingId, title, daysAway),
+                    activityIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
             val notification =
@@ -277,6 +307,9 @@ class BookingNotifier
                     .setFullScreenIntent(fullScreenIntent, true)
                     .build()
             NotificationManagerCompat.from(context).notify(UPCOMING_NOTIFICATION_TAG, bookingId.hashCode(), notification)
+            if (takeover.pathFor(style) == FullScreenLaunchPolicy.LaunchPath.DIRECT_ACTIVITY) {
+                takeover.launch(activityIntent)
+            }
         }
 
         fun daysAwayText(daysAway: Int): String =

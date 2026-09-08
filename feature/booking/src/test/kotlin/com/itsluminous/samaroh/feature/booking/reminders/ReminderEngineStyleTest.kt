@@ -79,7 +79,7 @@ class ReminderEngineStyleTest {
             businessRepository = businessRepository,
             eventTypeRepository = eventTypeRepository,
             eventTypes = emptyCatalog,
-            notifier = BookingNotifier(context),
+            notifier = BookingNotifier(context, FullScreenTakeover(context)),
             prefs = BookingReminderPrefs(dataStore),
             replicaIntegrity = replicaIntegrity,
             clock = clock,
@@ -220,5 +220,37 @@ class ReminderEngineStyleTest {
 
             assertThat(postedNotifications()).isEmpty()
             assertThat(nextAlarm()).isNotNull()
+        }
+
+    // ---- ALWAYS-full-screen style (ADR-072) ----
+
+    @Test
+    fun `upcoming reminder with always-fullscreen style schedules the alarm carrying its style`() =
+        runTest(dispatcher) {
+            selectStyle(ReminderStyle.FULLSCREEN_ALWAYS)
+            seedUpcomingBooking()
+
+            engine().runDailyPass()
+
+            assertThat(postedNotifications()).isEmpty()
+            val alarm = nextAlarm()
+            assertThat(alarm).isNotNull()
+            val intent = shadowOf(checkNotNull(alarm).operation).savedIntent
+            assertThat(intent.getStringExtra(UpcomingReminderAlarmReceiver.EXTRA_STYLE))
+                .isEqualTo(ReminderStyle.FULLSCREEN_ALWAYS.wire)
+        }
+
+    @Test
+    fun `payment reminder with always-fullscreen style keeps the full-screen intent fallback`() =
+        runTest(dispatcher) {
+            // No overlay grant + app not foreground in Robolectric → the launch path
+            // degrades to the full-screen notification (never a discarded direct start).
+            selectStyle(ReminderStyle.FULLSCREEN_ALWAYS)
+            seedDuePaymentBooking()
+
+            engine().runDailyPass()
+
+            val posted = postedNotifications().single()
+            assertThat(posted.fullScreenIntent).isNotNull()
         }
 }

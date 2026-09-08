@@ -69,6 +69,7 @@ fun ReminderSettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showCustomDialog by rememberSaveable { mutableStateOf(false) }
     var showFsiBlockedDialog by rememberSaveable { mutableStateOf(false) }
+    var showOverlayDialog by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     // System permission states (ADR-043): re-read on resume so returning from the
@@ -95,6 +96,9 @@ fun ReminderSettingsScreen(
             Build.VERSION.SDK_INT < 31 ||
                 context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true
         }
+    // "Display over other apps" — the ALWAYS full-screen style's launch exemption
+    // (ADR-072). Re-read on resume like the rest.
+    val canDrawOverlays = remember(permissionRefresh) { Settings.canDrawOverlays(context) }
     val notificationPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permissionRefresh++ }
     // Contextual request (spec §6, ADR-043): opening the reminder settings IS the
@@ -156,37 +160,50 @@ fun ReminderSettingsScreen(
             )
             OutlinedButton(
                 onClick = {
-                    if (ReminderPermissionsStatus.blocksFullScreenTest(
+                    when {
+                        // ADR-072: the overlay grant is the ALWAYS style's defining
+                        // permission — its fix-it prompt wins over the FSI one.
+                        ReminderPermissionsStatus.blocksAlwaysFullScreenTest(
+                            style = current.reminderStyle,
+                            canDrawOverlays = canDrawOverlays,
+                        ) -> showOverlayDialog = true
+                        ReminderPermissionsStatus.blocksFullScreenTest(
                             sdkInt = Build.VERSION.SDK_INT,
                             style = current.reminderStyle,
                             canUseFullScreenIntent = canUseFullScreenIntent,
-                        )
-                    ) {
-                        showFsiBlockedDialog = true
-                    } else {
-                        viewModel.fireTestReminder()
+                        ) -> showFsiBlockedDialog = true
+                        else -> viewModel.fireTestReminder()
                     }
                 },
             ) {
                 Text(stringResource(R.string.settings_reminders_test_button))
             }
         }
+        // Three clearly-worded styles (ADR-072), each with its own behaviour line —
+        // "Full screen when locked" is today's popup renamed for what it actually
+        // does; "Always full screen" is the new takeover-anywhere mode.
         StyleRow(
             labelRes = R.string.settings_reminders_style_notification,
+            descRes = R.string.settings_reminders_style_notification_desc,
             selected = current.reminderStyle == ReminderStyle.NOTIFICATION,
         ) { viewModel.setStyle(ReminderStyle.NOTIFICATION) }
         StyleRow(
             labelRes = R.string.settings_reminders_style_fullscreen,
+            descRes = R.string.settings_reminders_style_fullscreen_desc,
             selected = current.reminderStyle == ReminderStyle.FULLSCREEN,
         ) { viewModel.setStyle(ReminderStyle.FULLSCREEN) }
-        // Expectation-setting (Android design, not a bug): screen on → heads-up banner;
-        // screen off/locked → the popup takes over.
-        Text(
-            text = stringResource(R.string.settings_reminders_style_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp),
-        )
+        StyleRow(
+            labelRes = R.string.settings_reminders_style_fullscreen_always,
+            descRes = R.string.settings_reminders_style_fullscreen_always_desc,
+            selected = current.reminderStyle == ReminderStyle.FULLSCREEN_ALWAYS,
+        ) {
+            viewModel.setStyle(ReminderStyle.FULLSCREEN_ALWAYS)
+            // Contextual ask (spec §6, ADR-072): picking the mode that NEEDS the
+            // "display over other apps" grant is the moment to explain + deep-link.
+            // Denial changes nothing — the style stays selected and degrades to the
+            // "when locked" behaviour; the status row below keeps offering the fix.
+            if (!canDrawOverlays) showOverlayDialog = true
+        }
         HorizontalDivider()
 
         // Sound picker — only meaningful for the full-screen style (§4.1), always reachable.
@@ -224,6 +241,7 @@ fun ReminderSettingsScreen(
                 style = current.reminderStyle,
                 canUseFullScreenIntent = canUseFullScreenIntent,
                 canScheduleExactAlarms = canScheduleExactAlarms,
+                canDrawOverlays = canDrawOverlays,
             ).forEach { rowState ->
                 PermissionStatusRow(
                     state = rowState,
@@ -248,10 +266,44 @@ fun ReminderSettingsScreen(
                                             .setData(Uri.fromParts("package", context.packageName, null)),
                                     )
                                 }
+                            ReminderPermissionsStatus.Row.OVERLAY ->
+                                context.startActivity(
+                                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                                        .setData(Uri.fromParts("package", context.packageName, null)),
+                                )
                         }
                     },
                 )
             }
+    }
+
+    // Contextual overlay ask (ADR-072): the ALWAYS style was picked (or its Test was
+    // tapped) without the "display over other apps" grant — explain what the grant is
+    // for and deep-link to the system screen that gives it.
+    if (showOverlayDialog) {
+        AlertDialog(
+            onDismissRequest = { showOverlayDialog = false },
+            title = { Text(stringResource(R.string.settings_reminders_overlay_needed_title)) },
+            text = { Text(stringResource(R.string.settings_reminders_overlay_needed_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showOverlayDialog = false
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                                .setData(Uri.fromParts("package", context.packageName, null)),
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_reminders_permission_fix))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOverlayDialog = false }) {
+                    Text(stringResource(R.string.common_action_cancel))
+                }
+            },
+        )
     }
 
     // Fix-it prompt (ADR-045): the full-screen style is selected but the Android 14+
@@ -323,11 +375,15 @@ fun ReminderSettingsScreen(
 @Composable
 private fun StyleRow(
     labelRes: Int,
+    descRes: Int,
     selected: Boolean,
     onSelect: () -> Unit,
 ) {
     ListItem(
         headlineContent = { Text(stringResource(labelRes)) },
+        // Per-option behaviour line (ADR-072) — replaces the former single hint, which
+        // could no longer describe three styles at once.
+        supportingContent = { Text(stringResource(descRes)) },
         leadingContent = { RadioButton(selected = selected, onClick = onSelect) },
         modifier = Modifier.clickable(onClick = onSelect),
     )
@@ -349,6 +405,7 @@ private fun PermissionStatusRow(
             ReminderPermissionsStatus.Row.NOTIFICATIONS -> R.string.settings_reminders_permission_notifications
             ReminderPermissionsStatus.Row.FULL_SCREEN -> R.string.settings_reminders_permission_fullscreen
             ReminderPermissionsStatus.Row.EXACT_ALARM -> R.string.settings_reminders_permission_exact_alarm
+            ReminderPermissionsStatus.Row.OVERLAY -> R.string.settings_reminders_permission_overlay
         }
     val stateRes =
         if (state.granted) {
@@ -358,6 +415,7 @@ private fun PermissionStatusRow(
                 ReminderPermissionsStatus.Row.NOTIFICATIONS -> R.string.settings_reminders_permission_notifications_denied
                 ReminderPermissionsStatus.Row.FULL_SCREEN -> R.string.settings_reminders_permission_fullscreen_denied
                 ReminderPermissionsStatus.Row.EXACT_ALARM -> R.string.settings_reminders_permission_exact_alarm_denied
+                ReminderPermissionsStatus.Row.OVERLAY -> R.string.settings_reminders_permission_overlay_denied
             }
         }
     ListItem(

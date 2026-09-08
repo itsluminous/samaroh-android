@@ -16,6 +16,7 @@ class ReminderPermissionsStatusTest {
                 style = ReminderStyle.NOTIFICATION,
                 canUseFullScreenIntent = false,
                 canScheduleExactAlarms = false,
+                canDrawOverlays = false,
             )
         assertThat(rows.map { it.row }).containsExactly(Row.NOTIFICATIONS)
         assertThat(rows.single().granted).isTrue()
@@ -30,6 +31,7 @@ class ReminderPermissionsStatusTest {
                 style = ReminderStyle.FULLSCREEN,
                 canUseFullScreenIntent = false,
                 canScheduleExactAlarms = true,
+                canDrawOverlays = false,
             )
         assertThat(rows.map { it.row }).containsExactly(Row.NOTIFICATIONS, Row.FULL_SCREEN, Row.EXACT_ALARM).inOrder()
         assertThat(rows.first { it.row == Row.NOTIFICATIONS }.granted).isFalse()
@@ -46,6 +48,7 @@ class ReminderPermissionsStatusTest {
                 style = ReminderStyle.FULLSCREEN,
                 canUseFullScreenIntent = false,
                 canScheduleExactAlarms = false,
+                canDrawOverlays = false,
             )
         assertThat(api33.map { it.row }).containsExactly(Row.NOTIFICATIONS, Row.EXACT_ALARM).inOrder()
 
@@ -56,6 +59,7 @@ class ReminderPermissionsStatusTest {
                 style = ReminderStyle.FULLSCREEN,
                 canUseFullScreenIntent = false,
                 canScheduleExactAlarms = false,
+                canDrawOverlays = false,
             )
         assertThat(api30.map { it.row }).containsExactly(Row.NOTIFICATIONS)
     }
@@ -66,6 +70,55 @@ class ReminderPermissionsStatusTest {
         assertThat(ReminderPermissionsStatus.shouldRequestNotifications(sdkInt = 35, notificationsEnabled = true)).isFalse()
         // Pre-33 there is no runtime permission to request — the row still shows state.
         assertThat(ReminderPermissionsStatus.shouldRequestNotifications(sdkInt = 32, notificationsEnabled = false)).isFalse()
+    }
+
+    @Test
+    fun `always-fullscreen style shows BOTH grants it depends on plus exact alarms`() {
+        val rows =
+            ReminderPermissionsStatus.rows(
+                sdkInt = 35,
+                notificationsEnabled = true,
+                style = ReminderStyle.FULLSCREEN_ALWAYS,
+                canUseFullScreenIntent = true,
+                canScheduleExactAlarms = true,
+                canDrawOverlays = false,
+            )
+        assertThat(rows.map { it.row })
+            .containsExactly(Row.NOTIFICATIONS, Row.OVERLAY, Row.FULL_SCREEN, Row.EXACT_ALARM)
+            .inOrder()
+        assertThat(rows.first { it.row == Row.OVERLAY }.granted).isFalse()
+        assertThat(rows.first { it.row == Row.FULL_SCREEN }.granted).isTrue()
+    }
+
+    @Test
+    fun `overlay row appears only for the always-fullscreen style`() {
+        for (style in listOf(ReminderStyle.NOTIFICATION, ReminderStyle.FULLSCREEN)) {
+            val rows =
+                ReminderPermissionsStatus.rows(
+                    sdkInt = 35,
+                    notificationsEnabled = true,
+                    style = style,
+                    canUseFullScreenIntent = true,
+                    canScheduleExactAlarms = true,
+                    canDrawOverlays = true,
+                )
+            assertThat(rows.map { it.row }).doesNotContain(Row.OVERLAY)
+        }
+    }
+
+    @Test
+    fun `overlay row has no SDK gate — the grant exists on every supported level`() {
+        val rows =
+            ReminderPermissionsStatus.rows(
+                sdkInt = 26,
+                notificationsEnabled = true,
+                style = ReminderStyle.FULLSCREEN_ALWAYS,
+                canUseFullScreenIntent = true,
+                canScheduleExactAlarms = true,
+                canDrawOverlays = true,
+            )
+        assertThat(rows.map { it.row }).containsExactly(Row.NOTIFICATIONS, Row.OVERLAY).inOrder()
+        assertThat(rows.first { it.row == Row.OVERLAY }.granted).isTrue()
     }
 }
 
@@ -113,5 +166,47 @@ class ReminderTestGatingTest {
                 canUseFullScreenIntent = false,
             ),
         ).isFalse()
+    }
+
+    @Test
+    fun `always-fullscreen style is also FSI-gated on API 34+`() {
+        // Its notification fallback still relies on the full-screen intent.
+        assertThat(
+            ReminderPermissionsStatus.blocksFullScreenTest(
+                sdkInt = 35,
+                style = ReminderStyle.FULLSCREEN_ALWAYS,
+                canUseFullScreenIntent = false,
+            ),
+        ).isTrue()
+    }
+
+    @Test
+    fun `always-fullscreen without the overlay grant blocks the test`() {
+        // A test tapped from inside the app would take over anyway (the app is
+        // foreground) and LIE about what a real background reminder does.
+        assertThat(
+            ReminderPermissionsStatus.blocksAlwaysFullScreenTest(
+                style = ReminderStyle.FULLSCREEN_ALWAYS,
+                canDrawOverlays = false,
+            ),
+        ).isTrue()
+        assertThat(
+            ReminderPermissionsStatus.blocksAlwaysFullScreenTest(
+                style = ReminderStyle.FULLSCREEN_ALWAYS,
+                canDrawOverlays = true,
+            ),
+        ).isFalse()
+    }
+
+    @Test
+    fun `overlay gate never applies to the other styles`() {
+        for (style in listOf(ReminderStyle.NOTIFICATION, ReminderStyle.FULLSCREEN)) {
+            assertThat(
+                ReminderPermissionsStatus.blocksAlwaysFullScreenTest(
+                    style = style,
+                    canDrawOverlays = false,
+                ),
+            ).isFalse()
+        }
     }
 }

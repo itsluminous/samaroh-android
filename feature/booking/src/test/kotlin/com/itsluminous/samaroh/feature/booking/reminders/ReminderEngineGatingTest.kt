@@ -65,7 +65,7 @@ class ReminderEngineGatingTest {
             businessRepository = businessRepository,
             eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures()),
             eventTypes = emptyCatalog,
-            notifier = BookingNotifier(context),
+            notifier = BookingNotifier(context, FullScreenTakeover(context)),
             prefs =
                 BookingReminderPrefs(
                     PreferenceDataStoreFactory.create(scope = storeScope) {

@@ -35,16 +35,24 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra(EXTRA_TITLE) ?: return
         val daysAway = intent.getIntExtra(EXTRA_DAYS_AWAY, 1)
         val soundUri = intent.getStringExtra(EXTRA_SOUND_URI)
+        // Style travels in the intent like the sound (scheduled the same morning it
+        // fires, so drift is negligible); a missing/unknown value decodes tolerantly.
+        // NOTIFICATION never schedules this alarm, so anything unknown means "some
+        // full-screen style" → default to the plain FULLSCREEN treatment.
+        val style =
+            ReminderStyle.fromWire(intent.getStringExtra(EXTRA_STYLE)).takeIf { it != ReminderStyle.NOTIFICATION }
+                ?: ReminderStyle.FULLSCREEN
         EntryPointAccessors
             .fromApplication(context.applicationContext, Dependencies::class.java)
             .notifier()
-            .postFullScreenUpcomingReminder(bookingId, title, daysAway, soundUri)
+            .postFullScreenUpcomingReminder(bookingId, title, daysAway, soundUri, style)
     }
 
     companion object {
         const val EXTRA_TITLE = "title"
         const val EXTRA_DAYS_AWAY = "days_away"
         const val EXTRA_SOUND_URI = "sound_uri"
+        const val EXTRA_STYLE = "style"
 
         /**
          * Schedules the exact wake-up for the daily pass. The pass runs at 09:00; the
@@ -56,6 +64,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             title: String,
             daysAway: Int,
             soundUri: String?,
+            style: ReminderStyle,
             clock: Clock,
         ) {
             val triggerAt =
@@ -67,7 +76,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
                     .toInstant()
                     .toEpochMilli()
                     .coerceAtLeast(System.currentTimeMillis() + 1_000)
-            scheduleExactAt(context, bookingId, title, daysAway, soundUri, triggerAt)
+            scheduleExactAt(context, bookingId, title, daysAway, soundUri, style, triggerAt)
         }
 
         /**
@@ -84,6 +93,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             title: String,
             daysAway: Int,
             soundUri: String?,
+            style: ReminderStyle,
             triggerAtMillis: Long,
         ) {
             val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
@@ -93,6 +103,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
                     putExtra(EXTRA_TITLE, title)
                     putExtra(EXTRA_DAYS_AWAY, daysAway)
                     putExtra(EXTRA_SOUND_URI, soundUri)
+                    putExtra(EXTRA_STYLE, style.wire)
                 }
             val pending =
                 PendingIntent.getBroadcast(

@@ -34,13 +34,17 @@ class BookingReminderTestFirer
             when (settings.style) {
                 ReminderStyle.NOTIFICATION ->
                     notifier.postUpcomingReminder(SAMPLE_BOOKING_ID, title, SAMPLE_DAYS_AWAY)
-                ReminderStyle.FULLSCREEN ->
+                // Both full-screen styles ride the production alarm path; the style in
+                // the intent makes the receiver pick the launch path at fire time —
+                // with ALWAYS selected the sample takes over even unlocked (ADR-072).
+                ReminderStyle.FULLSCREEN, ReminderStyle.FULLSCREEN_ALWAYS ->
                     UpcomingReminderAlarmReceiver.scheduleExactAt(
                         context = context,
                         bookingId = SAMPLE_BOOKING_ID,
                         title = title,
                         daysAway = SAMPLE_DAYS_AWAY,
                         soundUri = settings.soundUri,
+                        style = settings.style,
                         triggerAtMillis = clock.millis() + FULLSCREEN_FIRE_DELAY_MS,
                     )
             }

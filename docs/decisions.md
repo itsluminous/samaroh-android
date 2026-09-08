@@ -2668,3 +2668,59 @@ label (members).
 **Consequences.** All primary-action FABs read uniformly icon-only; discoverability is
 preserved through contentDescription + long-press. New FABs should pass
 `explanationRes` rather than relying on the label.
+
+## ADR-072 — "Always full screen" reminder style (overlay-backed takeover) (2026-09-08)
+
+**Status:** accepted.
+
+**Context.** ADR-045 documented that the "Full-screen popup" style takes over ONLY on a
+locked/off screen — Android deliberately shows a full-screen-intent notification as a
+heads-up banner while the device is in use. Owners want a mode where the reminder takes
+over regardless: phone unlocked, another app open. That requires starting
+`FullScreenReminderActivity` directly from the alarm receiver / daily pass, which the
+background-activity-launch (BAL) restrictions normally forbid — but the user-granted
+SYSTEM_ALERT_WINDOW special access ("Display over other apps") exempts the app, and a
+foreground app may always launch.
+
+**Decision.**
+1. **Third style, wire-compatible.** `ReminderStyle` (both the feature:menu and
+   feature:booking copies of the DataStore contract) gains
+   `FULLSCREEN_ALWAYS("fullscreen_always")`. The two existing stored values decode
+   unchanged; `fromWire` stays tolerant, so the new value read by an OLDER build (no
+   such entry) or any future value degrades to NOTIFICATION. The three options are
+   re-worded for what they actually do — "Notification" (banner only), "Full screen
+   when locked" (today's behaviour renamed), "Always full screen" — each with its own
+   supporting line (replacing the single ADR-045 hint, which cannot describe three
+   styles at once).
+2. **Pure launch policy.** `FullScreenLaunchPolicy.pathFor(style, overlayGranted,
+   appInForeground)`: NOTIFICATION → plain; FULLSCREEN → full-screen-intent
+   notification; FULLSCREEN_ALWAYS → DIRECT_ACTIVITY when the overlay grant OR app
+   foreground provides a BAL exemption, else the full-screen-intent notification —
+   never a direct start the OS would silently discard. `FullScreenTakeover` supplies
+   the system state (`Settings.canDrawOverlays`, `ActivityManager.getMyMemoryState`)
+   and performs the guarded `startActivity`.
+3. **DIRECT means notification + launch.** On the direct path the full-screen
+   notification still posts (alarm sound, shade record, payment actions) and the
+   activity is ALSO started; `FullScreenReminderActivity` is `singleInstance`, so the
+   OS-driven full-screen intent on a locked screen and our direct start dedup.
+4. **Every reminder kind branches per style.** The upcoming pass schedules the exact
+   alarm for BOTH full-screen styles with the style riding in the intent (like the
+   sound; scheduled the morning it fires, so drift is negligible) — the receiver picks
+   the launch path at fire time. Payment/follow-up posts resolve the path inline. The
+   Test button (ADR-045) rides the identical alarm path carrying the style.
+5. **Contextual permission ask + status rows.** Picking "Always full screen" without
+   the overlay grant shows an explanation dialog deep-linking to
+   `ACTION_MANAGE_OVERLAY_PERMISSION`; denial changes nothing (the style degrades to
+   the "when locked" behaviour — §6, every permission optional). The ADR-043 status
+   rows gain an ungated "Display over other apps" row shown only for this style, and
+   the FSI/exact-alarm rows now show for both full-screen styles. Test gating: the
+   overlay fix-it dialog wins for the ALWAYS style (a test fired from inside the app is
+   foreground-exempt and would take over even without the grant — lying about what a
+   real background reminder does); the ADR-045 FSI gate still covers the notification
+   fallback. `SYSTEM_ALERT_WINDOW` joins the feature:booking manifest as an optional
+   special-access permission.
+
+**Consequences.** With the grant, reminders take over mid-use — exactly what the owner
+asked for; without it, behaviour is indistinguishable from "Full screen when locked".
+Older builds sharing the DataStore render the unknown style as NOTIFICATION until
+updated. Web has no equivalent surface; nothing to mirror.

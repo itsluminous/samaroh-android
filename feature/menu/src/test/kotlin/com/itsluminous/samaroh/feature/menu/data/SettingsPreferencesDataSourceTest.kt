@@ -81,9 +81,32 @@ class SettingsPreferencesDataSourceTest {
     fun `reminder style wire values match the contract`() {
         assertThat(ReminderStyle.NOTIFICATION.wire).isEqualTo("notification")
         assertThat(ReminderStyle.FULLSCREEN.wire).isEqualTo("fullscreen")
+        assertThat(ReminderStyle.FULLSCREEN_ALWAYS.wire).isEqualTo("fullscreen_always")
         assertThat(ReminderStyle.fromWire("fullscreen")).isEqualTo(ReminderStyle.FULLSCREEN)
         assertThat(ReminderStyle.fromWire("bogus")).isEqualTo(ReminderStyle.NOTIFICATION)
     }
+
+    @Test
+    fun `reminder style extension is wire-compatible with existing stored values`() {
+        // Values written by pre-ADR-072 builds decode unchanged...
+        assertThat(ReminderStyle.fromWire("notification")).isEqualTo(ReminderStyle.NOTIFICATION)
+        assertThat(ReminderStyle.fromWire("fullscreen")).isEqualTo(ReminderStyle.FULLSCREEN)
+        // ...the new value decodes on updated builds...
+        assertThat(ReminderStyle.fromWire("fullscreen_always")).isEqualTo(ReminderStyle.FULLSCREEN_ALWAYS)
+        // ...and unknowns (future styles / missing key) stay tolerant.
+        assertThat(ReminderStyle.fromWire(null)).isEqualTo(ReminderStyle.NOTIFICATION)
+        assertThat(ReminderStyle.fromWire("some_future_style")).isEqualTo(ReminderStyle.NOTIFICATION)
+    }
+
+    @Test
+    fun `always-full-screen style round-trips through the contract key`() =
+        testScope.runTest {
+            dataSource.setReminderStyle(ReminderStyle.FULLSCREEN_ALWAYS)
+
+            assertThat(dataSource.settings.first().reminderStyle).isEqualTo(ReminderStyle.FULLSCREEN_ALWAYS)
+            val raw = dataStore.data.first()
+            assertThat(raw[stringPreferencesKey("booking_reminder_style")]).isEqualTo("fullscreen_always")
+        }
 
     @Test
     fun `theme prefs round-trip`() =

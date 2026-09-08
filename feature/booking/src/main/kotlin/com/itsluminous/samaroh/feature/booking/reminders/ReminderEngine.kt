@@ -191,13 +191,17 @@ class ReminderEngine
                 val title = "${booking.displayIcon} $label - ${booking.customerName}"
                 when (settings.style) {
                     ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking.id, title, upcoming.daysAway)
-                    ReminderStyle.FULLSCREEN ->
+                    // Both full-screen styles travel the exact-alarm path; the style
+                    // rides in the intent so the receiver picks the launch path
+                    // (locked-only vs always-takeover, ADR-072) at fire time.
+                    ReminderStyle.FULLSCREEN, ReminderStyle.FULLSCREEN_ALWAYS ->
                         UpcomingReminderAlarmReceiver.scheduleExact(
                             context = context,
                             bookingId = booking.id,
                             title = title,
                             daysAway = upcoming.daysAway,
                             soundUri = settings.soundUri,
+                            style = settings.style,
                             clock = clock,
                         )
                 }

@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- "Display over other apps" (special access, user-granted in system settings):
+         exempts the app from background-activity-launch restrictions so the ALWAYS
+         full-screen reminder style (ADR-072) can start FullScreenReminderActivity
+         directly even while another app is in use. Optional like the rest — without
+         it the style degrades to the "when locked" behaviour. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application>
 

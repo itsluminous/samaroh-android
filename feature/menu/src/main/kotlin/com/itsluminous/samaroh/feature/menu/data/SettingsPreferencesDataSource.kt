@@ -32,11 +32,25 @@ enum class ThemeMode(
 enum class ReminderStyle(
     val wire: String,
 ) {
+    /** A normal banner notification only. */
     NOTIFICATION("notification"),
+
+    /** Full-screen popup on a locked/off screen; a banner otherwise (OS design). */
     FULLSCREEN("fullscreen"),
+
+    /**
+     * Takes over even while the phone is unlocked/in use (ADR-072). Needs the
+     * "display over other apps" grant for the direct launch when the app is background.
+     */
+    FULLSCREEN_ALWAYS("fullscreen_always"),
     ;
 
     companion object {
+        /**
+         * Wire-tolerant: the two original stored values decode unchanged; anything
+         * unknown (a future style, or the new value read by an older build where the
+         * entry doesn't exist) degrades to NOTIFICATION.
+         */
         fun fromWire(value: String?): ReminderStyle = entries.firstOrNull { it.wire == value } ?: NOTIFICATION
     }
 }
@@ -63,7 +77,7 @@ data class DeviceSettings(
  *
  * CONTRACT (shared with `feature:booking`'s reminder engine — keys are frozen):
  * - `booking_reminder_lead_days`: Set<String> of day counts
- * - `booking_reminder_style`: String — `notification` | `fullscreen`
+ * - `booking_reminder_style`: String — `notification` | `fullscreen` | `fullscreen_always`
  * - `booking_reminder_sound_uri`: String — ringtone URI
  *
  * Theme keys (`theme_mode`, `dynamic_color`) are menu-owned.

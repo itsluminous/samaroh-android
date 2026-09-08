@@ -17,17 +17,31 @@ import javax.inject.Singleton
  * file crash at runtime) under the agreed keys so the Settings screen reads/writes the
  * SAME values:
  * - `booking_reminder_lead_days`: Set<String> of day counts (e.g. "1","3","7");
- * - `booking_reminder_style`: "notification" | "fullscreen";
+ * - `booking_reminder_style`: "notification" | "fullscreen" | "fullscreen_always";
  * - `booking_reminder_sound_uri`: ringtone uri for the full-screen style.
  */
 enum class ReminderStyle(
     val wire: String,
 ) {
     NOTIFICATION("notification"),
+
+    /** Full-screen popup when the screen is locked/off; a banner otherwise (OS design). */
     FULLSCREEN("fullscreen"),
+
+    /**
+     * Takes over even while the device is unlocked/in use (ADR-072) — needs the
+     * "display over other apps" grant (or the app foreground) for the direct start.
+     */
+    FULLSCREEN_ALWAYS("fullscreen_always"),
     ;
 
     companion object {
+        /**
+         * Wire-tolerant decode: the two original values map unchanged, the new
+         * "fullscreen_always" decodes on updated builds, and anything unknown (a
+         * FUTURE style, or "fullscreen_always" read by an OLDER build — where this
+         * branch doesn't exist and the enum lookup misses) degrades to NOTIFICATION.
+         */
         fun fromWire(value: String?): ReminderStyle = entries.firstOrNull { it.wire == value } ?: NOTIFICATION
     }
 }

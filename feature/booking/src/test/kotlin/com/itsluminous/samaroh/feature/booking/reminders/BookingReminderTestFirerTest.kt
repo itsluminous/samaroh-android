@@ -53,7 +53,7 @@ class BookingReminderTestFirerTest {
     private fun firer(): BookingReminderTestFirer =
         BookingReminderTestFirer(
             context = context,
-            notifier = BookingNotifier(context),
+            notifier = BookingNotifier(context, FullScreenTakeover(context)),
             prefs = BookingReminderPrefs(dataStore),
             clock = clock,
         )
@@ -99,5 +99,23 @@ class BookingReminderTestFirerTest {
             assertThat(alarm).isNotNull()
             assertThat(checkNotNull(alarm).triggerAtTime)
                 .isEqualTo(clock.millis() + BookingReminderTestFirer.FULLSCREEN_FIRE_DELAY_MS)
+        }
+
+    @Test
+    fun `always-fullscreen style also rides the production alarm path carrying its style`() =
+        runTest(dispatcher) {
+            select(ReminderStyle.FULLSCREEN_ALWAYS)
+
+            firer().fireSample()
+
+            val posted = shadowOf(context.getSystemService(NotificationManager::class.java)).allNotifications
+            assertThat(posted).isEmpty() // fires via the receiver, like production
+            val alarm = shadowOf(context.getSystemService(AlarmManager::class.java)).nextScheduledAlarm
+            assertThat(alarm).isNotNull()
+            // The style rides in the alarm intent so the RECEIVER picks the launch
+            // path (direct takeover vs full-screen notification) at fire time.
+            val intent = shadowOf(checkNotNull(alarm).operation).savedIntent
+            assertThat(intent.getStringExtra(UpcomingReminderAlarmReceiver.EXTRA_STYLE))
+                .isEqualTo(ReminderStyle.FULLSCREEN_ALWAYS.wire)
         }
 }
