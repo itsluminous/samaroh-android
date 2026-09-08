@@ -166,8 +166,10 @@ internal fun ExpenseAttachment.toEntity(
     deletedAt,
 )
 
-internal fun MasterItem.toEntity(drivePermissionEnsured: Boolean = false) =
-    MasterItemEntity(id, businessId, name, unit, imagePath, driveImageId, drivePermissionEnsured, createdAt, updatedAt, deletedAt)
+internal fun MasterItem.toEntity(
+    imagePath: String?,
+    drivePermissionEnsured: Boolean = false,
+) = MasterItemEntity(id, businessId, name, unit, imagePath, driveImageId, drivePermissionEnsured, createdAt, updatedAt, deletedAt)
 
 internal fun InventoryTransaction.toEntity() =
     InventoryTransactionEntity(

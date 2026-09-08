@@ -37,6 +37,7 @@ object WireConverter {
             if (value is JsonNull) return@forEach
             out[key] = JsonPrimitive(value.jsonPrimitive.content.lowercase())
         }
+        spec?.localOnlyKeys?.forEach { key -> out.remove(key) }
         return JsonObject(out)
     }
 

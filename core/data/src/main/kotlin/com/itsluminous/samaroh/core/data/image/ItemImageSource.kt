@@ -1,19 +1,13 @@
 package com.itsluminous.samaroh.core.data.image
 
-/**
- * `master_items.image_path` carries either of two forms (ADR-023, semantics revised by
- * ADR-063):
- * - an absolute local file path (`/data/user/0/…/inventory-images/<id>.webp`) for a photo
- *   added on THIS device — since ADR-063 this form is also what syncs (it is meaningless
- *   on other devices, which serve the photo from `drive_image_id` instead), or
- * - a legacy Supabase Storage object path (`<business_id>/<item_id>/<file>.webp`, no
- *   leading slash) written before ADR-063. The bucket is gone; such rows render via
- *   `drive_image_id` (every migrated row carries one) or the device-local original.
+/*
+ * `master_items.image_path` is DEVICE-LOCAL ONLY (ADR-065): the absolute path of a photo
+ * file added on THIS device (`/data/user/0/…/inventory-images/<id>.webp`). It never
+ * syncs — the server column is dropped; `drive_image_id` is the cross-device source of
+ * an item photo. (Legacy rows written before ADR-063 may still hold a relative
+ * Supabase-Storage-era object path in the local DB; it simply fails the file-exists
+ * check and the row renders via `drive_image_id` like any remote photo.)
  */
-fun isLocalItemImagePath(imagePath: String): Boolean =
-    imagePath.startsWith("/") ||
-        imagePath.startsWith("file:") ||
-        imagePath.startsWith("content:")
 
 /** Where an item photo should be loaded from (resolved via [ItemImageResolver], ADR-063). */
 sealed interface ItemImageSource {

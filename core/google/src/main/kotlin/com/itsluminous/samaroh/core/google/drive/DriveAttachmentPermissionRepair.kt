@@ -10,15 +10,14 @@ import javax.inject.Singleton
 
 /**
  * [AttachmentPermissionRepair] over [DriveService.ensureAnyoneReaderPermission] (ADR-059,
- * item photos added by ADR-063): retroactively shares Drive-hosted media link-scoped so
- * business members (and the web app) can view them. Two pending sets, same shape:
+ * item photos added by ADR-063, kept as fresh-user resilience by ADR-065): shares
+ * Drive-hosted media link-scoped so business members (and the web app) can view them.
+ * Every upload tries the permission inline; this pass is the retry when that inline
+ * call failed. Two pending sets, same shape:
  *
  * - `expense_attachments` rows with a `drive_file_id` whose device-only
- *   `drive_permission_ensured` flag is unset (bills uploaded before ADR-059, or an
- *   upload whose inline permission call failed);
- * - `master_items` rows with a `drive_image_id` whose device-only twin flag is unset
- *   (photos mirrored before ADR-063 — Drive is the image store now, so every item photo
- *   needs the anyone-with-link permission, exactly like bills).
+ *   `drive_permission_ensured` flag is unset;
+ * - `master_items` rows with a `drive_image_id` whose device-only twin flag is unset.
  *
  * Per sync run, at most [MAX_REPAIRS_PER_RUN] rows are attempted PER SET (same throttle
  * spirit as the ADR-058 mirror — syncs fire constantly, so the backlog drains across

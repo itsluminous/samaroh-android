@@ -49,8 +49,9 @@ to images — never the image bytes themselves:
   already mirrored to Drive (`expense_attachments.drive_file_id`,
   `master_items.drive_image_id`, ADR-055/§9.1), so re-packing them daily would bloat
   every archive with bytes Drive already holds. The manifest records the Drive ids a
-  restore needs; device-local columns (`local_cache_path`, `image_path`) appear in the
-  row JSON as plain strings but are meaningless off-device.
+  restore needs; device-only columns (`local_cache_path`, `image_path`) appear in the
+  row JSON as plain strings but are meaningless off-device (they never sync — the
+  server tables do not carry them; drop them when seeding Postgres).
 - **The business logo is the sole exception.** `businesses.logo_path` points at a file
   that is *not* Drive-mirrored (device files dir on Android; the `logos` Storage bucket
   for web uploads) — the one asset a total-loss disaster would otherwise destroy. When

@@ -241,7 +241,13 @@ data class MasterItem(
     val name: String,
     /** A wire value from shared/units.json ('pcs', 'kg', 'ml', …) or free text (ADR-061). */
     val unit: String,
-    @SerialName("image_path") val imagePath: String? = null,
+    /**
+     * Device-local photo file path — NEVER on the wire (ADR-065): the server column is
+     * dropped; other devices serve the photo from [driveImageId]. `@Transient` keeps it
+     * out of outbox payloads and pull decodes; LocalApplier preserves the local value.
+     */
+    @Transient val imagePath: String? = null,
+    /** Google Drive file id — THE cross-device source of an item photo (ADR-063/065). */
     @SerialName("drive_image_id") val driveImageId: String? = null,
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,

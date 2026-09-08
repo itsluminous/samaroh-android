@@ -80,6 +80,11 @@ data class MasterItemEntity(
     @ColumnInfo(name = "business_id") val businessId: String,
     val name: String,
     val unit: String,
+    /**
+     * DEVICE-ONLY (never synced, ADR-065): absolute path of the photo file added on
+     * THIS device. Cross-device serving is [driveImageId]'s job. LocalApplier preserves
+     * this across pulls.
+     */
     @ColumnInfo(name = "image_path") val imagePath: String? = null,
     @ColumnInfo(name = "drive_image_id") val driveImageId: String? = null,
     /**

@@ -153,15 +153,18 @@ class LocalApplier
                 }
                 "master_items" -> {
                     val model = json.decodeFromJsonElement(MasterItem.serializer(), row)
-                    // drive_permission_ensured is Room-only state; preserve it across
-                    // pulled updates while the Drive photo is unchanged (ADR-063 —
-                    // the exact expense_attachments ADR-059 shape). A pulled row with a
-                    // NEW drive_image_id resets the flag so the repair pass re-runs.
+                    // image_path and drive_permission_ensured are Room-only state
+                    // (ADR-063/065 — the exact expense_attachments ADR-052/059 shape);
+                    // preserve both across pulled updates. image_path never arrives on
+                    // the wire (@Transient; the server column is dropped) and the
+                    // ensured flag survives while the Drive photo is unchanged — a
+                    // pulled row with a NEW drive_image_id resets it so the repair
+                    // pass re-runs.
                     val existing = masterItemDao.byId(model.id)
                     val keepEnsured =
                         existing != null && existing.driveImageId == model.driveImageId && existing.drivePermissionEnsured
                     upsertIfChanged(
-                        model.toEntity(drivePermissionEnsured = keepEnsured),
+                        model.toEntity(imagePath = existing?.imagePath, drivePermissionEnsured = keepEnsured),
                         masterItemDao::byId,
                         masterItemDao::upsert,
                     ) { it.id }

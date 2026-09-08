@@ -19,6 +19,11 @@ package com.itsluminous.samaroh.core.sync.wire
  *   `updated_at` everywhere except immutable tables: `expense_attachments` has no
  *   `updated_at` by design (created once, tombstoned via `deleted_at` — see 001_schema.sql),
  *   so it pulls by `created_at`.
+ * @param localOnlyKeys payload keys that must NEVER reach the wire — device-only state
+ *   whose server column does not exist (ADR-065: `master_items.image_path` was dropped
+ *   server-side). Stripped by [WireConverter.toWire] as a safety net for outbox payloads
+ *   written by OLDER app versions whose serializers still emitted the key (pushing an
+ *   unknown column fails the whole row op with PGRST204).
  */
 data class SyncTableSpec(
     val name: String,
@@ -28,6 +33,7 @@ data class SyncTableSpec(
     val idColumn: String = "id",
     val selectColumns: String? = null,
     val cursorColumn: String = "updated_at",
+    val localOnlyKeys: Set<String> = emptySet(),
 ) {
     /** Whether the server table carries `updated_at` (LWW bump + tombstone touch are valid). */
     val hasUpdatedAt: Boolean get() = cursorColumn == "updated_at"
@@ -76,7 +82,10 @@ object SyncTables {
                 enumFields = setOf("direction"),
             ),
             SyncTableSpec("expense_attachments", businessScoped = true, cursorColumn = "created_at"),
-            SyncTableSpec("master_items", businessScoped = true),
+            // image_path is device-only since ADR-065 (the server column is dropped;
+            // other devices serve the photo from drive_image_id) — strip it from any
+            // legacy outbox payload so old rows still push cleanly.
+            SyncTableSpec("master_items", businessScoped = true, localOnlyKeys = setOf("image_path")),
             SyncTableSpec(
                 "inventory_transactions",
                 businessScoped = true,

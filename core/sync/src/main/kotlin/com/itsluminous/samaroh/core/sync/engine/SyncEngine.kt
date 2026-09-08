@@ -215,9 +215,9 @@ class SyncEngine
             if (entry.entityType == ATTACHMENTS_TABLE && entry.operation == OutboxOperation.UPSERT.wire) {
                 payloadJson = ensureAttachmentUploaded(entry, payloadJson)
             }
-            // master_items rows push as-is (ADR-063): a device-local `image_path` is no
-            // longer rewritten to a Storage object path — the bucket is gone; other
-            // devices serve the photo from `drive_image_id` (stamped by the Drive mirror).
+            // master_items payloads never carry image_path (ADR-065: @Transient — the
+            // photo path is device-local; other devices serve from `drive_image_id`).
+            // WireConverter additionally strips it from legacy payloads (localOnlyKeys).
             val spec = SyncTables.byName(entry.entityType)
             when (OutboxOperation.fromWire(entry.operation)) {
                 OutboxOperation.UPSERT -> remote.upsert(entry.entityType, WireConverter.toWire(entry.entityType, payloadJson))

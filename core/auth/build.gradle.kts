@@ -75,7 +75,6 @@ dependencies {
     // Supabase auth + database access (Postgrest) over the Ktor OkHttp engine.
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.storage)
     implementation(libs.ktor.client.okhttp)
 
     // Sign in with Google via Credential Manager.

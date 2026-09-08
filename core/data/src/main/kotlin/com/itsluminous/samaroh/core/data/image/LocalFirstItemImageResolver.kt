@@ -9,17 +9,19 @@ import javax.inject.Singleton
 /**
  * The ADR-063 resolution ladder for `master_items` photos, cheapest source first:
  *
- * 1. the row's own `image_path` when it is a LOCAL path whose file exists (a photo added
- *    on this device — the path syncs but only ever resolves here);
- * 2. the legacy device-local original `{itemId}.webp` (photos taken on this device whose
- *    `image_path` was rewritten to a Storage object path by the retired ADR-023 mirror);
+ * 1. the row's own `image_path` when its file exists — the DEVICE-LOCAL path of a photo
+ *    added on this device (never synced since ADR-065; a legacy Storage-era relative
+ *    path simply fails the file check and falls through);
+ * 2. the device-local original `{itemId}.webp` (covers legacy rows whose `image_path`
+ *    was rewritten by the retired ADR-023 mirror, and restores where the recorded
+ *    absolute path went stale but the file convention holds);
  * 3. the Drive-download cache `drive-{driveImageId}.webp` (ADR-063 — written by the
  *    fetcher/prefetcher, so offline rendering keeps working, ADR-062 spirit);
  * 4. `drive_image_id` set but nothing cached → [ItemImageSource.DriveFile]: the caller
  *    downloads (own token → public link) and caches, then re-resolves;
  * 5. nothing → [ItemImageSource.Unavailable] (placeholder icon).
  *
- * Supabase Storage plays no part: the `inventory-images` bucket is gone (ADR-063).
+ * Supabase Storage plays no part: item photos live in Google Drive (ADR-063/065).
  * Only cheap `File.isFile` stats — callers run resolution off the main thread anyway
  * because step 4 may follow with network I/O.
  */
@@ -34,7 +36,7 @@ class LocalFirstItemImageResolver
             imagePath: String?,
             driveImageId: String?,
         ): ItemImageSource {
-            if (imagePath != null && isLocalItemImagePath(imagePath)) {
+            if (imagePath != null) {
                 val file = File(imagePath)
                 if (file.isFile) return ItemImageSource.LocalFile(file.absolutePath)
             }

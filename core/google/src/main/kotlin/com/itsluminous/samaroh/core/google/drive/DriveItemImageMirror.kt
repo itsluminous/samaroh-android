@@ -2,7 +2,6 @@ package com.itsluminous.samaroh.core.google.drive
 
 import android.content.Context
 import android.util.Log
-import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
 import com.itsluminous.samaroh.core.data.image.localItemImageFile
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
@@ -28,10 +27,9 @@ import javax.inject.Singleton
  * serve the photo).
  *
  * A photo is pending when its live row has no `drive_image_id` and a device-local source
- * file exists: the row's own local `image_path` (ADR-063 form) or the legacy
- * `{itemId}.webp` original. Only the device that took a photo can mirror it — Supabase
- * Storage (the ADR-058 download source for web imports) is gone, so rows without a local
- * file stay as they are (all migrated rows already carry a `drive_image_id`).
+ * file exists: the row's own `image_path` file or the `{itemId}.webp` original. Only the
+ * device that took a photo can mirror it — rows without local bytes keep rendering via
+ * their existing `drive_image_id` (a hypothetical driveless row keeps its placeholder).
  *
  * Not-linked stops the whole pass silently; per-item failures are logged and left pending
  * for the next sync run. A failed inline permission never fails the upload — the row's
@@ -94,17 +92,13 @@ class DriveItemImageMirror
 
         /**
          * The device-local bytes of a pending row, or null when this device never had
-         * them: the row's own `image_path` when it is a live local file (ADR-063 photos),
-         * else the legacy `{itemId}.webp` original (photos taken here before ADR-063
-         * rewrote `image_path` to a Storage object path).
+         * them: the row's own `image_path` file (the device-local path of a photo added
+         * here — never synced, ADR-065), else the `{itemId}.webp` original under the
+         * shared file convention (legacy rows and restores).
          */
         private fun localSourceFile(row: MasterItemEntity): File? {
-            val imagePath = row.imagePath ?: return null
-            if (isLocalItemImagePath(imagePath)) {
-                val file = File(imagePath)
-                return if (file.isFile) file else null
-            }
-            return localItemImageFile(context, row.id).takeIf { it.isFile }
+            val fromPath = row.imagePath?.let(::File)?.takeIf { it.isFile }
+            return fromPath ?: localItemImageFile(context, row.id).takeIf { it.isFile }
         }
 
         private suspend fun stampDriveImageId(

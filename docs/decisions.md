@@ -2366,3 +2366,78 @@ earliest, which is ordering hygiene, not removal.
 settled bookings (total > 0, due ≤ 0 once all payments pull) — the cleanup still
 clears them legitimately. A reminder on an unknown-total or marker booking now
 requires a user action to leave the card; that is the owner's explicit preference.
+
+## ADR-065 — Image architecture final state: migration machinery retired (2026-09-08)
+
+**Status:** accepted. Owner-directed consolidation — the storage→Drive migration is
+COMPLETE; fresh users get the simple architecture with ZERO migration passes. Frozen-
+contract touches, per ADR-001: `MasterItem.imagePath` becomes `@Transient` (off the
+wire), `RemoteMappers.MasterItem.toEntity` threads the preserved local path, additive
+`SyncTableSpec.localOnlyKeys`. Consolidates and closes out ADR-023 (retired), ADR-055/
+058/059/062/063 (their permanent halves are THE architecture now). The shared baseline
+schema changed destructively (pre-launch, same precedent as the Aug 2026 consolidation).
+
+**The final state (what a fresh user gets):**
+
+- **ALL images live in Google Drive except the business logo.**
+  - *Item photos*: saved device-local (`inventory-images/{itemId}.webp`), uploaded
+    DIRECTLY to Drive by `DriveItemImageMirror` (never blocks the row push), shared
+    anyone-with-link inline, `drive_image_id` = the cross-device source of truth.
+  - *Bills (expense attachments)*: Drive-only since inception (§4.2/ADR-018), uploaded
+    before their row op, shared anyone-with-link inline (ADR-059).
+  - *Business logo*: the sole Supabase Storage citizen (`logos` bucket — web reads it
+    for invoices; Android keeps a local file + embeds bytes in backups). This is the
+    ONLY bucket a fresh project needs.
+  - *Invoice PDFs*: generated on demand, shared via the system sheet; never persisted
+    server-side (verified: nothing in either app ever wrote to `booking-invoices`).
+- **Serving ladders (kept verbatim from ADR-052/059/063):** local file → own-token
+  Drive download → public-link download → placeholder/prompt. Offline caches kept:
+  the `drive-{id}.webp` file cache + post-sync prefetcher (ADR-062/063) for item
+  photos, `local_cache_path` for bills.
+- **The permission-repair pass is KEPT — as transient-failure resilience, not
+  migration.** Every upload ensures the anyone-with-link permission inline; the pass
+  is the only retry when that inline call fails (network blip, quota, process death
+  between upload and share) — without it the file would stay member-invisible
+  forever. The mechanism was already failure-driven (pending = device-only flag
+  unset), so nothing needed slimming beyond the docs; the historical backlog it also
+  drained is gone.
+
+**What was removed (the migration machinery):**
+
+1. **`master_items.image_path` no longer syncs and the server column is DROPPED.**
+   The path is device-local by definition (only ever resolvable on the device that
+   took the photo). `@Transient` keeps it out of outbox payloads and pull decodes;
+   `LocalApplier` preserves the local value across pulls (the exact `local_cache_path`
+   shape); `WireConverter` strips `image_path` from LEGACY outbox payloads written by
+   older app versions (`SyncTableSpec.localOnlyKeys`) so their pushes cannot fail
+   against the dropped column (PGRST204). Shared baseline `001_schema.sql` drops the
+   column and removes it from `get_current_inventory` (web never read it from the RPC
+   and has a client-side fallback); `scripts/alter-drop-image-path.sql` converges the
+   live DB. The Room column STAYS (device cache — no migration; only its semantics
+   narrowed from dual-form to local-only).
+2. **The dual-form path classifier (`isLocalItemImagePath`) is gone.** Every non-null
+   `image_path` is a local path now; the resolver and the mirror just check
+   `File(path).isFile` — a legacy Storage-era relative path on an old device simply
+   fails the check and the row serves via `drive_image_id` (every migrated row has
+   one).
+3. **Storage buckets `inventory-images` + `booking-invoices` removed from the shared
+   baseline `003_storage.sql`** (only `logos` remains). Verified no writers in either
+   app repo. The dead `storage-kt` Gradle dependency (core:auth, core:sync — never
+   installed on the client, zero imports) is removed.
+4. **Migration-era operational tooling retired:** `scripts/cleanup-storage.mjs` (+ its
+   `package.json`) deleted from the shared repo — the buckets it emptied no longer
+   exist; `Planning/fix-missing-storage-buckets.sql` deleted (the bucket is
+   intentionally gone). (The ADR-058 `ItemPhotoStorageDownloader`/Storage mirror/
+   authenticated-URL resolver were already deleted by ADR-063.)
+
+**Wire-contract tests** pin the fresh-user guarantee: a pushed `master_items` row never
+carries `image_path` (current payloads via `@Transient`, legacy payloads via the
+`localOnlyKeys` strip) and a pulled row never clobbers the device-local path. Bills
+were never Storage-touching. Compile-level: no Supabase Storage API is even on the
+classpath.
+
+**Consequences.** A fresh install performs ZERO Supabase Storage calls for item photos
+and bills — Drive is the one image store, the logo the one Storage object. Readers of
+the server schema use `drive_image_id`/`drive_file_id` exclusively. The owner runs
+`alter-drop-image-path.sql` once, AFTER all devices run this app version (older
+versions would push the dropped column and wedge their outbox).

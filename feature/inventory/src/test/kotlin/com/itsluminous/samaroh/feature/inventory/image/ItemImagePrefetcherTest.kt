@@ -3,7 +3,6 @@ package com.itsluminous.samaroh.feature.inventory.image
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.image.ItemImageResolver
 import com.itsluminous.samaroh.core.data.image.ItemImageSource
-import com.itsluminous.samaroh.core.data.image.isLocalItemImagePath
 import com.itsluminous.samaroh.core.testing.Fixtures
 import org.junit.Test
 
@@ -13,7 +12,7 @@ import org.junit.Test
  * fetched; locally-resolved photos and source-less rows are skipped.
  */
 class ItemImagePrefetcherTest {
-    /** Ladder stand-in: local paths resolve locally; a drive id resolves to DriveFile. */
+    /** Ladder stand-in: absolute local paths resolve locally; a drive id resolves to DriveFile. */
     private val resolver =
         object : ItemImageResolver {
             override fun resolve(
@@ -22,7 +21,7 @@ class ItemImagePrefetcherTest {
                 driveImageId: String?,
             ): ItemImageSource =
                 when {
-                    imagePath != null && isLocalItemImagePath(imagePath) -> ItemImageSource.LocalFile(imagePath)
+                    imagePath != null && imagePath.startsWith("/") -> ItemImageSource.LocalFile(imagePath)
                     driveImageId != null -> ItemImageSource.DriveFile(driveImageId)
                     else -> ItemImageSource.Unavailable
                 }
@@ -32,7 +31,7 @@ class ItemImagePrefetcherTest {
     fun `selects only live items that resolve to a drive file`() {
         val items =
             listOf(
-                Fixtures.masterItem(id = "i-drive", imagePath = "biz-1/i-drive/photo.webp", driveImageId = "drive-1"),
+                Fixtures.masterItem(id = "i-drive", imagePath = null, driveImageId = "drive-1"),
                 Fixtures.masterItem(id = "i-local", imagePath = "/data/user/0/app/files/inventory-images/i-local.webp"),
                 Fixtures.masterItem(id = "i-none", imagePath = null),
                 Fixtures.masterItem(id = "i-deleted", imagePath = null, driveImageId = "drive-dead", deletedAt = Fixtures.NOW),

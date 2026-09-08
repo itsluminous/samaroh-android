@@ -149,6 +149,27 @@ Conventional Commits, imperative mood, subject ≤ 50 chars
   always `git pull --ff-only` in the shared repo before pushing, and bump the submodule
   here only to commits that exist on the shared remote.
 
+## Image pipeline (final state — ADR-065)
+
+**ALL images live in Google Drive except the business logo.** There are NO migration
+passes and NO Supabase Storage calls for item photos or bills — do not reintroduce any.
+
+- **Item photos**: saved device-local (`inventory-images/{itemId}.webp`, ≤320px WebP),
+  uploaded directly to Drive by `DriveItemImageMirror` after the row push (never blocks
+  it), shared anyone-with-link inline. `master_items.drive_image_id` is the cross-device
+  source of truth; `image_path` is DEVICE-ONLY (`@Transient`, no server column —
+  `LocalApplier` preserves it across pulls). Display uses the
+  `LocalFirstItemImageResolver` ladder: local file → `{itemId}.webp` original →
+  `drive-{id}.webp` cache → Drive download (own token → public link) → placeholder;
+  `ItemImagePrefetcher` warms the cache after every pull so inventory renders offline.
+- **Bills (expense attachments)**: Drive-only (`drive_file_id`), uploaded before their
+  row op, shared anyone-with-link; resolver ladder + `local_cache_path` cache (ADR-052/059).
+- **Business logo**: the ONLY Supabase Storage object (`logos` bucket; web reads it for
+  invoices — Android keeps a local file and embeds the bytes in Drive backups).
+- **Invoice PDFs**: generated on demand and shared via the system sheet; never persisted.
+- **Permission repair pass** (`AttachmentPermissionRepair`): retries the inline
+  anyone-with-link call when it failed (transient-failure resilience, 10 rows/set/run).
+
 ## Supabase env setup
 
 `local.properties` (git-ignored) carries `sdk.dir` plus `SUPABASE_URL`,

@@ -274,9 +274,9 @@ interface MasterItemDao {
 
     /**
      * Candidates for the Drive item-photo mirror (ADR-055/063, additive): live rows with
-     * a photo but no Drive copy yet. The caller further requires a device-local source
-     * file (the row's local `image_path` or the legacy `{itemId}.webp` original) — only
-     * the device that took a photo can mirror it (file-system state has no place in SQL).
+     * a photo but no Drive copy yet. `image_path` is device-only (ADR-065), so a non-null
+     * value means the photo was added on THIS device. The caller further requires the
+     * source file to still exist (file-system state has no place in SQL).
      */
     @Query("SELECT * FROM master_items WHERE drive_image_id IS NULL AND image_path IS NOT NULL AND deleted_at IS NULL")
     suspend fun pendingDriveImageMirror(): List<MasterItemEntity>

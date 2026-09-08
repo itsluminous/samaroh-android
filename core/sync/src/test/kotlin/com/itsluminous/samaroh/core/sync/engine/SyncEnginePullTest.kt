@@ -680,6 +680,55 @@ class SyncEnginePullTest {
             assertThat(outcome.pulledCount).isEqualTo(1)
         }
 
+    @Test
+    fun `pulled master_items preserve the device-only image_path (ADR-065)`() =
+        runTest {
+            seedBusiness()
+            val localPath = "/data/user/0/app/files/inventory-images/i-1.webp"
+            db.masterItemDao().upsert(
+                com.itsluminous.samaroh.core.database.entity
+                    .MasterItemEntity(
+                        id = "i-1",
+                        businessId = Fixtures.BUSINESS_ID,
+                        name = "old-name",
+                        unit = "pcs",
+                        imagePath = localPath,
+                        driveImageId = "d-1",
+                        createdAt = Fixtures.NOW,
+                        updatedAt = Fixtures.NOW,
+                    ),
+            )
+            // The server row has NO image_path (the column is dropped); a rename made
+            // on another device must land without clobbering this device's local path.
+            remote.servePage(
+                "master_items",
+                listOf(remoteMasterItemRow("i-1", name = "new-name", driveImageId = "d-1", updatedAt = "2026-09-08T10:00:00+00:00")),
+            )
+
+            syncEngine(db, remote, notifier).runSync()
+
+            val row = db.masterItemDao().byId("i-1")
+            assertThat(row?.name).isEqualTo("new-name")
+            assertThat(row?.imagePath).isEqualTo(localPath)
+        }
+
+    private fun remoteMasterItemRow(
+        id: String,
+        name: String,
+        driveImageId: String?,
+        updatedAt: String,
+    ): JsonObject =
+        buildJsonObject {
+            put("id", id)
+            put("business_id", Fixtures.BUSINESS_ID)
+            put("name", name)
+            put("unit", "pcs")
+            if (driveImageId != null) put("drive_image_id", driveImageId) else put("drive_image_id", JsonNull)
+            put("created_at", "2026-08-01T09:00:00+00:00")
+            put("updated_at", updatedAt)
+            put("deleted_at", JsonNull)
+        }
+
     private fun remoteBusinessRow(
         id: String,
         updatedAt: String,

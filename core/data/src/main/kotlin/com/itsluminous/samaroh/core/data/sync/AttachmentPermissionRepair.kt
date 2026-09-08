@@ -14,8 +14,10 @@ package com.itsluminous.samaroh.core.data.sync
  * - "Pending" is derivable state: a live `expense_attachments` row with a
  *   `drive_file_id` (or a live `master_items` row with a `drive_image_id`) whose
  *   DEVICE-ONLY `drive_permission_ensured` flag is unset. New uploads ensure the
- *   permission inline; this pass retroactively covers media uploaded before
- *   ADR-059/063 and any upload whose inline permission call failed.
+ *   permission inline; this pass is the RETRY for any upload whose inline permission
+ *   call failed (network blip, quota, process death between upload and share) —
+ *   without it such a file would stay member-invisible forever (ADR-065 keep
+ *   decision; it also swept the pre-ADR-059/063 backlog, now drained).
  * - Throttled to a fixed budget of rows per run; the backlog drains across syncs.
  * - SILENT best-effort: not linked / offline / a per-item failure leaves rows pending
  *   for the next run. A definitive not-my-file answer (the Drive file belongs to

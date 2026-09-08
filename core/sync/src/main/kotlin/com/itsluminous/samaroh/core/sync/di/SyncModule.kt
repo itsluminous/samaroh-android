@@ -69,8 +69,6 @@ abstract class SyncModule {
     /** Modules contribute [RemoteChangeListener]s via `@IntoSet`; valid even when none do (ADR-047). */
     @Multibinds abstract fun remoteChangeListeners(): Set<RemoteChangeListener>
 
-    /** Mirrors local item photos to Supabase Storage before their row op pushes (ADR-023). */
-
     companion object {
         /**
          * The remote store rides on the SHARED [SupabaseClient] from `core:auth` (Auth +

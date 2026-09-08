@@ -6,6 +6,7 @@ import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
+import com.itsluminous.samaroh.core.model.MasterItem
 import com.itsluminous.samaroh.core.sync.remote.RemoteRejectedException
 import com.itsluminous.samaroh.core.sync.remote.RemoteUnavailableException
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -229,4 +230,63 @@ class SyncEnginePushTest {
             createdAt = FIXED_NOW,
         )
     }
+
+    // ADR-065 — image architecture final state: `master_items.image_path` is device-only
+    // and the server column is DROPPED. Nothing image-related may reach Supabase for item
+    // photos (or bills, which carry only Drive metadata) — these tests pin the fresh-user
+    // wire contract and the legacy-payload safety net.
+
+    @Test
+    fun `a fresh item-with-photo push carries no image_path and no storage reference`() =
+        runTest {
+            // Exactly what the repository enqueues when a fresh user adds an item photo:
+            // the model's device-local imagePath is set, driveImageId not yet stamped.
+            val item =
+                Fixtures.masterItem(
+                    id = "i-fresh",
+                    imagePath = "/data/user/0/app/files/inventory-images/i-fresh.webp",
+                )
+            db.outboxDao().enqueue(
+                OutboxEntity(
+                    entityType = "master_items",
+                    entityId = item.id,
+                    operation = "upsert",
+                    payloadJson = testJson.encodeToString(MasterItem.serializer(), item),
+                    createdAt = FIXED_NOW,
+                ),
+            )
+
+            syncEngine(db, remote).runSync()
+
+            val row = remote.upserts.single().second
+            assertThat(row.keys).doesNotContain("image_path")
+            assertThat(row.getValue("id").jsonPrimitive.content).isEqualTo("i-fresh")
+            // The only photo reference that may sync is the Drive file id.
+            assertThat(row.keys).containsAtLeast("drive_image_id", "name", "unit")
+        }
+
+    @Test
+    fun `a legacy outbox payload with image_path is stripped before the wire`() =
+        runTest {
+            // Written by an app version whose serializer still emitted image_path; the
+            // server column no longer exists, so pushing it would fail the row (PGRST204).
+            db.outboxDao().enqueue(
+                OutboxEntity(
+                    entityType = "master_items",
+                    entityId = "i-legacy",
+                    operation = "upsert",
+                    payloadJson =
+                        """{"id":"i-legacy","business_id":"${Fixtures.BUSINESS_ID}","name":"n","unit":"pcs",""" +
+                            """"image_path":"${Fixtures.BUSINESS_ID}/i-legacy/1.webp","drive_image_id":null,""" +
+                            """"created_at":"2026-08-25T10:00:00Z","updated_at":"2026-08-25T10:00:00Z","deleted_at":null}""",
+                    createdAt = FIXED_NOW,
+                ),
+            )
+
+            val outcome = syncEngine(db, remote).runSync()
+
+            assertThat(outcome.pushedCount).isEqualTo(1)
+            val row = remote.upserts.single().second
+            assertThat(row.keys).doesNotContain("image_path")
+        }
 }
