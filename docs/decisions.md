@@ -274,7 +274,8 @@ Drive REST v3 uploader, so the additive `DriveUploader` interface (+ `DriveTarge
 
 ## ADR-015 — Calendar sync targets the primary calendar (2026-08-25, W1-F)
 
-**Status:** accepted.
+**Status:** superseded by ADR-046 (dedicated per-business calendar replaced the
+primary-calendar push).
 
 The task-mandated incremental scopes are `drive.file` + `calendar.events` (least
 privilege). `calendar.events` can create/update/delete events but **cannot create
@@ -485,6 +486,9 @@ Additive changes to frozen contracts:
 
 ## ADR-023 — Item photos: dual-form `image_path` + Storage mirroring on sync (2026-08-27, web/Android parity)
 
+**Status:** superseded by ADR-065 — the dual-form `image_path` + Storage-mirroring
+scheme is retired; item photos are Drive-only, `image_path` is device-local.
+
 **Problem.** Imported and web-added `master_items` carry `image_path` = Supabase Storage
 object paths in the private `inventory-images` bucket (`{business_id}/{item_id}/{file}`);
 web renders them via signed URLs. Android treated EVERY `image_path` as a local file
@@ -521,6 +525,9 @@ schema or wire format changed. Known small leak: replacing/removing a photo orph
 previous ~15 KB Storage object; acceptable for now.
 
 ## ADR-024 — Keyset sync pull, reminder cleanup pass + post-sync hooks (2026-08-27, the "so many reminders" bug)
+
+**Status:** accepted; revised by ADR-060 (id-tiebreaker pull cursor) and ADR-064
+(reminder auto-dismissal rules).
 
 **Problem.** The pull cursor was timestamp-only (`updated_at > cursor`, one 200-row page
 per step, stop when the newest timestamp equals the cursor). The 2026-08-26 booking
@@ -565,6 +572,8 @@ migration 2→3, `SyncCursorDao.cursor()` now returns the entity, `PostSyncHook`
 `Planning/cleanup-stale-reminders.sql` (owner-run); devices also self-heal via 1+2.
 
 ## ADR-025 — Interactive square photo cropper in `core:designsystem` (2026-08-27, upload-crop parity with web)
+
+**Status:** accepted.
 
 **Problem.** The web app lets the user choose the crop when uploading a photo; Android
 silently center-square-cropped (inventory item photos, onboarding logo) or stored the raw
@@ -839,7 +848,7 @@ default look here instead of crashing.
 
 ## ADR-031 — Per-event-type default booking colours (fallback chain) (2026-08-27)
 
-**Status:** accepted.
+**Status:** accepted; §2 ("custom is never coloured") removed by ADR-032 §6.
 
 **Context.** With ADR-030 only explicitly coloured bookings stand out; most owners never
 pick a colour, so the month grid stays monochrome. `shared/event-types.json` now maps
@@ -955,6 +964,8 @@ normalized-label colour contract for consistent cross-platform reading.
 
 ## ADR-033 — Android App Links for samaroh-web URLs (2026-08-28)
 
+**Status:** accepted.
+
 **Decision.** `https://samaroh-web.vercel.app/…` URLs open in the app via an
 `android:autoVerify` VIEW/DEFAULT/BROWSABLE intent-filter on `MainActivity`
 (now `launchMode="singleTask"` so warm links arrive through `onNewIntent`
@@ -985,6 +996,8 @@ locale segment never overrides the in-app language preference. New web sections 
 parser case (defaulting to Booking until added).
 
 ## ADR-034 — Non-translatable catalog entries; launch-first UPI donate (2026-08-28)
+
+**Status:** accepted.
 
 **Context.** On real Android 11+ devices the About screen's Donate-via-UPI row showed
 the "no UPI app" toast despite many installed UPI apps. `UpiDonate` pre-checked
@@ -1027,6 +1040,8 @@ platforms and can never be "translated" into broken links.
 
 ## ADR-035 — Icon-free PDF invoices (2026-08-28)
 
+**Status:** accepted.
+
 **Context.** The PDF event block printed `{icon} {EventType}` (e.g. `💒 Wedding`).
 Emoji glyphs render inconsistently across PDF fonts and viewers — often as tofu or
 mismatched monochrome glyphs — so the owner asked for icon-free PDF output.
@@ -1045,6 +1060,8 @@ intent, not a PDF font). `PdfInvoiceRendererContentTest` pins the contract by re
 only; the invoice number is unchanged). The web renderer must apply the same spec change.
 
 ## ADR-036 — Outbox enqueue triggers a debounced sync (2026-08-28)
+
+**Status:** accepted (see 2026-09-08 amendment in Consequences).
 
 **Context.** Sync ran only on: connectivity-gated WorkManager requests, the 15-minute
 periodic job, app launch/foreground resume, sign-in, and explicit "Sync now" /
@@ -1082,6 +1099,8 @@ sign-in/invite pulls stay: those are not post-write nudges.
 
 ## ADR-037 — Explicit invite accept for existing accounts (2026-08-28)
 
+**Status:** accepted.
+
 **Context.** The §3 invite flow only auto-activated memberships via a trigger on
 `auth.users` INSERT (new signups). For a user whose auth account PRE-DATED the invite,
 nothing ever linked `user_id`, and the consolidated RLS baseline (002) let a user read
@@ -1109,6 +1128,8 @@ accept step; brand-new signups continue to skip it via server auto-activation.
 
 ## ADR-038 — Permission-gated bottom nav + hidden write affordances (2026-08-28)
 
+**Status:** accepted.
+
 **What.** Two-layer UI enforcement of the §3 permission object (owner requirement:
 members must not *see* affordances they cannot use — hide, never grey):
 
@@ -1135,6 +1156,8 @@ the tab (empty/erroring). Postgres RLS remains the authoritative layer; this is 
 layer 2 only.
 
 ## ADR-039 — Per-module `view_amounts` masking + booking audit-line fix (2026-08-28)
+
+**Status:** accepted.
 
 **What.** The §3 permission object gains one key per money-bearing module —
 `booking.view_amounts`, `expenses.view_amounts`, `inventory.view_amounts`,
@@ -1184,6 +1207,8 @@ the owner (owners may lack a member row locally) and to the localized
 `booking.card.audit_added_unknown_member` ("a member") when unknown.
 
 ## ADR-040 — Sign-out wipes all session-scoped local data (2026-08-30)
+
+**Status:** accepted.
 
 **What.** The Menu identity row gains a sign-out icon (right side, `ExplainableIcon`,
 Logout glyph) shown only while a session exists — offline/owner-mode ("Not signed in")
@@ -1292,7 +1317,7 @@ highlights Menu — correct: it IS a Menu subscreen, and back returns to the pre
 
 ## ADR-043 — Contextual notification permissions + status rows (2026-09-02)
 
-**Status:** accepted.
+**Status:** accepted; the notification-permission request point moved by ADR-044 §5.
 
 **Context (honest audit).** `POST_NOTIFICATIONS` was declared in the manifest but NEVER
 requested at runtime: on Android 13+ (every modern device) the permission starts denied,
@@ -1645,7 +1670,8 @@ trigger unchanged.
 
 ## ADR-050 — Shared image-compression levels, EXIF-upright attachments, honest attachment errors (2026-09-06)
 
-**Status:** accepted. Owner-directed picker/compression upgrade; additive — no
+**Status:** accepted; quality constants made user-tunable by ADR-053, the item-photo
+default changed by ADR-056. Owner-directed picker/compression upgrade; additive — no
 frozen-contract changes. Extends ADR-025 (cropper) and ADR-049 (attachment fix).
 
 **Context.** Four call sites each hard-coded their own scale-and-encode: expense
@@ -1935,7 +1961,8 @@ action visibility, permissions and behavior are unchanged.
 
 ## ADR-055 — Item photos mirror to Drive as the durable copy (2026-09-07)
 
-**Status:** accepted. Owner-directed; additive (new seam in `core:data`, new
+**Status:** superseded by ADR-063/065 (Drive-only item photos; the Storage download
+seam is gone). Originally: owner-directed; additive (new seam in `core:data`, new
 `core:database` query, one new SyncEngine pass). Extends ADR-023 (item-image Storage
 mirroring) and reuses the ADR-018 attachment queue/trigger pattern in spirit.
 
@@ -2041,7 +2068,8 @@ here until the web track adopts the same ordering.
 
 ## ADR-058 — Drive mirror covers storage-only photos; human-readable Drive names (ADR-055 addendum) (2026-09-07)
 
-**Status:** accepted. Owner-directed; additive (new seam in `core:data`, new binding in
+**Status:** superseded by ADR-063/065 (the Storage-download half) — §9.1 naming lives
+on via the Drive uploads. Originally: owner-directed; additive (new seam in `core:data`, new binding in
 `core:auth`, `core:google` implementation changes). Extends ADR-055, whose documented
 gap this closes.
 
@@ -2094,7 +2122,7 @@ storage-only mirror, capped per run.
 
 ## ADR-059 — Member access to Drive-hosted bills: link-scoped sharing + public-link fallback (2026-09-07)
 
-**Status:** accepted. Additive on frozen contracts (ADR-001 process): Room migration
+**Status:** accepted; §6 (item mirrors not shared) superseded by ADR-063 §4. Additive on frozen contracts (ADR-001 process): Room migration
 8→9 (`expense_attachments.drive_permission_ensured`, device-only), additive
 `ExpenseAttachmentDao` queries, `DriveService.ensureAnyoneReaderPermission` /
 `DriveService.downloadPublicFile`, new `core:data` seam `AttachmentPermissionRepair`.
@@ -2164,6 +2192,8 @@ link simply leave their rows pending, as ever. Failure modes are logged under
 
 ## ADR-060 — µs-exact pull cursor + replica-consistency gate on reminder planning (2026-09-07, the "hundreds of pending confirmations" incident)
 
+**Status:** accepted.
+
 **Problem (verified on the owner's device DB).** The owner's fresh sign-in mass-created
 pending payment reminders for long-settled past bookings — again, after ADR-024. Two
 compounding defects:
@@ -2219,6 +2249,8 @@ the server rows this incident already created; devices self-heal via 1+4.
 
 ## ADR-061 — Canonical grouped unit list in `shared/units.json` (2026-09-07)
 
+**Status:** accepted.
+
 **Problem.** Samaroh's item editor offered five units (`pcs`, `qty`, `kg`, `litre`,
 custom); the legacy inventory tool the owner migrated from offered a full grouped set
 (Count / Weight / Liquid / Distance). The list is rendered by BOTH apps, so it needs a
@@ -2246,6 +2278,9 @@ single cross-app source of truth — like event types (event-types.json).
 `core:model` comment updated to point at units.json. Web adopts the same file.
 
 ## ADR-062 — Offline item photos: post-sync disk-cache warm-up (2026-09-07)
+
+**Status:** accepted; §2 rationale partially voided by ADR-063 §2 (item photo
+caching moved to the Drive-cache convention).
 
 **Problem.** Storage-hosted item photos rendered offline ONLY if that exact image had
 been on screen while online: Coil's disk cache is populated by display requests, so

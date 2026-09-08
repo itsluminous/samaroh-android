@@ -1,7 +1,8 @@
 # Google Setup (Sign-In, Drive, Calendar)
 
 Samaroh uses Google for account linking, Drive backups/attachments (`drive.file` scope)
-and one-way Calendar sync into a dedicated **"Samaroh" calendar** (`calendar.events` +
+and one-way Calendar sync into a dedicated per-business calendar — named after the
+business, "Samaroh" only as the blank-name fallback (ADR-048) — (`calendar.events` +
 `calendar.app.created` scopes, ADR-046). All of it is driven by one value:
 
 ```
@@ -31,7 +32,7 @@ Audience / Data Access / Clients*; the old "OAuth consent screen" links redirect
    - `https://www.googleapis.com/auth/drive.file` (per-file access to app-created files)
    - `https://www.googleapis.com/auth/calendar.events`
    - `https://www.googleapis.com/auth/calendar.app.created` (create + manage the
-     dedicated "Samaroh" calendar, ADR-046 — without it the authorize call fails and
+     dedicated per-business calendar, ADR-046/048 — without it the authorize call fails and
      events fall back to the primary calendar)
 4. While the app is in *Testing* publishing status (**Audience** page), add your Google
    account under **Test users** (only test users can complete the consent flow). Note:
@@ -76,7 +77,8 @@ GOOGLE_WEB_CLIENT_ID=1234567890-abcdefg.apps.googleusercontent.com
 Rebuild. Settings → Google account now shows **Link Google account**; linking runs the
 Credential Manager account picker followed by the incremental consent for the
 `drive.file` + `calendar.events` + `calendar.app.created` scopes. On the first calendar
-sync after the grant the app creates the dedicated **Samaroh** calendar, migrates any
+sync after the grant the app creates the dedicated per-business calendar (named after
+the business, ADR-048), migrates any
 events it previously pushed to the primary calendar, and pushes all bookings there
 (ADR-046). Accounts linked before the third scope existed keep working against the
 primary calendar; Settings shows a re-link hint under the calendar-sync toggle.

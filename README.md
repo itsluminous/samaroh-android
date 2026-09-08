@@ -35,7 +35,7 @@ app for bookings, expenses and inventory.
 
 ### 📦 Inventory
 - Photo-per-item stock with a masterlist and simple add/remove transactions; zero-stock
-  rows hidden from the stock list.
+  rows shown dimmed at the end of the stock list (ADR-057).
 - **FIFO valuation** — recorded transactions surface their FIFO cost; inventory
   purchases count as spend in the money reports.
 - **Item detail** screen per item: photo, availability, full transaction history, and

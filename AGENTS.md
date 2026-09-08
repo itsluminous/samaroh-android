@@ -16,7 +16,7 @@ Sign-In, Drive backups and Calendar sync.
 |---|---|---|
 | `app` | MainActivity, nav host, bottom bar (business-name app bar + tappable sync cloud icon), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
 | `shared/` | git submodule → `samaroh-shared` (string catalogs, codegen, schema, brand) | external |
-| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec, `PlaceholderScreen` | done |
+| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
 | `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter`, catalog parity + usage-audit tests | done |
 | `core:model` | enums, domain models, permission types — **FROZEN CONTRACT** | done |
 | `core:database` | Room entities/DAOs/converters, `outbox`, sync cursors/conflict log, exported schemas — **FROZEN CONTRACT** | done |
@@ -136,7 +136,7 @@ Conventional Commits, imperative mood, subject ≤ 50 chars
   feature's fragment or the base catalog. Keeps parallel tracks merge-conflict-free.
 - **ADR process**: any contract-adjacent change (additive repository method, new
   `core:database` query, sync semantics, cross-feature component) gets a numbered entry
-  in `docs/decisions.md` (ADR-001…029 so far) in the same change. Additive-only; state
+  in `docs/decisions.md` in the same change. Additive-only; state
   what and why.
 - **Anti-stall rule for emulator evidence**: every adb/emulator command in an agent run
   must be wrapped in a timeout, and UI verification is done via screenshots
@@ -145,6 +145,10 @@ Conventional Commits, imperative mood, subject ≤ 50 chars
 - **Phone read-only rule**: if a physical phone is attached over adb, it is READ-ONLY —
   never install, uninstall, clear data, or push files to it. All install/verify work
   happens on the emulator (see below).
+- **Error/confirmation surfacing**: prefer **snackbars** (the scaffolds already host
+  them) over toasts for transient errors and confirmations in NEW code; `ExplainableIcon`'s
+  long-press toast is the spec'd exception. Existing feature toast sites converge
+  opportunistically when their screens are next touched — never as standalone churn.
 - **Shared-push coordination**: pushes to `samaroh-shared` come from multiple tracks;
   always `git pull --ff-only` in the shared repo before pushing, and bump the submodule
   here only to commits that exist on the shared remote.

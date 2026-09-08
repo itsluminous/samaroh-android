@@ -63,6 +63,10 @@ data class GoogleAccountLinkEntity(
     val email: String,
     val scopes: List<String> = emptyList(),
     @ColumnInfo(name = "drive_root_folder_id") val driveRootFolderId: String? = null,
+    // DEPRECATED as a push target (ADR-048) but STILL load-bearing: primary-calendar
+    // fallback for legacy-scope accounts, legacy-adoption source, and first-business
+    // mirror for servers without business_settings.gcal_calendar_id. Retire only after
+    // the owner ops + fleet-version gates in the audit notes are met (own ADR required).
     @ColumnInfo(name = "calendar_id") val calendarId: String? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
 )
