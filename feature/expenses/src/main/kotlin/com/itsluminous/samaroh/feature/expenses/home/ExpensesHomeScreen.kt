@@ -38,7 +38,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
-import com.itsluminous.samaroh.core.designsystem.component.SamarohExtendedFab
+import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.component.SortMenuButton
 import com.itsluminous.samaroh.core.designsystem.component.SortMenuEntry
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
@@ -59,12 +59,12 @@ fun ExpensesHomeScreen(
         modifier = modifier,
         floatingActionButton = {
             // ADR-028 gate: members without expenses.edit/manage_parties cannot add people.
+            // Icon-only FAB (ADR-071): contentDescription + long-press explanation carry
+            // the meaning the dropped extended-FAB label used to.
             if (state.canManageParties) {
-                SamarohExtendedFab(
-                    onClick = onAddPerson,
-                    icon = { Icon(Icons.Filled.PersonAdd, contentDescription = null) },
-                    text = { Text(stringResource(R.string.expenses_home_add_person)) },
-                )
+                SamarohFab(onClick = onAddPerson, explanationRes = R.string.expenses_home_add_person) {
+                    Icon(Icons.Filled.PersonAdd, contentDescription = stringResource(R.string.expenses_home_add_person))
+                }
             }
         },
     ) { padding ->
