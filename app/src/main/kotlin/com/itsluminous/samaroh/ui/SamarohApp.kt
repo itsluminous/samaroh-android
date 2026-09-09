@@ -66,8 +66,8 @@ import com.itsluminous.samaroh.feature.menu.syncStatusGraph
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_SIGN_IN_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.onboardingGraph
-import com.itsluminous.samaroh.feature.reports.REPORTS_ROUTE
 import com.itsluminous.samaroh.feature.reports.reportsGraph
+import com.itsluminous.samaroh.feature.reports.reportsRoute
 
 /** The four bottom tabs (§0). Labels are catalog keys; icons are decorative duplicates of the label. */
 private data class TopLevelDestination(
@@ -183,7 +183,7 @@ fun SamarohApp(
             }
             // Reports sits on the root NavHost above the Menu tab (back returns to Menu).
             if (link == AppLink.Reports) {
-                navController.navigate(REPORTS_ROUTE) { launchSingleTop = true }
+                navController.navigate(reportsRoute()) { launchSingleTop = true }
             }
             val featureConsumes =
                 when (link) {
@@ -297,7 +297,9 @@ fun SamarohApp(
                 // bottom bar's hierarchy matching keeps the Menu tab highlighted there.
                 navigation(route = MENU_TAB_ROUTE, startDestination = MENU_ROUTE) {
                     menuGraph(
-                        onOpenReports = { navController.navigate(REPORTS_ROUTE) },
+                        onOpenReports = { navController.navigate(reportsRoute()) },
+                        // Menu-search report result (ADR-075): deep link to the detail.
+                        onOpenReportDetail = { reportArg -> navController.navigate(reportsRoute(reportArg)) },
                         openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
                         onSettingsDeepLinkConsumed = onAppLinkConsumed,
                         // Sign-out (ADR-040): session dropped + local data wiped — land on the

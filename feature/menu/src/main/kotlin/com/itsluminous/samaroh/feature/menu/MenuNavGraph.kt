@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.feature.menu.ui.about.AboutScreen
 import com.itsluminous.samaroh.feature.menu.ui.home.MenuHomeScreen
 import com.itsluminous.samaroh.feature.menu.ui.members.MembersScreen
+import com.itsluminous.samaroh.feature.menu.ui.search.MenuScreenTarget
 import com.itsluminous.samaroh.feature.menu.ui.settings.BusinessProfileScreen
 import com.itsluminous.samaroh.feature.menu.ui.settings.EventTypesScreen
 import com.itsluminous.samaroh.feature.menu.ui.settings.LanguagePickerScreen
@@ -44,12 +45,16 @@ fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
  * @param onSettingsDeepLinkConsumed clears the pending settings target once handled.
  * @param onSignedOut sign-out completed on the Menu home identity row (ADR-040) — the
  *   app shell routes to the onboarding sign-in step with a cleared back stack.
+ * @param onOpenReportDetail a Menu-search result picked a specific report (ADR-075):
+ *   the argument is `feature:reports`' `ReportType.routeArg` wire value, which the app
+ *   shell turns into a reports deep link (feature modules never depend on each other).
  */
 fun NavGraphBuilder.menuGraph(
     onOpenReports: () -> Unit = {},
     openSettings: Boolean = false,
     onSettingsDeepLinkConsumed: () -> Unit = {},
     onSignedOut: () -> Unit = {},
+    onOpenReportDetail: (String) -> Unit = {},
 ) {
     composable(MENU_ROUTE) {
         MenuTabHost(
@@ -57,6 +62,7 @@ fun NavGraphBuilder.menuGraph(
             openSettings = openSettings,
             onSettingsDeepLinkConsumed = onSettingsDeepLinkConsumed,
             onSignedOut = onSignedOut,
+            onOpenReportDetail = onOpenReportDetail,
         )
     }
 }
@@ -73,12 +79,30 @@ private object MenuRoutes {
     const val ABOUT = "menu_about"
 }
 
+/**
+ * Nested route of a Menu-search screen target (ADR-075). Search results deep-link into
+ * the nested graph with this mapping; kept exhaustive so a new target cannot compile
+ * without a route (and tested for distinctness).
+ */
+internal fun routeFor(target: MenuScreenTarget): String =
+    when (target) {
+        MenuScreenTarget.SETTINGS -> MenuRoutes.SETTINGS
+        MenuScreenTarget.LANGUAGE -> MenuRoutes.LANGUAGE
+        MenuScreenTarget.REMINDERS -> MenuRoutes.REMINDERS
+        MenuScreenTarget.SYNC_STATUS -> MenuRoutes.SYNC_STATUS
+        MenuScreenTarget.BUSINESS_PROFILE -> MenuRoutes.BUSINESS_PROFILE
+        MenuScreenTarget.EVENT_TYPES -> MenuRoutes.EVENT_TYPES
+        MenuScreenTarget.MEMBERS -> MenuRoutes.MEMBERS
+        MenuScreenTarget.ABOUT -> MenuRoutes.ABOUT
+    }
+
 @Composable
 private fun MenuTabHost(
     onOpenReports: () -> Unit,
     openSettings: Boolean,
     onSettingsDeepLinkConsumed: () -> Unit,
     onSignedOut: () -> Unit,
+    onOpenReportDetail: (String) -> Unit,
 ) {
     val navController = rememberNavController()
     // App-Link settings target (ADR-033): push Settings over Home once, then consume.
@@ -91,10 +115,12 @@ private fun MenuTabHost(
     NavHost(navController = navController, startDestination = MenuRoutes.HOME) {
         composable(MenuRoutes.HOME) {
             MenuHomeScreen(
-                onOpenSettings = { navController.navigate(MenuRoutes.SETTINGS) },
-                onOpenReports = onOpenReports,
-                onOpenMembers = { navController.navigate(MenuRoutes.MEMBERS) },
-                onOpenAbout = { navController.navigate(MenuRoutes.ABOUT) },
+                onOpenMenuScreen = { target ->
+                    navController.navigate(routeFor(target)) { launchSingleTop = true }
+                },
+                onOpenReport = { reportArg ->
+                    if (reportArg == null) onOpenReports() else onOpenReportDetail(reportArg)
+                },
                 onSignedOut = onSignedOut,
             )
         }
