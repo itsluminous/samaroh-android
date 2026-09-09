@@ -2724,3 +2724,98 @@ foreground app may always launch.
 asked for; without it, behaviour is indistinguishable from "Full screen when locked".
 Older builds sharing the DataStore render the unknown style as NOTIFICATION until
 updated. Web has no equivalent surface; nothing to mirror.
+
+## ADR-073 — Reminder default sound = system default; v2 channel generation (2026-09-09)
+
+**Status:** accepted.
+
+**Context.** An unset `booking_reminder_sound_uri` preference relied on whatever sound
+the reminder notification CHANNEL happened to carry — never an explicit choice. Because
+Android notification channels are immutable after creation, any install whose channel
+ended up without an (audible) sound could never be fixed by code that merely "sets the
+sound" on the same channel id; and the ringtone picker's "Default" entry was stored as
+an explicit URI instead of collapsing to the unset preference it means.
+
+**Decision.**
+1. **Unset means SYSTEM DEFAULT, never silence.** `ReminderSoundPolicy.effectiveSoundUri`
+   resolves an unset preference to `Settings.System.DEFAULT_NOTIFICATION_URI`; every
+   reminder post resolves through it. Users who explicitly picked a ringtone keep it —
+   only the unset fallback changes.
+2. **Channel GENERATION v2.** Channel ids gain a `_v2` generation segment
+   (`booking_payment_reminders_v2`, `…_v2_<soundHash>` for the full-screen styles'
+   per-sound variants — the standard immutable-channel workaround kept from ADR-045).
+   The v2 base channels set the system default sound EXPLICITLY; full-screen variants
+   keep the alarm-stream audio attributes. A future channel-default change bumps the
+   generation again.
+3. **Legacy cleanup.** `ReminderSoundPolicy.deleteLegacyChannels` deletes every pre-v2
+   reminder channel (the old base ids and old per-sound hashes) on each ensure pass, so
+   system settings list only live channels. Deleting a channel cancels its posted
+   notifications; reminders re-post on the next daily pass, so the worst case is a
+   one-day-old notification disappearing once at upgrade.
+4. **Picker canonicalization.** The ringtone picker declares
+   `EXTRA_RINGTONE_DEFAULT_URI = DEFAULT_NOTIFICATION_URI` and hides the Silent entry
+   (unset never means silence); picking "Default" stores the UNSET preference rather
+   than an explicit copy of the default URI, so the pref has one canonical
+   representation and follows the system default if the user later changes it.
+
+## ADR-074 — Full-screen reminders repeat their sound until acknowledged (2026-09-09)
+
+**Status:** accepted.
+
+**Context.** A venue owner who chose a full-screen (alarm-style) reminder wants it to
+behave like an alarm: a single sound play is easy to miss from across a hall. The plain
+"Notification" style should keep its unobtrusive single play.
+
+**Decision.**
+1. **Notification path: `FLAG_INSISTENT`.** For BOTH full-screen styles ("Full screen
+   when locked", "Always full screen") the posted reminder notification carries
+   `Notification.FLAG_INSISTENT`, so the OS loops the channel sound until the
+   notification is dismissed or opened. This covers the heads-up-banner presentation
+   (screen in use) and the Android-14 demoted-to-plain case. The NOTIFICATION style
+   never sets the flag (`ReminderRepeatPolicy.insistent`). DND is respected for free —
+   the system mutes channel sound under any interruption filter.
+2. **Popup path: the activity takes the loop over.** When `FullScreenReminderActivity`
+   becomes visible it is THE alert: it cancels its paired notification (extras carry
+   the tag + id) — silencing the insistent loop so audio never doubles — and plays its
+   own LOOPING `MediaPlayer` (alarm-stream attributes, the resolved ADR-073 sound)
+   while visible. The loop stops on Dismiss, on View, and in `onStop`: a full-screen
+   popup the user navigated away from (home/back/screen-off) has been seen, which
+   counts as acknowledging it. DND respected explicitly: any active interruption
+   filter keeps the popup visual-only (`ReminderRepeatPolicy.shouldLoopInPopup`).
+3. **Honest Test button.** The Settings Test sample rides the identical pipeline
+   (ADR-045), so it loops exactly like a real reminder until dismissed. The style
+   descriptions now state the repeat ("The sound repeats until you dismiss it") in
+   both locales.
+
+## ADR-075 — Menu search: static index over every menu destination (2026-09-09)
+
+**Status:** accepted.
+
+**Context.** The Menu tab hides ~30 destinations behind nesting (Settings rows,
+sub-screens, ten reports, About rows); owners asked "where is X?" often enough that the
+tab needs search. The index covers DESTINATIONS, not data — bookings/expenses/items
+have their own tabs.
+
+**Decision.**
+1. **Static index.** `MenuSearchIndex.entries` (feature:menu) lists every destination:
+   each Settings row/section (language, theme, dynamic colour, booking reminders +
+   sound, booking form fields, calendar watermark, image quality, Google link,
+   calendar sync, backup, sync status, business profile, event types), Members, the
+   About rows (version/source/licenses/donate), the ten reports and sign-out. Each
+   entry carries string-resource ids for its title, a context line (the screen it
+   lives on — doubles as the result's breadcrumb) and keywords (existing resources
+   only, e.g. built-in event-type names on the Event-types entry). Owner-gated rows
+   (`ownerOnly`) and sign-out (`requiresSignedIn`) filter with the session.
+2. **Both locales.** `MenuSearch.resolve` resolves every entry's texts in en AND hi via
+   `createConfigurationContext`, so a query in either language matches regardless of
+   the app locale; titles display in the current locale. Matching is
+   normalized-substring, all query tokens must match.
+3. **Live filter UI.** A search field sits at the top of the Menu home; a non-blank
+   query replaces the section rows with results, empty query restores the normal menu.
+4. **Direct navigation.** Results deep-link: nested Menu screens via
+   `MenuScreenTarget → routeFor` (back returns to the search); reports via a new
+   optional `report` query arg on the Reports route (`reportsRoute(arg)` — the arg is
+   `ReportType.routeArg`, carried as a string because feature modules never depend on
+   each other; an app-module test pins the two lists together); sign-out opens the
+   ADR-040 confirmation dialog. Rows without their own screen (theme, image quality…)
+   open their parent screen — no scroll-to-row plumbing exists yet, and none was added.

@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.booking.reminders
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -40,8 +41,8 @@ class BookingNotifier
         companion object {
             const val CHANNEL_PAYMENT = "booking_payment_reminders"
             const val CHANNEL_UPCOMING = "booking_upcoming_reminders"
-            private const val PAYMENT_NOTIFICATION_TAG = "booking_payment"
-            private const val UPCOMING_NOTIFICATION_TAG = "booking_upcoming"
+            const val PAYMENT_NOTIFICATION_TAG = "booking_payment"
+            const val UPCOMING_NOTIFICATION_TAG = "booking_upcoming"
         }
 
         private fun canNotify(): Boolean =
@@ -51,52 +52,65 @@ class BookingNotifier
 
         /**
          * Channels are immutable after creation, so a user-chosen sound gets its own
-         * channel id (standard workaround for per-setting sounds). Payment/follow-up
-         * reminders share the payment channel; the sound variant only exists for the
-         * full-screen (alarm) style, which carries the user-picked ringtone (ADR-045).
+         * channel id (standard workaround for per-setting sounds), and the ADR-073
+         * default-sound change ships as the `_v2` generation: the base channel now
+         * carries the SYSTEM DEFAULT notification sound EXPLICITLY (an unset
+         * preference means "system default", never silence), and retired pre-v2
+         * channels are deleted so system settings list only live ones. Payment and
+         * follow-up reminders share the payment channel; [fullScreenSoundUri] (the
+         * RESOLVED sound, never null for a full-screen post) only exists for the
+         * full-screen (alarm) styles, which carry the user-picked ringtone (ADR-045).
          */
-        private fun ensurePaymentChannel(soundUri: String? = null): String {
-            val id = if (soundUri == null) CHANNEL_PAYMENT else "${CHANNEL_PAYMENT}_${soundUri.hashCode()}"
-            context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+        private fun ensurePaymentChannel(fullScreenSoundUri: String? = null): String =
+            ensureChannel(
+                base = CHANNEL_PAYMENT,
+                nameRes = R.string.booking_reminder_channel_payment,
+                descriptionRes = R.string.booking_reminder_channel_payment_desc,
+                fullScreenSoundUri = fullScreenSoundUri,
+            )
+
+        /** Upcoming-reminder channel — same v2 generation + sound rules as the payment one. */
+        private fun ensureUpcomingChannel(fullScreenSoundUri: String?): String =
+            ensureChannel(
+                base = CHANNEL_UPCOMING,
+                nameRes = R.string.booking_reminder_channel_upcoming,
+                descriptionRes = R.string.booking_reminder_channel_upcoming_desc,
+                fullScreenSoundUri = fullScreenSoundUri,
+            )
+
+        private fun ensureChannel(
+            base: String,
+            nameRes: Int,
+            descriptionRes: Int,
+            fullScreenSoundUri: String?,
+        ): String {
+            val id = ReminderSoundPolicy.channelId(base, fullScreenSoundUri)
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return id
+            ReminderSoundPolicy.deleteLegacyChannels(manager, CHANNEL_PAYMENT, CHANNEL_UPCOMING)
+            manager.createNotificationChannel(
                 NotificationChannel(
                     id,
-                    context.getString(R.string.booking_reminder_channel_payment),
+                    context.getString(nameRes),
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = context.getString(R.string.booking_reminder_channel_payment_desc)
-                    if (soundUri != null) {
+                    description = context.getString(descriptionRes)
+                    if (fullScreenSoundUri != null) {
+                        // Full-screen (alarm) styles: the resolved sound on the alarm stream.
                         setSound(
-                            Uri.parse(soundUri),
+                            Uri.parse(fullScreenSoundUri),
                             AudioAttributes
                                 .Builder()
                                 .setUsage(AudioAttributes.USAGE_ALARM)
                                 .build(),
                         )
-                    }
-                },
-            )
-            return id
-        }
-
-        /**
-         * Channels are immutable after creation, so a user-chosen sound gets its own
-         * channel id (standard workaround for per-setting sounds).
-         */
-        private fun ensureUpcomingChannel(soundUri: String?): String {
-            val id = if (soundUri == null) CHANNEL_UPCOMING else "${CHANNEL_UPCOMING}_${soundUri.hashCode()}"
-            context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-                NotificationChannel(
-                    id,
-                    context.getString(R.string.booking_reminder_channel_upcoming),
-                    NotificationManager.IMPORTANCE_HIGH,
-                ).apply {
-                    description = context.getString(R.string.booking_reminder_channel_upcoming_desc)
-                    if (soundUri != null) {
+                    } else {
+                        // Plain notifications: the system default, explicit (ADR-073).
                         setSound(
-                            Uri.parse(soundUri),
+                            ReminderSoundPolicy.effectiveSoundUri(null),
                             AudioAttributes
                                 .Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
+                                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                                 .build(),
                         )
                     }
@@ -111,7 +125,8 @@ class BookingNotifier
          * FULLSCREEN style the notification carries a full-screen intent (and the
          * chosen alarm sound), so it takes over a locked/off screen exactly like the
          * upcoming-event popup; the OS shows it as a heads-up while the device is in
-         * use, and silently demotes it when the Android 14+ grant is off.
+         * use, and silently demotes it when the Android 14+ grant is off. Full-screen
+         * styles repeat their sound until acknowledged (ADR-074).
          */
         @SuppressLint("MissingPermission") // guarded by canNotify()
         fun postPaymentReminder(
@@ -125,7 +140,9 @@ class BookingNotifier
             if (!canNotify()) return
             val path = takeover.pathFor(style)
             val fullScreen = path != FullScreenLaunchPolicy.LaunchPath.NOTIFICATION_ONLY
-            val channel = ensurePaymentChannel(soundUri = soundUri.takeIf { fullScreen })
+            val fullScreenSound =
+                if (fullScreen) ReminderSoundPolicy.effectiveSoundUri(soundUri).toString() else null
+            val channel = ensurePaymentChannel(fullScreenSoundUri = fullScreenSound)
 
             val question =
                 context.getString(
@@ -147,6 +164,16 @@ class BookingNotifier
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
 
+            val popupIntent =
+                FullScreenReminderActivity.intent(
+                    context,
+                    booking.id,
+                    context.getString(R.string.booking_reminder_payment_title),
+                    question,
+                    soundUri = fullScreenSound,
+                    notificationTag = PAYMENT_NOTIFICATION_TAG,
+                    notificationId = reminder.id.hashCode(),
+                )
             val notification =
                 NotificationCompat
                     .Builder(context, channel)
@@ -171,23 +198,15 @@ class BookingNotifier
                         actionIntent(PaymentReminderActionReceiver.ACTION_NOT_YET),
                     ).applyFullScreenStyle(
                         enabled = fullScreen,
-                        bookingId = booking.id,
-                        title = context.getString(R.string.booking_reminder_payment_title),
-                        body = question,
+                        popupIntent = popupIntent,
                         requestCode = reminder.id.hashCode(),
                     ).build()
+                    .applyInsistent(ReminderRepeatPolicy.insistent(style))
 
             NotificationManagerCompat.from(context).notify(PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode(), notification)
             if (path == FullScreenLaunchPolicy.LaunchPath.DIRECT_ACTIVITY) {
                 // ALWAYS style (ADR-072): take over even on an unlocked, in-use device.
-                takeover.launch(
-                    FullScreenReminderActivity.intent(
-                        context,
-                        booking.id,
-                        context.getString(R.string.booking_reminder_payment_title),
-                        question,
-                    ),
-                )
+                takeover.launch(popupIntent)
             }
         }
 
@@ -212,12 +231,24 @@ class BookingNotifier
             if (!canNotify()) return
             val path = takeover.pathFor(style)
             val fullScreen = path != FullScreenLaunchPolicy.LaunchPath.NOTIFICATION_ONLY
-            val channel = ensurePaymentChannel(soundUri = soundUri.takeIf { fullScreen })
+            val fullScreenSound =
+                if (fullScreen) ReminderSoundPolicy.effectiveSoundUri(soundUri).toString() else null
+            val channel = ensurePaymentChannel(fullScreenSoundUri = fullScreenSound)
             val question =
                 context.getString(
                     R.string.booking_reminder_follow_up_question,
                     booking.customerName,
                     eventLabel,
+                )
+            val popupIntent =
+                FullScreenReminderActivity.intent(
+                    context,
+                    booking.id,
+                    context.getString(R.string.booking_reminder_follow_up_title),
+                    question,
+                    soundUri = fullScreenSound,
+                    notificationTag = PAYMENT_NOTIFICATION_TAG,
+                    notificationId = reminder.id.hashCode(),
                 )
             val notification =
                 NotificationCompat
@@ -231,21 +262,13 @@ class BookingNotifier
                     .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
                     .applyFullScreenStyle(
                         enabled = fullScreen,
-                        bookingId = booking.id,
-                        title = context.getString(R.string.booking_reminder_follow_up_title),
-                        body = question,
+                        popupIntent = popupIntent,
                         requestCode = reminder.id.hashCode(),
                     ).build()
+                    .applyInsistent(ReminderRepeatPolicy.insistent(style))
             NotificationManagerCompat.from(context).notify(PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode(), notification)
             if (path == FullScreenLaunchPolicy.LaunchPath.DIRECT_ACTIVITY) {
-                takeover.launch(
-                    FullScreenReminderActivity.intent(
-                        context,
-                        booking.id,
-                        context.getString(R.string.booking_reminder_follow_up_title),
-                        question,
-                    ),
-                )
+                takeover.launch(popupIntent)
             }
         }
 
@@ -259,7 +282,7 @@ class BookingNotifier
             if (!canNotify()) return
             val notification =
                 NotificationCompat
-                    .Builder(context, ensureUpcomingChannel(soundUri = null))
+                    .Builder(context, ensureUpcomingChannel(fullScreenSoundUri = null))
                     .setSmallIcon(android.R.drawable.ic_menu_my_calendar)
                     .setContentTitle(title)
                     .setContentText(daysAwayText(daysAway))
@@ -277,6 +300,8 @@ class BookingNotifier
          * app foreground), the popup activity is ALSO started directly so it takes over
          * even on an unlocked, in-use device; the notification still posts for sound,
          * the shade record and the locked-screen takeover (singleInstance dedups).
+         * The sound repeats until acknowledged (ADR-074): the notification loops via
+         * FLAG_INSISTENT, and the popup — when shown — takes the loop over itself.
          */
         @SuppressLint("MissingPermission") // guarded by canNotify()
         fun postFullScreenUpcomingReminder(
@@ -287,7 +312,17 @@ class BookingNotifier
             style: ReminderStyle = ReminderStyle.FULLSCREEN,
         ) {
             if (!canNotify()) return
-            val activityIntent = FullScreenReminderActivity.intent(context, bookingId, title, daysAway)
+            val effectiveSound = ReminderSoundPolicy.effectiveSoundUri(soundUri).toString()
+            val activityIntent =
+                FullScreenReminderActivity.intent(
+                    context,
+                    bookingId,
+                    title,
+                    daysAway,
+                    soundUri = effectiveSound,
+                    notificationTag = UPCOMING_NOTIFICATION_TAG,
+                    notificationId = bookingId.hashCode(),
+                )
             val fullScreenIntent =
                 PendingIntent.getActivity(
                     context,
@@ -297,7 +332,7 @@ class BookingNotifier
                 )
             val notification =
                 NotificationCompat
-                    .Builder(context, ensureUpcomingChannel(soundUri))
+                    .Builder(context, ensureUpcomingChannel(effectiveSound))
                     .setSmallIcon(android.R.drawable.ic_menu_my_calendar)
                     .setContentTitle(title)
                     .setContentText(daysAwayText(daysAway))
@@ -306,6 +341,7 @@ class BookingNotifier
                     .setAutoCancel(true)
                     .setFullScreenIntent(fullScreenIntent, true)
                     .build()
+                    .applyInsistent(ReminderRepeatPolicy.insistent(style))
             NotificationManagerCompat.from(context).notify(UPCOMING_NOTIFICATION_TAG, bookingId.hashCode(), notification)
             if (takeover.pathFor(style) == FullScreenLaunchPolicy.LaunchPath.DIRECT_ACTIVITY) {
                 takeover.launch(activityIntent)
@@ -317,17 +353,15 @@ class BookingNotifier
 
         /**
          * Adds the alarm-style full-screen treatment to a reminder notification
-         * (ADR-045): a full-screen intent launching [FullScreenReminderActivity] with
-         * the given title/body, MAX priority and the ALARM category. The OS decides
-         * what actually happens: full takeover on a locked/off screen, a heads-up
-         * banner while the device is in use, and a silent demotion to a plain
-         * notification when the Android 14+ full-screen-intent grant is off.
+         * (ADR-045): a full-screen intent launching [FullScreenReminderActivity] via
+         * [popupIntent], MAX priority and the ALARM category. The OS decides what
+         * actually happens: full takeover on a locked/off screen, a heads-up banner
+         * while the device is in use, and a silent demotion to a plain notification
+         * when the Android 14+ full-screen-intent grant is off.
          */
         private fun NotificationCompat.Builder.applyFullScreenStyle(
             enabled: Boolean,
-            bookingId: String,
-            title: String,
-            body: String,
+            popupIntent: Intent,
             requestCode: Int,
         ): NotificationCompat.Builder {
             if (!enabled) return this
@@ -335,13 +369,20 @@ class BookingNotifier
                 PendingIntent.getActivity(
                     context,
                     requestCode,
-                    FullScreenReminderActivity.intent(context, bookingId, title, body),
+                    popupIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
             return setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setFullScreenIntent(fullScreenIntent, true)
         }
+
+        /**
+         * Repeat-until-acknowledged (ADR-074): loops the channel sound until the
+         * notification is dismissed or opened. Applied for the full-screen styles only.
+         */
+        private fun Notification.applyInsistent(enabled: Boolean): Notification =
+            apply { if (enabled) flags = flags or Notification.FLAG_INSISTENT }
 
         /** Opens the app (launcher activity) carrying the booking id for later deep-link wiring (W2). */
         private fun launchAppIntent(bookingId: String): PendingIntent {

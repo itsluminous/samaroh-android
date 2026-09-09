@@ -116,7 +116,12 @@ fun ReminderSettingsScreen(
             if (result.resultCode == Activity.RESULT_OK) {
                 @Suppress("DEPRECATION")
                 val uri: Uri? = result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-                viewModel.setSoundUri(uri?.toString())
+                // The picker's "Default" entry maps to the UNSET preference (ADR-073):
+                // unset means "system default notification sound", so an explicit pick
+                // of the default collapses to the canonical unset representation.
+                viewModel.setSoundUri(
+                    uri?.toString().takeUnless { it == Settings.System.DEFAULT_NOTIFICATION_URI.toString() },
+                )
             }
         }
 
@@ -218,9 +223,15 @@ fun ReminderSettingsScreen(
                         Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                             putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
                             putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                            current.reminderSoundUri?.let {
-                                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(it))
-                            }
+                            // "Default" is the system default NOTIFICATION sound — the
+                            // same sound an unset preference resolves to (ADR-073).
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, Settings.System.DEFAULT_NOTIFICATION_URI)
+                            // Unset never means silence (ADR-073), so silence is not offered.
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                            putExtra(
+                                RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                                current.reminderSoundUri?.let(Uri::parse) ?: Settings.System.DEFAULT_NOTIFICATION_URI,
+                            )
                         }
                     ringtoneLauncher.launch(intent)
                 },
