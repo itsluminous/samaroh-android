@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudDone
@@ -63,6 +64,8 @@ import com.itsluminous.samaroh.feature.menu.MENU_ROUTE
 import com.itsluminous.samaroh.feature.menu.SYNC_STATUS_ROUTE
 import com.itsluminous.samaroh.feature.menu.menuGraph
 import com.itsluminous.samaroh.feature.menu.syncStatusGraph
+import com.itsluminous.samaroh.feature.notes.NOTES_ROUTE
+import com.itsluminous.samaroh.feature.notes.notesGraph
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_SIGN_IN_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.onboardingGraph
@@ -81,6 +84,8 @@ private val topLevelDestinations =
         TopLevelDestination(BOOKING_ROUTE, R.string.common_nav_booking, Icons.Filled.CalendarMonth),
         TopLevelDestination(EXPENSES_ROUTE, R.string.common_nav_expenses, Icons.Filled.AccountBalanceWallet),
         TopLevelDestination(INVENTORY_ROUTE, R.string.common_nav_inventory, Icons.Filled.Inventory2),
+        // NOTES tab (ADR-077): hidden without notes.view like every module tab.
+        TopLevelDestination(NOTES_ROUTE, R.string.notes_nav_tab, Icons.AutoMirrored.Filled.StickyNote2),
         // The Menu tab is a nested GRAPH (ADR-042): its root subscreens (Reports, Sync
         // status) stay inside it so hierarchy matching keeps the tab highlighted there.
         TopLevelDestination(MENU_TAB_ROUTE, R.string.common_nav_menu, Icons.Filled.Menu),
@@ -106,6 +111,8 @@ fun SamarohApp(
     onBookingDeepLinkConsumed: () -> Unit,
     pendingAppLink: AppLink? = null,
     onAppLinkConsumed: () -> Unit = {},
+    pendingShareInvoice: Boolean = false,
+    onShareInvoiceConsumed: () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -193,6 +200,18 @@ fun SamarohApp(
                     else -> false
                 }
             if (!featureConsumes) onAppLinkConsumed()
+        }
+    }
+
+    // Create-invoice share target (ADR-078): land on the Expenses tab; the feature
+    // graph opens the party picker and clears the flag via [onShareInvoiceConsumed].
+    LaunchedEffect(pendingShareInvoice, onboarded) {
+        if (pendingShareInvoice && onboarded) {
+            navController.navigate(EXPENSES_ROUTE) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
     }
 
@@ -287,11 +306,14 @@ fun SamarohApp(
                 expensesGraph(
                     partyIdToOpen = (pendingAppLink as? AppLink.Expenses)?.partyId,
                     onPartyDeepLinkConsumed = onAppLinkConsumed,
+                    shareTargetRequested = pendingShareInvoice && onboarded,
+                    onShareTargetConsumed = onShareInvoiceConsumed,
                 )
                 inventoryGraph(
                     openMasterlist = (pendingAppLink as? AppLink.Inventory)?.masterlist == true,
                     onMasterlistDeepLinkConsumed = onAppLinkConsumed,
                 )
+                notesGraph()
                 // Menu TAB graph (ADR-042): the Menu screens PLUS its root-level
                 // subscreens (Reports, Sync status) nest under one graph route so the
                 // bottom bar's hierarchy matching keeps the Menu tab highlighted there.

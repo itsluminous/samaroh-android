@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.expenses.EXPENSES_ROUTE
 import com.itsluminous.samaroh.feature.inventory.INVENTORY_ROUTE
+import com.itsluminous.samaroh.feature.notes.NOTES_ROUTE
 
 /**
  * Root route of the Menu TAB's nested navigation graph (ADR-042). The Menu tab is a
@@ -23,7 +24,7 @@ const val MENU_TAB_ROUTE = "menu_tab"
  */
 object NavPermissions {
     /** Every tab in canonical bottom-bar order. */
-    val allTabRoutes: List<String> = listOf(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE)
+    val allTabRoutes: List<String> = listOf(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, NOTES_ROUTE, MENU_TAB_ROUTE)
 
     /**
      * The tabs visible to a member with [permissions]; owners see everything.
@@ -37,6 +38,7 @@ object NavPermissions {
             if (isOwner || permissions.booking.view) add(BOOKING_ROUTE)
             if (isOwner || permissions.expenses.view) add(EXPENSES_ROUTE)
             if (isOwner || permissions.inventory.view) add(INVENTORY_ROUTE)
+            if (isOwner || permissions.notes.view) add(NOTES_ROUTE)
             add(MENU_TAB_ROUTE)
         }
 }

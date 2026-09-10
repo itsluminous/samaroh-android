@@ -5,17 +5,19 @@ import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.ExpensesPermissions
 import com.itsluminous.samaroh.core.model.InventoryPermissions
 import com.itsluminous.samaroh.core.model.MemberPermissions
+import com.itsluminous.samaroh.core.model.NotesPermissions
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.expenses.EXPENSES_ROUTE
 import com.itsluminous.samaroh.feature.inventory.INVENTORY_ROUTE
+import com.itsluminous.samaroh.feature.notes.NOTES_ROUTE
 import org.junit.Test
 
 /** Tab-level §3 gate: bottom-nav tabs by member `view` permissions; Menu always stays. */
 class NavPermissionsTest {
     @Test
-    fun `owner sees all four tabs regardless of the permission object`() {
+    fun `owner sees all five tabs regardless of the permission object`() {
         val tabs = NavPermissions.visibleTabRoutes(isOwner = true, permissions = MemberPermissions())
-        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, NOTES_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -25,9 +27,9 @@ class NavPermissionsTest {
     }
 
     @Test
-    fun `viewer preset keeps booking expenses inventory and menu`() {
+    fun `viewer preset keeps booking expenses inventory notes and menu`() {
         val tabs = NavPermissions.visibleTabRoutes(isOwner = false, permissions = MemberPermissions.viewer())
-        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, NOTES_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -39,9 +41,10 @@ class NavPermissionsTest {
                     MemberPermissions(
                         expenses = ExpensesPermissions(view = true),
                         inventory = InventoryPermissions(view = true),
+                        notes = NotesPermissions(view = true),
                     ),
             )
-        assertThat(tabs).containsExactly(EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
+        assertThat(tabs).containsExactly(EXPENSES_ROUTE, INVENTORY_ROUTE, NOTES_ROUTE, MENU_TAB_ROUTE).inOrder()
     }
 
     @Test
@@ -73,12 +76,41 @@ class NavPermissionsTest {
     }
 
     @Test
+    fun `notes view alone surfaces exactly the notes and menu tabs (ADR-077)`() {
+        val tabs =
+            NavPermissions.visibleTabRoutes(
+                isOwner = false,
+                permissions = MemberPermissions(notes = NotesPermissions(view = true)),
+            )
+        assertThat(tabs).containsExactly(NOTES_ROUTE, MENU_TAB_ROUTE).inOrder()
+    }
+
+    @Test
+    fun `missing notes view hides the notes tab (ADR-077)`() {
+        val tabs =
+            NavPermissions.visibleTabRoutes(
+                isOwner = false,
+                permissions =
+                    MemberPermissions(
+                        booking = BookingPermissions(view = true),
+                        expenses = ExpensesPermissions(view = true),
+                        inventory = InventoryPermissions(view = true),
+                    ),
+            )
+        assertThat(tabs).containsExactly(BOOKING_ROUTE, EXPENSES_ROUTE, INVENTORY_ROUTE, MENU_TAB_ROUTE).inOrder()
+    }
+
+    @Test
     fun `write permissions without view do not surface a tab`() {
         // A malformed grant (create without view) must not leak the tab in.
         val tabs =
             NavPermissions.visibleTabRoutes(
                 isOwner = false,
-                permissions = MemberPermissions(booking = BookingPermissions(create = true)),
+                permissions =
+                    MemberPermissions(
+                        booking = BookingPermissions(create = true),
+                        notes = NotesPermissions(create = true),
+                    ),
             )
         assertThat(tabs).containsExactly(MENU_TAB_ROUTE)
     }

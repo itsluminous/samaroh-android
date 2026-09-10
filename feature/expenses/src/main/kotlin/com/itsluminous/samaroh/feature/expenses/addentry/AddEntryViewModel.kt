@@ -21,6 +21,7 @@ import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
 import com.itsluminous.samaroh.feature.expenses.domain.AmountInput
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
+import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,9 @@ const val ARG_DIRECTION = "direction"
 
 /** Optional route argument: id of an existing entry to edit (§4.2 edit, reuses this screen). */
 const val ARG_EXPENSE_ID = "expenseId"
+
+/** Optional route argument (ADR-078): pre-attach the Create-invoice shared file. */
+const val ARG_FROM_SHARE = "fromShare"
 
 /** Attachments per entry are capped at 4 (§4.2). */
 const val MAX_ATTACHMENTS = 4
@@ -97,6 +101,7 @@ class AddEntryViewModel
         private val session: ExpensesSession,
         private val googleAccountLinker: GoogleAccountLinker,
         private val syncScheduler: SyncScheduler,
+        private val shareTargetHolder: ShareTargetHolder,
         private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
@@ -125,6 +130,15 @@ class AddEntryViewModel
                             notes = existing.notes.orEmpty(),
                         )
                     }
+                }
+            }
+            // Create-invoice share target (ADR-078): the shared image/PDF pre-attaches
+            // through the EXACT picked-attachment pipeline (compression, staging, Drive
+            // upload on save). One-shot: consuming clears the holder so a later plain
+            // add-entry never re-attaches a stale share.
+            if (savedStateHandle.get<Boolean>(ARG_FROM_SHARE) == true) {
+                shareTargetHolder.consume()?.let { shared ->
+                    onAttachmentPicked(shared.uri, shared.mimeType, shared.displayName)
                 }
             }
         }

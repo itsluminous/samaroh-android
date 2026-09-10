@@ -132,6 +132,7 @@ dependencies {
     implementation(project(":feature:expenses"))
     implementation(project(":feature:inventory"))
     implementation(project(":feature:menu"))
+    implementation(project(":feature:notes"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:reports"))
 

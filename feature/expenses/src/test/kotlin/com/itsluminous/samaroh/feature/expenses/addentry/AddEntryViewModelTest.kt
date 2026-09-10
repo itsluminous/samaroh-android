@@ -19,6 +19,8 @@ import com.itsluminous.samaroh.feature.expenses.FakeGoogleAccountLinker
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
 import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
+import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
+import com.itsluminous.samaroh.feature.expenses.sharetarget.SharedInvoiceFile
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
@@ -66,6 +68,7 @@ class AddEntryViewModelTest {
     private lateinit var uploadQueue: RecordingUploadQueue
     private lateinit var linker: FakeGoogleAccountLinker
     private lateinit var syncScheduler: RecordingSyncScheduler
+    private lateinit var shareTargetHolder: ShareTargetHolder
 
     @Before
     fun setUp() {
@@ -75,20 +78,27 @@ class AddEntryViewModelTest {
         uploadQueue = RecordingUploadQueue()
         linker = FakeGoogleAccountLinker()
         syncScheduler = RecordingSyncScheduler()
+        shareTargetHolder = ShareTargetHolder()
     }
 
-    private fun viewModel(direction: ExpenseDirection = ExpenseDirection.PAID) =
-        AddEntryViewModel(
-            savedStateHandle = SavedStateHandle(mapOf(ARG_PARTY_ID to partyId, ARG_DIRECTION to direction.wire)),
-            expensesRepository = expensesRepository,
-            ledgerRepository = ledgerRepository,
-            uploadQueue = uploadQueue,
-            compressor = AttachmentCompressor(context, ioDispatcher = mainDispatcherRule.dispatcher),
-            session = fakeExpensesSession(),
-            googleAccountLinker = linker,
-            syncScheduler = syncScheduler,
-            clock = Clock.fixed(Fixtures.NOW, ZoneOffset.UTC),
-        )
+    private fun viewModel(
+        direction: ExpenseDirection = ExpenseDirection.PAID,
+        fromShare: Boolean = false,
+    ) = AddEntryViewModel(
+        savedStateHandle =
+            SavedStateHandle(
+                mapOf(ARG_PARTY_ID to partyId, ARG_DIRECTION to direction.wire, ARG_FROM_SHARE to fromShare),
+            ),
+        expensesRepository = expensesRepository,
+        ledgerRepository = ledgerRepository,
+        uploadQueue = uploadQueue,
+        compressor = AttachmentCompressor(context, ioDispatcher = mainDispatcherRule.dispatcher),
+        session = fakeExpensesSession(),
+        googleAccountLinker = linker,
+        syncScheduler = syncScheduler,
+        shareTargetHolder = shareTargetHolder,
+        clock = Clock.fixed(Fixtures.NOW, ZoneOffset.UTC),
+    )
 
     @Test
     fun `defaults to today and the routed direction`() {
@@ -251,4 +261,47 @@ class AddEntryViewModelTest {
         bitmap.recycle()
         return Uri.fromFile(file)
     }
+
+    // ---- Create-invoice share target prefill (ADR-078) ----
+
+    @Test
+    fun `fromShare pre-attaches the shared file through the attachment pipeline`() =
+        runTest {
+            val pdf = File.createTempFile("invoice", ".pdf", context.cacheDir)
+            pdf.writeBytes(ByteArray(2_048) { 7 })
+            shareTargetHolder.set(
+                SharedInvoiceFile(uri = Uri.fromFile(pdf), mimeType = "application/pdf", displayName = "invoice.pdf"),
+            )
+
+            val viewModel = viewModel(fromShare = true)
+
+            val staged =
+                viewModel.state.value.attachments
+                    .single()
+            assertThat(staged.mimeType).isEqualTo("application/pdf")
+            assertThat(staged.fileName).startsWith("invoice")
+            assertThat(staged.file.exists()).isTrue()
+            // One-shot: consumed — a later add-entry never re-attaches the stale share.
+            assertThat(shareTargetHolder.peek()).isNull()
+        }
+
+    @Test
+    fun `without fromShare a pending shared file stays untouched`() =
+        runTest {
+            shareTargetHolder.set(
+                SharedInvoiceFile(uri = imageUri(), mimeType = "image/png", displayName = "photo.png"),
+            )
+
+            val viewModel = viewModel(fromShare = false)
+
+            assertThat(viewModel.state.value.attachments).isEmpty()
+            assertThat(shareTargetHolder.peek()).isNotNull()
+        }
+
+    @Test
+    fun `fromShare with an empty holder stages nothing`() =
+        runTest {
+            val viewModel = viewModel(fromShare = true)
+            assertThat(viewModel.state.value.attachments).isEmpty()
+        }
 }

@@ -49,6 +49,24 @@
             </intent-filter>
         </activity>
 
+        <!-- Create-invoice share target (ADR-078): sharing an image or PDF (a bill
+             photo, a downloaded invoice) to Samaroh starts an expense entry with the
+             file pre-attached. An alias so the share sheet shows its own localized
+             label while the singleTask MainActivity keeps handling warm deliveries
+             via onNewIntent. -->
+        <activity-alias
+            android:name=".CreateInvoiceShareTarget"
+            android:exported="true"
+            android:label="@string/expenses_share_target_label"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- AndroidX per-app locales (§5): persists the chosen locale across restarts
              on every supported API level (backport of the Android 13+ system setting). -->
         <service
