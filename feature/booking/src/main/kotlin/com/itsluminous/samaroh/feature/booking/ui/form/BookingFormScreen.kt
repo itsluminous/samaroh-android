@@ -63,8 +63,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
+import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchDotsRow
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchEntry
-import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchPicker
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingSource
@@ -419,12 +419,13 @@ fun BookingFormScreen(
                     }
                 }
 
-                // ★ Booking colour (ADR-030): Default + 16-swatch palette grid; drives
-                // the calendar cell fill, agenda dots and the booking card. While no
-                // explicit colour is chosen, the current type's default swatch shows the
-                // EFFECTIVE colour (ADR-031); custom types have none (themed default).
+                // ★ Booking colour (ADR-030): Default + 16-swatch palette as a compact
+                // single-row dot picker (feedback batch); drives the calendar cell
+                // fill, agenda dots and the booking card. While no explicit colour is
+                // chosen, the current type's default swatch shows the EFFECTIVE colour
+                // (ADR-031); custom types have none (themed default).
                 Text(text = stringResource(R.string.booking_form_color), style = MaterialTheme.typography.labelLarge)
-                ColorSwatchPicker(
+                ColorSwatchDotsRow(
                     entries =
                         viewModel.bookingColorsProvider.colors.mapNotNull { color ->
                             val fill = color.fill ?: return@mapNotNull null
