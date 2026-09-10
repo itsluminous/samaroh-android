@@ -2,13 +2,16 @@ package com.itsluminous.samaroh.core.designsystem.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
@@ -20,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -164,3 +168,130 @@ private fun ColorSwatch(
 
 /** 4 per row → the 16 palette swatches form a 4×4 grid below the Default swatch. */
 private const val SWATCHES_PER_ROW = 4
+
+/** Semantics test tag on the compact dots row (tests assert single-line scrollability). */
+const val COLOR_DOTS_ROW_TEST_TAG = "color_dots_row"
+
+/** Visual diameter of a compact colour dot (the touch target stays [DOT_TARGET]). */
+private val DOT_SIZE = 26.dp
+
+/** Ring diameter around a selected dot — a visible gap between dot and ring. */
+private val DOT_RING_SIZE = 36.dp
+
+/** Minimum touch target per dot (Material accessibility floor). */
+private val DOT_TARGET = 48.dp
+
+/**
+ * Compact variant of [ColorSwatchPicker]: ONE horizontally scrollable row of small
+ * colour dots (the [ChipRow] scroll pattern) instead of the 4-per-row grid — for forms
+ * where the picker must stay visually light (note editor, booking form). Every dot is
+ * still a ≥48dp radio-style target (padding around a [DOT_SIZE] visual dot) announcing
+ * its localized name; the selected dot carries a primary ring, the effective-default
+ * dot (ADR-031) a thinner secondary ring. The Default dot keeps the muted-fill +
+ * diagonal-slash "no colour" vocabulary of the grid variant.
+ */
+@Composable
+fun ColorSwatchDotsRow(
+    entries: List<ColorSwatchEntry>,
+    selectedKey: String?,
+    defaultSwatchName: String,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+    effectiveDefaultKey: String? = null,
+    effectiveDefaultLabel: String? = null,
+) {
+    // null first = the Default option, same contract as the grid variant.
+    val all: List<ColorSwatchEntry?> = listOf(null) + entries
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .testTag(COLOR_DOTS_ROW_TEST_TAG),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        all.forEach { entry ->
+            ColorDot(
+                entry = entry,
+                defaultSwatchName = defaultSwatchName,
+                selected = selectedKey == entry?.key,
+                effectiveDefault = selectedKey == null && entry != null && entry.key == effectiveDefaultKey,
+                effectiveDefaultLabel = effectiveDefaultLabel,
+                onSelect = { onSelect(entry?.key) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColorDot(
+    entry: ColorSwatchEntry?,
+    defaultSwatchName: String,
+    selected: Boolean,
+    effectiveDefault: Boolean,
+    effectiveDefaultLabel: String?,
+    onSelect: () -> Unit,
+) {
+    val ring = MaterialTheme.colorScheme.primary
+    val effectiveRing = MaterialTheme.colorScheme.secondary
+    val outline = MaterialTheme.colorScheme.outline
+    val fillColor = entry?.fill ?: MaterialTheme.colorScheme.surfaceVariant
+    val colorName = entry?.name ?: defaultSwatchName
+    val name =
+        if (effectiveDefault && effectiveDefaultLabel != null) {
+            "$colorName, $effectiveDefaultLabel"
+        } else {
+            colorName
+        }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                // 48dp touch target; only the small dot inside is visible.
+                .size(DOT_TARGET)
+                .selectable(
+                    selected = selected,
+                    role = Role.RadioButton,
+                    onClick = onSelect,
+                ).semantics { contentDescription = name },
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier =
+                Modifier
+                    .size(DOT_RING_SIZE)
+                    .then(
+                        when {
+                            // Selected = ring (the compact vocabulary — no check icon).
+                            selected -> Modifier.border(2.dp, ring, CircleShape)
+                            effectiveDefault -> Modifier.border(1.dp, effectiveRing, CircleShape)
+                            else -> Modifier
+                        },
+                    ),
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(DOT_SIZE)
+                        .clip(CircleShape)
+                        .background(fillColor)
+                        .then(
+                            if (entry == null) {
+                                Modifier
+                                    .border(1.dp, outline, CircleShape)
+                                    .drawBehind {
+                                        drawLine(
+                                            color = outline,
+                                            start = Offset(size.width * 0.2f, size.height * 0.8f),
+                                            end = Offset(size.width * 0.8f, size.height * 0.2f),
+                                            strokeWidth = 1.5.dp.toPx(),
+                                        )
+                                    }
+                            } else {
+                                Modifier
+                            },
+                        ),
+            )
+        }
+    }
+}
