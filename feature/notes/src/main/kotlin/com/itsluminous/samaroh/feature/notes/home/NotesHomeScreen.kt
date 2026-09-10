@@ -11,10 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Keep-style notes home (ADR-077): hamburger drawer (Notes / Completed / Trash /
- * tag filters), live search bar, pinned-first staggered card grid, two bottom create
+ * tag filters), live search bar, pinned-first row-major card grid, two bottom create
  * buttons (the expenses gave/got bar shape) and the note popup dialog.
  */
 @Composable
@@ -278,29 +278,50 @@ private fun NotesGridOrEmpty(
         }
         return
     }
-    LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Fixed(2),
-        verticalItemSpacing = 8.dp,
+    NotesGrid(
+        pinned = state.pinned,
+        others = state.others,
+        noteCard = { card -> NoteCard(card, viewModel) },
+    )
+}
+
+/**
+ * Row-major two-column notes grid: cards flow strictly in item order — newest
+ * top-left, 2nd top-right, 3rd on the next row's left, and so on. A
+ * [LazyVerticalGrid] guarantees that zig-zag; the previous staggered grid placed
+ * each card in the SHORTEST column, so uneven card heights visually stacked the
+ * newest notes into one column (column-major look — owner bug report).
+ * Pinned section stays above the others (ADR-077); headers span the full width.
+ */
+@Composable
+internal fun NotesGrid(
+    pinned: List<NoteCardData>,
+    others: List<NoteCardData>,
+    noteCard: @Composable (NoteCardData) -> Unit,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
     ) {
         // Pinned section above the others (ADR-077); headers only when both exist.
-        val showHeaders = state.pinned.isNotEmpty() && state.others.isNotEmpty()
+        val showHeaders = pinned.isNotEmpty() && others.isNotEmpty()
         if (showHeaders) {
-            item(key = "header-pinned", span = StaggeredGridItemSpan.FullLine) {
+            item(key = "header-pinned", span = { GridItemSpan(maxLineSpan) }) {
                 GridHeader(stringResource(R.string.notes_home_pinned_header))
             }
         }
-        items(state.pinned, key = { "pinned-${it.note.id}" }) { card ->
-            NoteCard(card, viewModel)
+        items(pinned, key = { "pinned-${it.note.id}" }) { card ->
+            noteCard(card)
         }
         if (showHeaders) {
-            item(key = "header-others", span = StaggeredGridItemSpan.FullLine) {
+            item(key = "header-others", span = { GridItemSpan(maxLineSpan) }) {
                 GridHeader(stringResource(R.string.notes_home_others_header))
             }
         }
-        items(state.others, key = { "other-${it.note.id}" }) { card ->
-            NoteCard(card, viewModel)
+        items(others, key = { "other-${it.note.id}" }) { card ->
+            noteCard(card)
         }
     }
 }
