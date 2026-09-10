@@ -157,7 +157,7 @@ class BookingCalendarViewModel
         private val memberRepository: MemberRepository,
         private val actorProvider: BookingActorProvider,
         private val invoiceGenerator: InvoiceGenerator,
-        eventTypeRepository: EventTypeRepository,
+        private val eventTypeRepository: EventTypeRepository,
         val eventTypesProvider: EventTypeCatalog,
         /** Booking colour palette (ADR-030), exposed like [eventTypesProvider] for the UI. */
         val bookingColorsProvider: BookingColorCatalog,
@@ -525,13 +525,31 @@ class BookingCalendarViewModel
             selectedBookingId.value = null
         }
 
-        /** Max per-day count of OTHER live bookings across the restored range (mirrors the form). */
+        /**
+         * Max per-day count of OTHER live, non-cancelled, NON-MARKER bookings across the
+         * restored range (mirrors the form's `conflictCount`, ADR-076). Markers are not
+         * occupancy (ADR-041): restoring a cancelled marker never warns, and marker rows
+         * on the restored dates never count as conflicts.
+         */
         private suspend fun restoreConflictCount(booking: Booking): Int {
+            val presets = eventTypeRepository.presets(booking.businessId).first()
+            if (EventTypeKinds.isMarker(presets, booking.eventType)) return 0
+            val others =
+                bookingRepository
+                    .bookingsBetween(booking.businessId, booking.startDate, booking.endDate)
+                    .first()
+                    .filter { other ->
+                        // The booking itself is CANCELLED, so the status filter already
+                        // excludes it; the id check is a belt against status drift.
+                        other.deletedAt == null &&
+                            other.status != BookingStatus.CANCELLED &&
+                            other.id != booking.id &&
+                            !EventTypeKinds.isMarker(presets, other.eventType)
+                    }
             var maxCount = 0
             var date = booking.startDate
             while (!date.isAfter(booking.endDate)) {
-                // The booking itself is CANCELLED, so the live count never includes it.
-                maxCount = maxOf(maxCount, bookingRepository.countBookingsOn(booking.businessId, date))
+                maxCount = maxOf(maxCount, others.count { date in it.startDate..it.endDate })
                 date = date.plusDays(1)
             }
             return maxCount

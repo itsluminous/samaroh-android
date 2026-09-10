@@ -612,8 +612,12 @@ class BookingCalendarViewModelTest {
     fun `dismissing the restore conflict warning leaves the booking cancelled`() =
         runTest {
             val cancelled = Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED)
-            repository.bookings.value = listOf(cancelled)
-            repository.conflictCounts = mapOf(today.plusDays(3) to 2)
+            repository.bookings.value =
+                listOf(
+                    cancelled,
+                    Fixtures.booking(startDate = today.plusDays(3)),
+                    Fixtures.booking(startDate = today.plusDays(3)),
+                )
 
             val vm = viewModel()
             vm.uiState.test {
@@ -627,7 +631,7 @@ class BookingCalendarViewModelTest {
                 assertThat(vm.restoreConflict.value).isNull()
                 assertThat(
                     repository.bookings.value
-                        .single()
+                        .first { it.id == cancelled.id }
                         .status,
                 ).isEqualTo(BookingStatus.CANCELLED)
                 cancelAndIgnoreRemainingEvents()
@@ -643,9 +647,14 @@ class BookingCalendarViewModelTest {
                     endDate = today.plusDays(3),
                     status = BookingStatus.CANCELLED,
                 )
-            repository.bookings.value = listOf(cancelled)
-            repository.conflictCounts =
-                mapOf(today.plusDays(1) to 0, today.plusDays(2) to 3, today.plusDays(3) to 1)
+            repository.bookings.value =
+                listOf(
+                    cancelled,
+                    // day+2 carries three live bookings, day+3 one — the max wins.
+                    Fixtures.booking(startDate = today.plusDays(2)),
+                    Fixtures.booking(startDate = today.plusDays(2)),
+                    Fixtures.booking(startDate = today.plusDays(2), endDate = today.plusDays(3)),
+                )
 
             val vm = viewModel()
             vm.uiState.test {
@@ -654,6 +663,65 @@ class BookingCalendarViewModelTest {
                 vm.requestRestore(cancelled.id)
 
                 assertThat(vm.restoreConflict.value?.count).isEqualTo(3)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `restoring a cancelled marker never warns (ADR-076)`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value =
+                seededPresetFixtures() + presetFixture("Lagan", icon = "\uD83C\uDF1F", sortOrder = 9, kind = EventTypeKind.MARKER)
+            val cancelledMarker =
+                Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED, eventType = "Lagan")
+            repository.bookings.value =
+                listOf(
+                    cancelledMarker,
+                    // A real booking sits on the date — a marker restore still never warns.
+                    Fixtures.booking(startDate = today.plusDays(3)),
+                )
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelledMarker.id)
+
+                assertThat(vm.restoreConflict.value).isNull()
+                assertThat(
+                    repository.bookings.value
+                        .first { it.id == cancelledMarker.id }
+                        .status,
+                ).isEqualTo(BookingStatus.CONFIRMED)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `markers on the restored dates do not count as restore conflicts (ADR-076)`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value =
+                seededPresetFixtures() + presetFixture("Lagan", icon = "\uD83C\uDF1F", sortOrder = 9, kind = EventTypeKind.MARKER)
+            val cancelled = Fixtures.booking(startDate = today.plusDays(3), status = BookingStatus.CANCELLED)
+            repository.bookings.value =
+                listOf(
+                    cancelled,
+                    // Only a marker shares the date — restore proceeds without a warning.
+                    Fixtures.booking(startDate = today.plusDays(3), eventType = "Lagan"),
+                )
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.requestRestore(cancelled.id)
+
+                assertThat(vm.restoreConflict.value).isNull()
+                assertThat(
+                    repository.bookings.value
+                        .first { it.id == cancelled.id }
+                        .status,
+                ).isEqualTo(BookingStatus.CONFIRMED)
                 cancelAndIgnoreRemainingEvents()
             }
         }

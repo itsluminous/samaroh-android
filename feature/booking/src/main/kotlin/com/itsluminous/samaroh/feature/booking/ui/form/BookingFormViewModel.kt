@@ -412,20 +412,33 @@ class BookingFormViewModel
             persist(business.id, currentActor, form)
         }
 
-        /** Max per-day count of OTHER live bookings across the selected range. */
+        /**
+         * Max per-day count of OTHER live, non-cancelled, NON-MARKER bookings across the
+         * selected range (ADR-076). Marker-kind entries (Lagan/Tilak auspicious days,
+         * ADR-041) are not occupancy: they never count as conflicts, and saving a marker
+         * itself never warns — the same normalized-label preset resolution the calendar
+         * and reports use decides which side of the line a booking falls on.
+         */
         private suspend fun conflictCount(
             businessId: String,
             form: BookingFormState,
         ): Int {
+            // A marker being created/edited is not a booking — never warn about it.
+            if (form.isMarkerType) return 0
+            val others =
+                bookingRepository
+                    .bookingsBetween(businessId, form.startDate, form.endDate)
+                    .first()
+                    .filter { other ->
+                        other.deletedAt == null &&
+                            other.status != BookingStatus.CANCELLED &&
+                            other.id != form.editingId &&
+                            !EventTypeKinds.isMarker(form.presets, other.eventType)
+                    }
             var maxCount = 0
             var date = form.startDate
             while (!date.isAfter(form.endDate)) {
-                var count = bookingRepository.countBookingsOn(businessId, date)
-                val edited = editing
-                if (edited != null && date in edited.startDate..edited.endDate && edited.status != BookingStatus.CANCELLED) {
-                    count -= 1 // don't count the booking being edited as its own conflict
-                }
-                maxCount = maxOf(maxCount, count)
+                maxCount = maxOf(maxCount, others.count { date in it.startDate..it.endDate })
                 date = date.plusDays(1)
             }
             return maxCount

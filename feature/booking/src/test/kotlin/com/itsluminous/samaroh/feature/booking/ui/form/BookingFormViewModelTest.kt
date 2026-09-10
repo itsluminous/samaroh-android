@@ -104,7 +104,11 @@ class BookingFormViewModelTest {
     @Test
     fun `conflict warning is non-blocking and counts other bookings`() =
         runTest {
-            repository.conflictCounts = mapOf(today to 2)
+            repository.bookings.value =
+                listOf(
+                    Fixtures.booking(startDate = today),
+                    Fixtures.booking(startDate = today),
+                )
             val vm = viewModel(date = today)
             vm.state.test {
                 awaitItemMatching { it.loaded }
@@ -112,12 +116,90 @@ class BookingFormViewModelTest {
                 vm.save()
                 // Warned, not saved.
                 assertThat(awaitItemMatching { it.blocker != null }.blocker).isEqualTo(FormBlocker.Conflict(2))
-                assertThat(repository.bookings.value).isEmpty()
+                assertThat(repository.bookings.value).hasSize(2)
 
                 // ★ "Save anyway": halls can host multiple events (§4.1).
                 vm.saveAnyway()
                 assertThat(awaitItemMatching { it.saved }.saved).isTrue()
-                assertThat(repository.bookings.value).hasSize(1)
+                assertThat(repository.bookings.value).hasSize(3)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `cancelled bookings on the date do not trigger the conflict warning`() =
+        runTest {
+            repository.bookings.value = listOf(Fixtures.booking(startDate = today, status = BookingStatus.CANCELLED))
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.setCustomerName("Asha")
+                vm.save()
+                val done = awaitItemMatching { it.saved || it.blocker != null }
+                assertThat(done.blocker).isNull()
+                assertThat(done.saved).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `marker bookings on the date do not count as conflicts (ADR-076)`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value = seededPresetFixtures() + markerPreset()
+            // A Lagan marker already sits on the date — it is not occupancy.
+            repository.bookings.value = listOf(Fixtures.booking(startDate = today, eventType = "Lagan"))
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.presets.isNotEmpty() }
+                vm.setCustomerName("Asha")
+                vm.save()
+                val done = awaitItemMatching { it.saved || it.blocker != null }
+                assertThat(done.blocker).isNull()
+                assertThat(done.saved).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `real double-booking still warns when a marker shares the date (ADR-076)`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value = seededPresetFixtures() + markerPreset()
+            repository.bookings.value =
+                listOf(
+                    Fixtures.booking(startDate = today, eventType = "Lagan"),
+                    Fixtures.booking(startDate = today, eventType = "wedding"),
+                )
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.presets.isNotEmpty() }
+                vm.setCustomerName("Asha")
+                vm.save()
+                // Only the REAL booking counts; the marker is excluded.
+                assertThat(awaitItemMatching { it.blocker != null }.blocker).isEqualTo(FormBlocker.Conflict(1))
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `creating a marker never triggers the conflict warning (ADR-076)`() =
+        runTest {
+            eventTypeRepository.presetsFlow.value = seededPresetFixtures() + markerPreset()
+            // Two real bookings already occupy the date — a marker still saves silently.
+            repository.bookings.value =
+                listOf(
+                    Fixtures.booking(startDate = today),
+                    Fixtures.booking(startDate = today),
+                )
+            val vm = viewModel(date = today)
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.presets.isNotEmpty() }
+                vm.setEventType(EventTypeChoice.Preset(markerPreset()))
+                vm.setCustomerName("Lagan day")
+                vm.save()
+                val done = awaitItemMatching { it.saved || it.blocker != null }
+                assertThat(done.blocker).isNull()
+                assertThat(done.saved).isTrue()
+                assertThat(repository.bookings.value).hasSize(3)
                 cancelAndIgnoreRemainingEvents()
             }
         }

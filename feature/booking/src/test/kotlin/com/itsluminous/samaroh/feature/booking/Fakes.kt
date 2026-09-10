@@ -41,9 +41,6 @@ class FakeBookingRepository : BookingRepository {
     val blocks = MutableStateFlow<List<DateBlock>>(emptyList())
     val reminders = MutableStateFlow<List<PaymentReminder>>(emptyList())
 
-    /** Fixed per-date conflict counts for conflict-detection tests; falls back to live data. */
-    var conflictCounts: Map<LocalDate, Int>? = null
-
     override fun bookingsBetween(
         businessId: String,
         from: LocalDate,
@@ -79,13 +76,12 @@ class FakeBookingRepository : BookingRepository {
         businessId: String,
         date: LocalDate,
     ): Int =
-        conflictCounts?.get(date)
-            ?: bookings.value.count {
-                it.businessId == businessId &&
-                    date in it.startDate..it.endDate &&
-                    it.status != BookingStatus.CANCELLED &&
-                    it.deletedAt == null
-            }
+        bookings.value.count {
+            it.businessId == businessId &&
+                date in it.startDate..it.endDate &&
+                it.status != BookingStatus.CANCELLED &&
+                it.deletedAt == null
+        }
 
     override fun paymentsForBooking(bookingId: String): Flow<List<BookingPayment>> =
         payments.map { list -> list.filter { it.bookingId == bookingId && it.deletedAt == null } }
