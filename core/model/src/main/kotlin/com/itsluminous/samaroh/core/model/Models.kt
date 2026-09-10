@@ -288,3 +288,75 @@ data class BusinessSettings(
     @SerialName("last_backup_at") @Serializable(InstantSerializer::class) val lastBackupAt: Instant? = null,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
 )
+
+/**
+ * One checklist item of a checklist-kind [Note] (ADR-077). The whole checklist is one
+ * jsonb blob on the wire ({id, text, done} array) — items are edited as a unit and
+ * LWW-merged per note, never as child rows.
+ */
+@Serializable
+data class NoteChecklistItem(
+    val id: String,
+    val text: String,
+    val done: Boolean = false,
+)
+
+/**
+ * A business note or checklist — mirror of the `notes` table (shared migration
+ * 005_notes.sql, ADR-077). `status` drives the drawer sections (active / completed /
+ * trashed); `trashedAt` anchors the client-side 30-day purge; `deletedAt` is the sync
+ * tombstone (purge = tombstone).
+ */
+@Serializable
+data class Note(
+    val id: String,
+    @SerialName("business_id") val businessId: String,
+    /** Plain note or checklist. Defaulted so rows without the column decode as notes. */
+    val kind: NoteKind = NoteKind.NOTE,
+    val title: String? = null,
+    /** Plain-text body (kind = NOTE). */
+    val content: String? = null,
+    /** kind = CHECKLIST only: the items, one LWW blob per note (jsonb on the wire). */
+    val checklist: List<NoteChecklistItem> = emptyList(),
+    /** Palette key from `shared/booking-colors.json` (ADR-030); NULL = default themed look. */
+    val color: String? = null,
+    val pinned: Boolean = false,
+    val status: NoteStatus = NoteStatus.ACTIVE,
+    @SerialName("completed_at") @Serializable(InstantSerializer::class) val completedAt: Instant? = null,
+    /** Set when status → TRASHED; the 30-day purge sweep anchor (ADR-077). */
+    @SerialName("trashed_at") @Serializable(InstantSerializer::class) val trashedAt: Instant? = null,
+    @SerialName("created_by") val createdBy: String,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+)
+
+/**
+ * A per-business note tag (Keep-style label) — mirror of `note_tags` (ADR-077).
+ * Names are case-insensitively unique per business among LIVE rows.
+ */
+@Serializable
+data class NoteTag(
+    val id: String,
+    @SerialName("business_id") val businessId: String,
+    val name: String,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+)
+
+/**
+ * A note ↔ tag assignment — mirror of `note_tag_links` (ADR-077). SOFT links: untag
+ * sets [deletedAt], retag clears it — the composite-PK row (noteId, tagId) is reused,
+ * and `updated_at` bumps so incremental pulls see the flip.
+ */
+@Serializable
+data class NoteTagLink(
+    @SerialName("note_id") val noteId: String,
+    @SerialName("tag_id") val tagId: String,
+    @SerialName("business_id") val businessId: String,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+)

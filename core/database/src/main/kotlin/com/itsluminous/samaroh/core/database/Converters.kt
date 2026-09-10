@@ -7,6 +7,9 @@ import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
+import com.itsluminous.samaroh.core.model.NoteChecklistItem
+import com.itsluminous.samaroh.core.model.NoteKind
+import com.itsluminous.samaroh.core.model.NoteStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.ReminderKind
 import com.itsluminous.samaroh.core.model.ReminderStatus
@@ -75,6 +78,22 @@ class Converters {
     @TypeConverter fun bookingSourceToString(value: BookingSource?): String? = value?.wire
 
     @TypeConverter fun stringToBookingSource(value: String?): BookingSource? = value?.let(BookingSource::fromWire)
+
+    @TypeConverter fun noteStatusToString(value: NoteStatus?): String? = value?.wire
+
+    @TypeConverter fun stringToNoteStatus(value: String?): NoteStatus? = value?.let(NoteStatus::fromWire)
+
+    @TypeConverter fun noteKindToString(value: NoteKind?): String? = value?.wire
+
+    @TypeConverter fun stringToNoteKind(value: String?): NoteKind? = value?.let(NoteKind::fromWire)
+
+    @TypeConverter
+    fun checklistToString(value: List<NoteChecklistItem>?): String? =
+        value?.let { json.encodeToString(ListSerializer(NoteChecklistItem.serializer()), it) }
+
+    @TypeConverter
+    fun stringToChecklist(value: String?): List<NoteChecklistItem>? =
+        value?.let { json.decodeFromString(ListSerializer(NoteChecklistItem.serializer()), it) }
 
     @TypeConverter
     fun permissionsToString(value: MemberPermissions?): String? = value?.let { json.encodeToString(MemberPermissions.serializer(), it) }

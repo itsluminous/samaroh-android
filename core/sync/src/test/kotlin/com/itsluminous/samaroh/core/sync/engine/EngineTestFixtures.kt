@@ -45,6 +45,9 @@ class FakeRemoteStore : RemoteStore {
     /** Keyset id per pull call, parallel to [pullCalls] (ADR-024). */
     val pullAfterIds = mutableListOf<String?>()
 
+    /** Composite-PK second keyset leg per pull call (ADR-077), parallel to [pullCalls]. */
+    val pullAfterId2s = mutableListOf<String?>()
+
     /** Last cursor column requested per table (asserts the expense_attachments created_at cursor). */
     val pullCursorColumns = mutableMapOf<String, String>()
 
@@ -99,9 +102,12 @@ class FakeRemoteStore : RemoteStore {
         columns: String?,
         cursorColumn: String,
         idColumn: String,
+        idColumn2: String?,
+        afterId2: String?,
     ): List<JsonObject> {
         pullCalls += Triple(table, businessId, after)
         pullAfterIds += afterId
+        pullAfterId2s += afterId2
         pullCursorColumns[table] = cursorColumn
         onPull?.invoke(table, businessId)
         return pullPages[table]?.removeFirstOrNull() ?: emptyList()
@@ -198,6 +204,9 @@ fun syncEngine(
                 expenseAttachmentDao = db.expenseAttachmentDao(),
                 masterItemDao = db.masterItemDao(),
                 inventoryTransactionDao = db.inventoryTransactionDao(),
+                noteDao = db.noteDao(),
+                noteTagDao = db.noteTagDao(),
+                noteTagLinkDao = db.noteTagLinkDao(),
             ),
         remoteStoreProvider = RemoteStoreProvider { remote },
         attachmentUploader = Optional.ofNullable(uploader),

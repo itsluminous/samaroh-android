@@ -55,6 +55,8 @@ class PostgrestRemoteStore(
         columns: String?,
         cursorColumn: String,
         idColumn: String,
+        idColumn2: String?,
+        afterId2: String?,
     ): List<JsonObject> =
         guard {
             postgrest
@@ -66,14 +68,23 @@ class PostgrestRemoteStore(
                             // lost by the old `>`-only cursor are recovered (ADR-024).
                             gte(cursorColumn, after)
                         } else {
-                            // Keyset: strictly after (after, afterId) in (ts, id) order.
-                            // `after` is the exact server-serialized string (ADR-060) so
-                            // the eq tie-breaker matches tied rows at full precision.
+                            // Keyset: strictly after (after, afterId[, afterId2]) in
+                            // (ts, id[, id2]) order. `after` is the exact server-
+                            // serialized string (ADR-060) so the eq tie-breaker matches
+                            // tied rows at full precision. Composite-PK tables add the
+                            // third leg (ADR-077) because the first id is not unique.
                             or {
                                 gt(cursorColumn, after)
                                 and {
                                     eq(cursorColumn, after)
                                     gt(idColumn, afterId)
+                                }
+                                if (idColumn2 != null && afterId2 != null) {
+                                    and {
+                                        eq(cursorColumn, after)
+                                        eq(idColumn, afterId)
+                                        gt(idColumn2, afterId2)
+                                    }
                                 }
                             }
                         }
@@ -81,6 +92,7 @@ class PostgrestRemoteStore(
                     }
                     order(cursorColumn, Order.ASCENDING)
                     order(idColumn, Order.ASCENDING)
+                    if (idColumn2 != null) order(idColumn2, Order.ASCENDING)
                     limit(limit.toLong())
                 }.decodeList<JsonObject>()
         }

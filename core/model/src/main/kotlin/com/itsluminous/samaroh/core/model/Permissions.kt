@@ -15,6 +15,8 @@ data class MemberPermissions(
     val booking: BookingPermissions = BookingPermissions(),
     val expenses: ExpensesPermissions = ExpensesPermissions(),
     val inventory: InventoryPermissions = InventoryPermissions(),
+    /** Notes module (ADR-077, shared schema between inventory and reports). */
+    val notes: NotesPermissions = NotesPermissions(),
     val reports: ReportsPermissions = ReportsPermissions(),
     val settings: SettingsPermissions = SettingsPermissions(),
 ) {
@@ -25,6 +27,7 @@ data class MemberPermissions(
                 booking = BookingPermissions(view = true),
                 expenses = ExpensesPermissions(view = true),
                 inventory = InventoryPermissions(view = true),
+                notes = NotesPermissions(view = true),
                 reports = ReportsPermissions(view = true),
             )
 
@@ -34,6 +37,7 @@ data class MemberPermissions(
                 booking = BookingPermissions(view = true, create = true, recordPayment = true),
                 expenses = ExpensesPermissions(view = true, create = true),
                 inventory = InventoryPermissions(view = true, create = true),
+                notes = NotesPermissions(view = true, create = true),
             )
 
         /** Preset: everything except settings/members. */
@@ -50,6 +54,7 @@ data class MemberPermissions(
                     ),
                 expenses = ExpensesPermissions(view = true, create = true, edit = true, delete = true, manageParties = true),
                 inventory = InventoryPermissions(view = true, create = true, edit = true, delete = true, manageMasterItems = true),
+                notes = NotesPermissions(view = true, create = true, edit = true, delete = true),
                 reports = ReportsPermissions(view = true),
             )
     }
@@ -87,6 +92,18 @@ data class InventoryPermissions(
     val edit: Boolean = false,
     val delete: Boolean = false,
     @SerialName("manage_master_items") val manageMasterItems: Boolean = false,
+)
+
+/**
+ * Notes module actions (ADR-077). No `view_amounts` — notes carry no money, so the
+ * absent-defaults-to-true exception does not apply; every action is absent = false.
+ */
+@Serializable
+data class NotesPermissions(
+    val view: Boolean = false,
+    val create: Boolean = false,
+    val edit: Boolean = false,
+    val delete: Boolean = false,
 )
 
 @Serializable

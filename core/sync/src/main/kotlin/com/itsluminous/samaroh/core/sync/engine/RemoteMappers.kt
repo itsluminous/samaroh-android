@@ -12,6 +12,9 @@ import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
 import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
 import com.itsluminous.samaroh.core.database.entity.InventoryTransactionEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
+import com.itsluminous.samaroh.core.database.entity.NoteEntity
+import com.itsluminous.samaroh.core.database.entity.NoteTagEntity
+import com.itsluminous.samaroh.core.database.entity.NoteTagLinkEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
 import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
 import com.itsluminous.samaroh.core.model.Booking
@@ -26,6 +29,9 @@ import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
+import com.itsluminous.samaroh.core.model.Note
+import com.itsluminous.samaroh.core.model.NoteTag
+import com.itsluminous.samaroh.core.model.NoteTagLink
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderKind
@@ -187,3 +193,27 @@ internal fun InventoryTransaction.toEntity() =
         updatedAt,
         deletedAt,
     )
+
+internal fun Note.toEntity() =
+    NoteEntity(
+        id,
+        businessId,
+        kind,
+        title,
+        content,
+        checklist,
+        color,
+        pinned,
+        status,
+        completedAt,
+        trashedAt,
+        createdBy,
+        updatedBy,
+        createdAt,
+        updatedAt,
+        deletedAt,
+    )
+
+internal fun NoteTag.toEntity() = NoteTagEntity(id, businessId, name, createdAt, updatedAt, deletedAt)
+
+internal fun NoteTagLink.toEntity() = NoteTagLinkEntity(noteId, tagId, businessId, createdAt, updatedAt, deletedAt)

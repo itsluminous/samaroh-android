@@ -18,7 +18,8 @@ import java.time.temporal.ChronoUnit
  * `timestamptz` offsets (`…+00:00`) to the ISO instant form the local serializers expect.
  */
 object WireConverter {
-    private val timestampKeys = setOf("created_at", "updated_at", "deleted_at", "transaction_date", "last_backup_at")
+    private val timestampKeys =
+        setOf("created_at", "updated_at", "deleted_at", "transaction_date", "last_backup_at", "completed_at", "trashed_at")
 
     /** Local outbox payload JSON (paise) → wire row (decimal rupees, wire column names). */
     fun toWire(

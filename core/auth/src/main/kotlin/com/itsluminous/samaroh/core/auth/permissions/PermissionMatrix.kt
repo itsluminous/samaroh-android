@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.ExpensesPermissions
 import com.itsluminous.samaroh.core.model.InventoryPermissions
 import com.itsluminous.samaroh.core.model.MemberPermissions
+import com.itsluminous.samaroh.core.model.NotesPermissions
 import com.itsluminous.samaroh.core.model.ReportsPermissions
 import com.itsluminous.samaroh.core.model.SettingsPermissions
 import kotlinx.serialization.json.Json
@@ -99,6 +100,7 @@ object PermissionMatrix {
                 ExpensesPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageParties = true),
             inventory =
                 InventoryPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageMasterItems = true),
+            notes = NotesPermissions(view = true, create = true, edit = true, delete = true),
             reports = ReportsPermissions(view = true, viewAmounts = true),
             settings = SettingsPermissions(manageBusiness = true, manageMembers = true, gcalSync = true),
         )

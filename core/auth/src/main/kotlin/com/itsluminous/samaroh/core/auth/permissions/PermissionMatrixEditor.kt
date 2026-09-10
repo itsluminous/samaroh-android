@@ -92,6 +92,7 @@ private fun moduleLabel(moduleKey: String): String =
         "booking" -> stringResource(R.string.auth_permissions_group_booking)
         "expenses" -> stringResource(R.string.auth_permissions_group_expenses)
         "inventory" -> stringResource(R.string.auth_permissions_group_inventory)
+        "notes" -> stringResource(R.string.notes_permission_group)
         "reports" -> stringResource(R.string.auth_permissions_group_reports)
         "settings" -> stringResource(R.string.auth_permissions_group_settings)
         // Unknown future schema module: show the raw key rather than crash.

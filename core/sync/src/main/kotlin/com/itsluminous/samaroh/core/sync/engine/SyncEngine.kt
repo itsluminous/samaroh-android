@@ -383,16 +383,21 @@ class SyncEngine
             var cursorRaw = stored?.lastPulledRaw ?: cursorAt.toString()
             var cursorId = if (stored?.lastPulledRaw != null) stored.lastPulledId else null
             while (true) {
+                // Composite-PK tables (ADR-077) persist the keyset id as "id|id2";
+                // split it back into the pull's two tie-breaker legs.
+                val (afterId, afterId2) = splitEntityId(spec, cursorId)
                 val rows =
                     remote.pull(
                         table = spec.name,
                         businessId = scope.takeIf { spec.businessScoped },
                         after = cursorRaw,
-                        afterId = cursorId,
+                        afterId = afterId,
                         limit = PULL_PAGE_SIZE,
                         columns = spec.selectColumns,
                         cursorColumn = spec.cursorColumn,
                         idColumn = spec.idColumn,
+                        idColumn2 = spec.idColumn2,
+                        afterId2 = afterId2,
                     )
                 if (rows.isEmpty()) break
                 var lastAt = cursorAt
@@ -405,7 +410,7 @@ class SyncEngine
                     // Rows arrive ordered by (cursorColumn, id) — the last one is the new keyset position.
                     lastAt = remoteUpdated
                     lastRaw = rawTimestamp
-                    lastId = row.getValue(spec.idColumn).jsonPrimitive.content
+                    lastId = spec.entityIdOf(row)
                     val outcome = applyWithLww(spec, row, remoteUpdated)
                     if (outcome.first) {
                         applied++
@@ -430,7 +435,9 @@ class SyncEngine
             row: JsonObject,
             remoteUpdated: Instant,
         ): Pair<Boolean, Boolean> {
-            val id = row.getValue(spec.idColumn).jsonPrimitive.content
+            // Composite-PK tables derive "id|id2" (ADR-077) — the exact string their
+            // repositories enqueue as the outbox entity id, so LWW matching still works.
+            val id = spec.entityIdOf(row)
             val pending = outboxDao.pendingForEntity(spec.name, id)
             if (pending.isEmpty()) {
                 // ADR-051: an identical re-served row (the ms-truncated cursor re-pulls each
@@ -507,6 +514,21 @@ class SyncEngine
                     ?: payload["created_at"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
                     ?: return Instant.EPOCH
             return runCatching { WireConverter.parseTimestamp(raw) }.getOrDefault(Instant.EPOCH)
+        }
+
+        /**
+         * Splits a persisted keyset id back into the pull's tie-breaker legs (ADR-077):
+         * single-PK tables pass it through; composite-PK tables split on the '|' the
+         * cursor stored via [SyncTableSpec.entityIdOf].
+         */
+        private fun splitEntityId(
+            spec: SyncTableSpec,
+            entityId: String?,
+        ): Pair<String?, String?> {
+            if (entityId == null) return null to null
+            if (spec.idColumn2 == null) return entityId to null
+            val parts = entityId.split(SyncTableSpec.COMPOSITE_ID_SEPARATOR, limit = 2)
+            return parts[0] to parts.getOrNull(1)
         }
 
         private suspend fun recordConflict(

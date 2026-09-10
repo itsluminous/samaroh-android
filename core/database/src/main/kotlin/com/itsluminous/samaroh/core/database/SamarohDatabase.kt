@@ -17,6 +17,9 @@ import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
+import com.itsluminous.samaroh.core.database.dao.NoteDao
+import com.itsluminous.samaroh.core.database.dao.NoteTagDao
+import com.itsluminous.samaroh.core.database.dao.NoteTagLinkDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
@@ -35,6 +38,9 @@ import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
 import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
 import com.itsluminous.samaroh.core.database.entity.InventoryTransactionEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
+import com.itsluminous.samaroh.core.database.entity.NoteEntity
+import com.itsluminous.samaroh.core.database.entity.NoteTagEntity
+import com.itsluminous.samaroh.core.database.entity.NoteTagLinkEntity
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
 import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
@@ -62,11 +68,14 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         ExpenseAttachmentEntity::class,
         MasterItemEntity::class,
         InventoryTransactionEntity::class,
+        NoteEntity::class,
+        NoteTagEntity::class,
+        NoteTagLinkEntity::class,
         OutboxEntity::class,
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -98,6 +107,12 @@ abstract class SamarohDatabase : RoomDatabase() {
     abstract fun masterItemDao(): MasterItemDao
 
     abstract fun inventoryTransactionDao(): InventoryTransactionDao
+
+    abstract fun noteDao(): NoteDao
+
+    abstract fun noteTagDao(): NoteTagDao
+
+    abstract fun noteTagLinkDao(): NoteTagLinkDao
 
     abstract fun outboxDao(): OutboxDao
 
@@ -265,6 +280,69 @@ abstract class SamarohDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE master_items ADD COLUMN drive_permission_ensured INTEGER NOT NULL DEFAULT 0",
+                    )
+                }
+            }
+
+        /**
+         * v11 → v12 (ADR-077): NOTES module tables mirroring shared migration
+         * 005_notes.sql — `notes`, `note_tags` and the composite-PK `note_tag_links`
+         * (soft links: untag sets deleted_at). Instants are epoch-millis INTEGER, the
+         * checklist is the wire's JSON document as TEXT, `status`/`kind` are wire
+         * strings — all per the module's storage conventions (Converters).
+         */
+        val MIGRATION_11_12: Migration =
+            object : Migration(11, 12) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS notes (" +
+                            "id TEXT NOT NULL PRIMARY KEY, " +
+                            "business_id TEXT NOT NULL, " +
+                            "kind TEXT NOT NULL DEFAULT 'note', " +
+                            "title TEXT, " +
+                            "content TEXT, " +
+                            "checklist TEXT NOT NULL DEFAULT '[]', " +
+                            "color TEXT, " +
+                            "pinned INTEGER NOT NULL DEFAULT 0, " +
+                            "status TEXT NOT NULL DEFAULT 'active', " +
+                            "completed_at INTEGER, " +
+                            "trashed_at INTEGER, " +
+                            "created_by TEXT NOT NULL, " +
+                            "updated_by TEXT, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_notes_business_id_status ON notes (business_id, status)",
+                    )
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS note_tags (" +
+                            "id TEXT NOT NULL PRIMARY KEY, " +
+                            "business_id TEXT NOT NULL, " +
+                            "name TEXT NOT NULL, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_note_tags_business_id ON note_tags (business_id)",
+                    )
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS note_tag_links (" +
+                            "note_id TEXT NOT NULL, " +
+                            "tag_id TEXT NOT NULL, " +
+                            "business_id TEXT NOT NULL, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER, " +
+                            "PRIMARY KEY (note_id, tag_id))",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_note_tag_links_business_id ON note_tag_links (business_id)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_note_tag_links_tag_id ON note_tag_links (tag_id)",
                     )
                 }
             }

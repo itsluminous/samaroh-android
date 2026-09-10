@@ -15,6 +15,9 @@ import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
+import com.itsluminous.samaroh.core.database.dao.NoteDao
+import com.itsluminous.samaroh.core.database.dao.NoteTagDao
+import com.itsluminous.samaroh.core.database.dao.NoteTagLinkDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
@@ -49,6 +52,7 @@ object DatabaseModule {
                 SamarohDatabase.MIGRATION_8_9,
                 SamarohDatabase.MIGRATION_9_10,
                 SamarohDatabase.MIGRATION_10_11,
+                SamarohDatabase.MIGRATION_11_12,
             ).build()
 
     @Provides fun provideBusinessDao(db: SamarohDatabase): BusinessDao = db.businessDao()
@@ -78,6 +82,12 @@ object DatabaseModule {
     @Provides fun provideMasterItemDao(db: SamarohDatabase): MasterItemDao = db.masterItemDao()
 
     @Provides fun provideInventoryTransactionDao(db: SamarohDatabase): InventoryTransactionDao = db.inventoryTransactionDao()
+
+    @Provides fun provideNoteDao(db: SamarohDatabase): NoteDao = db.noteDao()
+
+    @Provides fun provideNoteTagDao(db: SamarohDatabase): NoteTagDao = db.noteTagDao()
+
+    @Provides fun provideNoteTagLinkDao(db: SamarohDatabase): NoteTagLinkDao = db.noteTagLinkDao()
 
     @Provides fun provideOutboxDao(db: SamarohDatabase): OutboxDao = db.outboxDao()
 

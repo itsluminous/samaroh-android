@@ -1,5 +1,7 @@
 package com.itsluminous.samaroh.core.sync.wire
 
+import kotlinx.serialization.json.jsonPrimitive
+
 /**
  * One synced Postgres table (§2 canonical schema, §8 sync pipeline).
  *
@@ -31,12 +33,35 @@ data class SyncTableSpec(
     val moneyFields: Map<String, String> = emptyMap(),
     val enumFields: Set<String> = emptySet(),
     val idColumn: String = "id",
+    /**
+     * Second primary-key column for COMPOSITE-PK tables (ADR-077, `note_tag_links`):
+     * the keyset pull orders/filters by `(cursorColumn, idColumn, idColumn2)` and the
+     * row's sync entity id becomes `"id|id2"` (uuids never contain '|') — outbox
+     * writers of such tables must enqueue the same composite string. Null everywhere
+     * else (single-column PK, unchanged behavior).
+     */
+    val idColumn2: String? = null,
     val selectColumns: String? = null,
     val cursorColumn: String = "updated_at",
     val localOnlyKeys: Set<String> = emptySet(),
 ) {
     /** Whether the server table carries `updated_at` (LWW bump + tombstone touch are valid). */
     val hasUpdatedAt: Boolean get() = cursorColumn == "updated_at"
+
+    /** The sync entity id of a pulled wire/local row — composite-aware (ADR-077). */
+    fun entityIdOf(row: kotlinx.serialization.json.JsonObject): String {
+        val first =
+            row
+                .getValue(idColumn)
+                .jsonPrimitive.content
+        val second = idColumn2 ?: return first
+        return "$first|${row.getValue(second).jsonPrimitive.content}"
+    }
+
+    companion object {
+        /** Separator of composite entity ids; safe because uuid columns never carry it. */
+        const val COMPOSITE_ID_SEPARATOR = "|"
+    }
 }
 
 /** Registry of every synced table, in pull order (parents before children is NOT required — ADR-004). */
@@ -92,6 +117,16 @@ object SyncTables {
                 moneyFields = mapOf("unit_price" to "unit_price"),
                 enumFields = setOf("transaction_type"),
             ),
+            // NOTES module (ADR-077). `status` is the note_status Postgres enum;
+            // `kind` is a CHECK-constrained text — both use the same casing contract
+            // (local "ACTIVE"/"NOTE" ⇄ wire lowercase). The `checklist` jsonb passes
+            // through the wire untouched (arrays are neither money, enum nor timestamp).
+            SyncTableSpec("notes", businessScoped = true, enumFields = setOf("status", "kind")),
+            SyncTableSpec("note_tags", businessScoped = true),
+            // Composite PK (note_id, tag_id): idColumn2 drives the 3-part keyset and
+            // the "noteId|tagId" entity id. Soft links only — the app never enqueues a
+            // DELETE op for this table (untag is an UPSERT with deleted_at set).
+            SyncTableSpec("note_tag_links", businessScoped = true, idColumn = "note_id", idColumn2 = "tag_id"),
         )
 
     private val byName = ALL.associateBy { it.name }

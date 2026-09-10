@@ -35,6 +35,12 @@ interface RemoteStore {
      * or the `eq` tie-breaker never matches and a >page tie block stalls the pull. A
      * null [afterId] means "any id at [after]": rows AT the timestamp are included —
      * that is the legacy-cursor self-heal and the fresh-install EPOCH start.
+     *
+     * COMPOSITE-PK tables (ADR-077, `note_tag_links`): [idColumn2]/[afterId2] extend the
+     * keyset to `(cursorColumn, idColumn, idColumn2)` — with a two-column PK the id
+     * tie-breaker alone is not unique (many links share one `note_id`, and a bulk tag
+     * write stamps them with one trigger timestamp), so a page boundary inside such a
+     * tie block would skip rows without the third leg.
      */
     suspend fun pull(
         table: String,
@@ -45,6 +51,8 @@ interface RemoteStore {
         columns: String? = null,
         cursorColumn: String = "updated_at",
         idColumn: String = "id",
+        idColumn2: String? = null,
+        afterId2: String? = null,
     ): List<JsonObject>
 }
 

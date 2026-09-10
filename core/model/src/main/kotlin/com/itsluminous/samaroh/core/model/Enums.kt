@@ -146,3 +146,40 @@ enum class ReminderKind(
         fun fromWire(value: String): ReminderKind = entries.first { it.wire == value }
     }
 }
+
+/**
+ * Lifecycle of a note (ADR-077) — exact mirror of the Postgres `note_status` enum
+ * (shared migration 005_notes.sql). Drives the Notes drawer sections: Active is the
+ * main list, Completed its own section, Trashed anchors the 30-day purge.
+ */
+enum class NoteStatus(
+    val wire: String,
+) {
+    ACTIVE("active"),
+    COMPLETED("completed"),
+    TRASHED("trashed"),
+    ;
+
+    companion object {
+        fun fromWire(value: String): NoteStatus = entries.first { it.wire == value }
+    }
+}
+
+/**
+ * What a note IS (ADR-077, shared schema `notes.kind`): a plain-text note or a
+ * checklist ({id, text, done} items). Like [EventTypeKind], the column is a
+ * CHECK-constrained text (not a Postgres enum) and [fromWire] is TOLERANT
+ * (unknown → NOTE) so a future kind value degrades to the plain-note treatment
+ * instead of failing a Room read.
+ */
+enum class NoteKind(
+    val wire: String,
+) {
+    NOTE("note"),
+    CHECKLIST("checklist"),
+    ;
+
+    companion object {
+        fun fromWire(value: String): NoteKind = entries.firstOrNull { it.wire == value } ?: NOTE
+    }
+}

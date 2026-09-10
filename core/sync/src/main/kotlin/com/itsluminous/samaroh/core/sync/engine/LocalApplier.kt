@@ -12,6 +12,9 @@ import com.itsluminous.samaroh.core.database.dao.ExpenseDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
+import com.itsluminous.samaroh.core.database.dao.NoteDao
+import com.itsluminous.samaroh.core.database.dao.NoteTagDao
+import com.itsluminous.samaroh.core.database.dao.NoteTagLinkDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
 import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
 import com.itsluminous.samaroh.core.model.Booking
@@ -26,6 +29,9 @@ import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
+import com.itsluminous.samaroh.core.model.Note
+import com.itsluminous.samaroh.core.model.NoteTag
+import com.itsluminous.samaroh.core.model.NoteTagLink
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderKind
@@ -65,6 +71,9 @@ class LocalApplier
         private val expenseAttachmentDao: ExpenseAttachmentDao,
         private val masterItemDao: MasterItemDao,
         private val inventoryTransactionDao: InventoryTransactionDao,
+        private val noteDao: NoteDao,
+        private val noteTagDao: NoteTagDao,
+        private val noteTagLinkDao: NoteTagLinkDao,
     ) {
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -175,6 +184,28 @@ class LocalApplier
                         inventoryTransactionDao::byId,
                         inventoryTransactionDao::upsert,
                     ) { it.id }
+                "notes" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(Note.serializer(), row).toEntity(),
+                        noteDao::byId,
+                        noteDao::upsert,
+                    ) { it.id }
+                "note_tags" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(NoteTag.serializer(), row).toEntity(),
+                        noteTagDao::byId,
+                        noteTagDao::upsert,
+                    ) { it.id }
+                "note_tag_links" -> {
+                    // Composite PK (ADR-077): looked up by (note_id, tag_id) directly.
+                    val entity = json.decodeFromJsonElement(NoteTagLink.serializer(), row).toEntity()
+                    if (noteTagLinkDao.byIds(entity.noteId, entity.tagId) == entity) {
+                        false
+                    } else {
+                        noteTagLinkDao.upsert(entity)
+                        true
+                    }
+                }
                 else -> error("unknown synced table: $table")
             }
 
@@ -192,7 +223,7 @@ class LocalApplier
 
         /** Human-readable row identifier for conflict notifications and the conflict log. */
         fun titleOf(row: JsonObject): String {
-            for (key in listOf("customer_name", "name", "label", "display_name", "file_name")) {
+            for (key in listOf("customer_name", "name", "label", "title", "display_name", "file_name")) {
                 val value = row[key]
                 if (value != null && value !is JsonNull) return value.jsonPrimitive.content
             }

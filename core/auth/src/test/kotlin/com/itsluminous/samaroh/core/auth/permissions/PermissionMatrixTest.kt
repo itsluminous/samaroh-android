@@ -11,7 +11,7 @@ class PermissionMatrixTest {
         val groups = PermissionMatrix.groups(MemberPermissions())
 
         assertThat(groups.map { it.moduleKey })
-            .containsExactly("booking", "expenses", "inventory", "reports", "settings")
+            .containsExactly("booking", "expenses", "inventory", "notes", "reports", "settings")
             .inOrder()
         assertThat(groups.first { it.moduleKey == "booking" }.toggles.map { it.actionKey })
             .containsExactly("view", "view_amounts", "create", "edit", "delete", "record_payment", "generate_invoice")
@@ -19,6 +19,9 @@ class PermissionMatrixTest {
             .containsExactly("view", "view_amounts", "create", "edit", "delete", "manage_parties")
         assertThat(groups.first { it.moduleKey == "inventory" }.toggles.map { it.actionKey })
             .containsExactly("view", "view_amounts", "create", "edit", "delete", "manage_master_items")
+        // Notes has no amounts, so no view_amounts toggle (ADR-077).
+        assertThat(groups.first { it.moduleKey == "notes" }.toggles.map { it.actionKey })
+            .containsExactly("view", "create", "edit", "delete")
         assertThat(groups.first { it.moduleKey == "reports" }.toggles.map { it.actionKey })
             .containsExactly("view", "view_amounts")
         assertThat(groups.first { it.moduleKey == "settings" }.toggles.map { it.actionKey })

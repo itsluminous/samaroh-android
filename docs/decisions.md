@@ -2819,3 +2819,135 @@ have their own tabs.
    each other; an app-module test pins the two lists together); sign-out opens the
    ADR-040 confirmation dialog. Rows without their own screen (theme, image quality…)
    open their parent screen — no scroll-to-row plumbing exists yet, and none was added.
+
+## ADR-076 — Double-booking warnings ignore marker-kind bookings (2026-09-10)
+
+**Status:** accepted.
+
+**Context.** ADR-041 introduced MARKER-kind event types (Lagan/Tilak auspicious days):
+calendar-only rows with no customer/payments meaning. The non-blocking double-booking
+warning (§4.1) still counted them as occupancy — creating a real booking on a Lagan day
+warned about a "conflict" that isn't one, and creating the marker itself warned about
+the real bookings it landed on.
+
+**Decision.**
+1. **Conflict counters count only booking-kind, non-cancelled, live rows.** The add/edit
+   form's `conflictCount` and the restore path's `restoreConflictCount` (ADR-054) now
+   fetch the range's bookings (`bookingsBetween`) and filter in Kotlin with the shared
+   `EventTypeKinds.isMarker` normalized-label resolution — the same single contract the
+   calendar cells and reports use, deliberately NOT duplicated into SQL (SQLite `LOWER`
+   is ASCII-only; the Kotlin normalization is the source of truth). A free-text type
+   matching a live marker preset counts as a marker; an unmatched type stays a real
+   booking (never silently demoted, per ADR-041).
+2. **A marker being created/edited/restored never triggers the warning** — it is not a
+   booking, so there is nothing to conflict with (`isMarkerType`/preset resolution
+   short-circuits to zero).
+3. `BookingRepository.countBookingsOn` remains on the frozen contract (unchanged
+   semantics) but no longer feeds the conflict counters.
+
+**Consequences.** Marker days behave as pure calendar annotations; real double-bookings
+still warn (counting only the real bookings sharing the dates). The editing-booking
+self-exclusion moved from count-subtraction to an id filter — same behavior, simpler.
+
+## ADR-077 — NOTES module: Keep-style notes tab (2026-09-10)
+
+**Status:** accepted.
+
+**Context.** Venue owners keep operational notes (vendor lists, checklists, day plans)
+outside the app. Shared migration `005_notes.sql` (samaroh-shared) created `notes`,
+`note_tags` and `note_tag_links` with a new `notes` permission module
+(view/create/edit/delete — no amounts, so no `view_amounts` key); the Android app gains
+a fifth bottom tab with a Keep-style UI.
+
+**Decision.**
+1. **Contract extensions (additive).**
+   - `core:model`: `Note` (kind note|checklist, title/content, `checklist` as a
+     `List<NoteChecklistItem>` — ONE LWW jsonb blob per note, never child rows —
+     `color` = booking-colors key, `pinned`, `status` active|completed|trashed,
+     `completedAt`/`trashedAt`), `NoteTag`, `NoteTagLink` (SOFT links: untag sets
+     `deleted_at`, retag clears it), `NoteStatus` (strict wire enum), `NoteKind`
+     (tolerant — unknown → NOTE, like `EventTypeKind`), and
+     `MemberPermissions.notes: NotesPermissions` between inventory and reports
+     (mirrors the schema; presets: Viewer=view, Staff=view+create, Manager=all).
+     The matrix editor derives the new rows automatically from the JSON projection;
+     only the group label needed a mapping (`notes.permission.group`).
+   - `core:database` v11 → v12 (`MIGRATION_11_12`): the three tables; instants as
+     epoch-millis, the checklist as the wire JSON document (TEXT), wire-string enums.
+     `note_tag_links` keeps its composite PK `(note_id, tag_id)`.
+   - `core:data`: new `NotesRepository` (+ Room impl): live per-business flows for
+     notes/tags/links, `saveNote`/`saveTag`/`saveTagLink` (Room + outbox in one step),
+     `purgeNote` (tombstone + DELETE push) and `purgeTrashedBefore` for the sweep.
+2. **Sync wiring, incl. FIRST composite-PK table.** `SyncTables` gains `notes`
+   (enum-cased `status`+`kind`; the checklist jsonb passes through `WireConverter`
+   untouched), `note_tags`, and `note_tag_links` with a new `idColumn2` spec field:
+   the keyset pull orders/filters by `(updated_at, note_id, tag_id)` — with a two-column
+   PK the single id tie-breaker is not unique (bulk tag writes share one trigger
+   timestamp AND one note_id), so a page boundary inside such a tie block would skip
+   rows without the third leg (the ADR-024/060 lesson). The sync entity id of such rows
+   is `"noteId|tagId"` ('|' never appears in uuids); repositories enqueue the same
+   composite string so LWW matching holds. Links are NEVER hard-deleted or DELETE-op'd
+   (soft links only), so `updateTombstone` stays single-column. `completed_at`/
+   `trashed_at` joined `WireConverter`'s timestamp normalization; `titleOf` learned
+   `title` for conflict notifications.
+3. **Lifecycle semantics.** Trash/restore/complete/pin are `notes.edit`-gated status
+   UPDATEs (matches the RLS mapping — RLS can't see which column an UPDATE touches).
+   Delete on an active/completed note → Trash (`trashed_at` stamped). `notes.delete`
+   gates "delete forever" (Trash purge with confirmation) AND the client-side 30-day
+   sweep: `NotesTrashSweeper` hard-tombstones live TRASHED notes older than 30 days,
+   running as a `PostSyncHook` (multibound — covers app start via the startup sync
+   nudge) and on Notes-tab open (covers offline-only installs). Purge = tombstone;
+   synced rows are never hard-deleted (§8).
+4. **UI (feature:notes, single destination).** Hamburger DRAWER (Notes / Completed /
+   Trash / divider / tag list as filters), live search over title+content+checklist
+   items+tag names, pinned-section-first staggered 2-column card grid (card colour =
+   booking-colors palette; checklist previews with inline, edit-gated checkbox toggles;
+   tag chips), TWO bottom create buttons ("Create note" / "Create checklist") in the
+   expenses gave/got bar shape, and the note POPUP dialog: view mode (Share via
+   plain-text `ACTION_SEND` incl. `[x]`/`[ ]` checklist state, Edit, Complete/Restore,
+   Delete, pin toggle) and edit mode (title, body or checklist add/toggle/remove/
+   move-up, `ColorSwatchPicker` reuse, tag chips with type-ahead filter + create-on-
+   the-fly that reuses live names case-insensitively). Every mutation is
+   permission-gated in the ViewModel too; a view-only member gets a Share-only popup.
+5. **Tab gating.** `NavPermissions` adds the Notes route (hidden without `notes.view`,
+   between Inventory and Menu); `NotesSession` mirrors `ExpensesSession` (owners pass,
+   signed-out/offline keeps owner-mode).
+
+**Consequences.** The fifth tab ships offline-first like every module. The `idColumn2`
+engine extension is generic — future composite-PK tables reuse it. The web track owns
+the same schema; nothing here is Android-specific on the wire.
+
+## ADR-078 — "Create invoice" share-sheet target (2026-09-10)
+
+**Status:** accepted.
+
+**Context.** Owners receive supplier invoices as WhatsApp images/PDFs and re-enter them
+manually. Sharing the file straight into the expenses add-entry flow removes the
+re-picking dance.
+
+**Decision.**
+1. **Manifest activity-alias** `.CreateInvoiceShareTarget` (targets the singleTask
+   `MainActivity`, localized label `expenses.share_target.label`) with an `ACTION_SEND`
+   filter for `image/*` + `application/pdf` — an alias so the share sheet shows its own
+   label without a second activity.
+2. **Routing.** `ShareTargetIntents.parse` (testable) re-validates the intent (SEND +
+   `EXTRA_STREAM` + image/PDF mime, resolver-resolved when the sender declared a
+   wildcard) on cold start (`onCreate`) and warm delivery (`onNewIntent`). The file
+   parks in the one-shot process singleton `ShareTargetHolder` (a content uri survives
+   neither nav-arg encoding nor process death, and the read grant is process-scoped);
+   the shell lands on the Expenses tab and the feature graph opens the party picker.
+3. **Gates.** The picker REQUIRES a signed-in session AND `expenses.create` (owners
+   pass) — unlike the in-app owner-mode default, a signed-out device gets the graceful
+   `share_target.signed_out` message, a permission-less member `share_target.no_permission`.
+4. **Party picker** ("Who is this invoice for?"): the business's parties with the same
+   `FuzzyNameMatcher` normalized type-ahead the home list/add-person flow uses; picking
+   navigates to add-entry (direction PAID — an invoice to pay) with a `fromShare` flag.
+5. **Prefill.** `AddEntryViewModel` consumes the holder when `fromShare` is set and
+   pushes the file through the EXACT existing picked-attachment pipeline
+   (`AttachmentCompressor` → staged chip → save → metadata row + Drive upload queue).
+   Consuming clears the holder so a later plain add-entry never re-attaches a stale
+   share; abandoning the picker clears it too.
+
+**Consequences.** The system share sheet gains a Samaroh "Create invoice" entry for
+images and PDFs everywhere (Photos, Files, chat apps). Pre-onboarding shares simply
+open the app to onboarding — no crash path; everything downstream reuses ADR-050/052
+attachment behavior unchanged.
