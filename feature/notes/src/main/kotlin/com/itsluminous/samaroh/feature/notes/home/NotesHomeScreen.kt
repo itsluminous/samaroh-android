@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
@@ -178,6 +180,9 @@ fun NotesHomeScreen(
     }
 }
 
+/** Cap for the notes drawer width — 70% of the screen (owner feedback: full-width drawer). */
+private const val DRAWER_WIDTH_FRACTION = 0.7f
+
 @Composable
 private fun NotesDrawer(
     state: NotesHomeState,
@@ -185,61 +190,65 @@ private fun NotesDrawer(
     onTag: (String) -> Unit,
     onManageTags: () -> Unit,
 ) {
-    ModalDrawerSheet {
-        Spacer(modifier = Modifier.height(12.dp))
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.notes_drawer_notes)) },
-            icon = { Icon(Icons.AutoMirrored.Filled.StickyNote2, contentDescription = null) },
-            selected = state.section == NotesSection.NOTES && state.selectedTagId == null,
-            onClick = { onSection(NotesSection.NOTES) },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.notes_drawer_completed)) },
-            icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
-            selected = state.section == NotesSection.COMPLETED,
-            onClick = { onSection(NotesSection.COMPLETED) },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.notes_drawer_trash)) },
-            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-            selected = state.section == NotesSection.TRASH,
-            onClick = { onSection(NotesSection.TRASH) },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        if (state.tags.isNotEmpty()) {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(start = 28.dp, end = 12.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.notes_drawer_tags_header),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f).padding(vertical = 4.dp),
-                )
-                // Manage tags (feedback batch): rename/delete surface, notes.edit-gated.
-                if (state.canEdit) {
-                    ExplainableIcon(
-                        icon = Icons.Filled.Edit,
-                        explanationRes = R.string.notes_tags_manage_open,
-                        onClick = onManageTags,
+    // Owner feedback: the drawer used to span nearly the full screen; cap it at 70%
+    // of the screen width (M3 look kept, content scrolls when it overflows).
+    ModalDrawerSheet(modifier = Modifier.fillMaxWidth(DRAWER_WIDTH_FRACTION)) {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Spacer(modifier = Modifier.height(12.dp))
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.notes_drawer_notes)) },
+                icon = { Icon(Icons.AutoMirrored.Filled.StickyNote2, contentDescription = null) },
+                selected = state.section == NotesSection.NOTES && state.selectedTagId == null,
+                onClick = { onSection(NotesSection.NOTES) },
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.notes_drawer_completed)) },
+                icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                selected = state.section == NotesSection.COMPLETED,
+                onClick = { onSection(NotesSection.COMPLETED) },
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.notes_drawer_trash)) },
+                icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                selected = state.section == NotesSection.TRASH,
+                onClick = { onSection(NotesSection.TRASH) },
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            if (state.tags.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(start = 28.dp, end = 12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.notes_drawer_tags_header),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                    )
+                    // Manage tags (feedback batch): rename/delete surface, notes.edit-gated.
+                    if (state.canEdit) {
+                        ExplainableIcon(
+                            icon = Icons.Filled.Edit,
+                            explanationRes = R.string.notes_tags_manage_open,
+                            onClick = onManageTags,
+                        )
+                    }
+                }
+                state.tags.forEach { tag ->
+                    NavigationDrawerItem(
+                        label = { Text(tag.name) },
+                        icon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
+                        selected = state.selectedTagId == tag.id,
+                        onClick = { onTag(tag.id) },
+                        modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
             }
-            state.tags.forEach { tag ->
-                NavigationDrawerItem(
-                    label = { Text(tag.name) },
-                    icon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
-                    selected = state.selectedTagId == tag.id,
-                    onClick = { onTag(tag.id) },
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
-            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
