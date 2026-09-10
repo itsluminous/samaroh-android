@@ -82,4 +82,62 @@ class NotesFilterTest {
         assertThat(pinned.map { it.note.id }).containsExactly("n-list")
         assertThat(others.map { it.note.id }).containsExactly("n-active")
     }
+
+    // ---- tag type-ahead suggestions (ADR-079) ----
+
+    private fun suggestionTags() =
+        listOf(
+            tagFixture("t-urgent", "Urgent"),
+            tagFixture("t-shopping", "Shopping"),
+            tagFixture("t-shop-fittings", "Shop fittings"),
+            tagFixture("t-staff", "Staff"),
+        )
+
+    @Test
+    fun `blank tag query suggests nothing - never a full listing`() {
+        assertThat(NotesFilter.tagSuggestions(suggestionTags(), emptySet(), "")).isEmpty()
+        assertThat(NotesFilter.tagSuggestions(suggestionTags(), emptySet(), "   ")).isEmpty()
+    }
+
+    @Test
+    fun `tag suggestions match name substrings case-insensitively`() {
+        assertThat(NotesFilter.tagSuggestions(suggestionTags(), emptySet(), "SHOP").map { it.id })
+            .containsExactly("t-shopping", "t-shop-fittings")
+            .inOrder()
+        assertThat(NotesFilter.tagSuggestions(suggestionTags(), emptySet(), "urg").map { it.id })
+            .containsExactly("t-urgent")
+    }
+
+    @Test
+    fun `tag suggestions exclude already-selected tags`() {
+        assertThat(
+            NotesFilter.tagSuggestions(suggestionTags(), setOf("t-shopping"), "shop").map { it.id },
+        ).containsExactly("t-shop-fittings")
+    }
+
+    @Test
+    fun `tag suggestions respect the limit`() {
+        val many = (1..20).map { tagFixture("t-$it", "Tag $it") }
+        assertThat(NotesFilter.tagSuggestions(many, emptySet(), "Tag")).hasSize(NotesFilter.TAG_SUGGESTION_LIMIT)
+        assertThat(NotesFilter.tagSuggestions(many, emptySet(), "Tag", limit = 3)).hasSize(3)
+    }
+
+    // ---- checklist preview (phantom-row guard, ADR-079) ----
+
+    @Test
+    fun `checklist preview drops blank-text items`() {
+        val note =
+            noteFixture(
+                id = "n-preview",
+                kind = NoteKind.CHECKLIST,
+                checklist =
+                    listOf(
+                        NoteChecklistItem("i-1", "Milk", done = false),
+                        NoteChecklistItem("i-2", "", done = false),
+                        NoteChecklistItem("i-3", "  ", done = true),
+                        NoteChecklistItem("i-4", "Diyas", done = true),
+                    ),
+            )
+        assertThat(NotesFilter.checklistPreview(note).map { it.id }).containsExactly("i-1", "i-4").inOrder()
+    }
 }

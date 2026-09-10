@@ -60,8 +60,21 @@ data class NoteEditorState(
     val status: NoteStatus = NoteStatus.ACTIVE,
     /** Live tag selection of the note (edit mode diffs it into link upserts on save). */
     val tagIds: Set<String> = emptySet(),
-    /** The tag row's type-ahead text (filters existing tags; "New tag" creates it). */
+    /** The tag row's type-ahead text as typed (the field value, updated per keystroke). */
     val tagQuery: String = "",
+    /** The debounced tag query (fires ~300 ms after typing pauses) driving suggestions. */
+    val debouncedTagQuery: String = "",
+)
+
+/** The manage-tags dialog's state (rename buffer + delete confirmation). */
+data class ManageTagsState(
+    /** Tag currently being renamed inline; null = no rename in progress. */
+    val renameTagId: String? = null,
+    val renameValue: String = "",
+    /** True when the entered rename duplicates another live tag (case-insensitive). */
+    val renameDuplicate: Boolean = false,
+    /** Tag id pending the delete confirmation dialog (shows the linked-note count). */
+    val confirmDeleteTagId: String? = null,
 )
 
 data class NotesHomeState(
@@ -75,12 +88,16 @@ data class NotesHomeState(
     /** Whether ANY note exists in the section pre-search (drives which empty state shows). */
     val sectionHasNotes: Boolean = false,
     val tags: List<NoteTag> = emptyList(),
+    /** Live linked-note count per tag id (the delete confirmation's N). */
+    val tagLinkCounts: Map<String, Int> = emptyMap(),
     val canCreate: Boolean = true,
     val canEdit: Boolean = true,
     val canDelete: Boolean = true,
     val editor: NoteEditorState? = null,
     /** Note id pending the delete-forever confirmation dialog (Trash only). */
     val confirmPurgeId: String? = null,
+    /** The manage-tags dialog; null = closed. */
+    val manageTags: ManageTagsState? = null,
 )
 
 /** One-shot UI events. */
@@ -107,6 +124,7 @@ class NotesHomeViewModel
         private val searchQuery = MutableStateFlow("")
         private val editor = MutableStateFlow<NoteEditorState?>(null)
         private val confirmPurgeId = MutableStateFlow<String?>(null)
+        private val manageTags = MutableStateFlow<ManageTagsState?>(null)
 
         private val events = Channel<NotesEvent>(Channel.BUFFERED)
         val eventFlow: Flow<NotesEvent> = events.receiveAsFlow()
@@ -148,10 +166,10 @@ class NotesHomeViewModel
                 notesData,
                 combine(section, selectedTagId, searchQuery) { s, t, q -> Triple(s, t, q) },
                 gates,
-                editor,
-                confirmPurgeId,
-            ) { data, filters, gates, editorState, purgeId ->
+                combine(editor, confirmPurgeId, manageTags) { e, p, m -> Triple(e, p, m) },
+            ) { data, filters, gates, dialogs ->
                 val (currentSection, tagId, query) = filters
+                val (editorState, purgeId, manageState) = dialogs
                 // The tag filter only shapes the main list; Completed/Trash show all.
                 val effectiveTag = tagId.takeIf { currentSection == NotesSection.NOTES }
                 val visible = NotesFilter.visible(data.cards, currentSection, effectiveTag, query)
@@ -165,11 +183,13 @@ class NotesHomeViewModel
                     others = others,
                     sectionHasNotes = data.cards.any { NotesFilter.sectionOf(it.note) == currentSection },
                     tags = data.tags,
+                    tagLinkCounts = data.links.groupBy { it.tagId }.mapValues { (_, links) -> links.map { it.noteId }.distinct().size },
                     canCreate = gates.first,
                     canEdit = gates.second,
                     canDelete = gates.third,
                     editor = editorState,
                     confirmPurgeId = purgeId,
+                    manageTags = manageState,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotesHomeState())
 
@@ -256,24 +276,40 @@ class NotesHomeViewModel
 
         fun setTagQuery(value: String) = editor.update { it?.copy(tagQuery = value) }
 
+        /** Debounced type-ahead query (fired by the field ~300 ms after typing pauses). */
+        fun setDebouncedTagQuery(value: String) = editor.update { it?.copy(debouncedTagQuery = value) }
+
         /** Toggle an existing tag on the note being edited. */
         fun toggleEditorTag(tagId: String) =
             editor.update { state ->
                 state?.copy(
                     tagIds = if (tagId in state.tagIds) state.tagIds - tagId else state.tagIds + tagId,
                     tagQuery = "",
+                    debouncedTagQuery = "",
                 )
             }
 
         /**
-         * "New tag" (create on the fly, ADR-077): persists the tag immediately (the
-         * type-ahead lists it live) and selects it on the note being edited. Reuses a
-         * live tag whose name matches case-insensitively — names are unique per
-         * business among live rows.
+         * A type-ahead suggestion tap: selects the live tag with that name, or creates
+         * it on the fly when none matches (the Create "x" suggestion path).
          */
-        fun createTagFromQuery() {
-            val current = editor.value ?: return
-            val name = current.tagQuery.trim()
+        fun selectTagSuggestion(name: String) {
+            val existing = state.value.tags.firstOrNull { it.name.equals(name.trim(), ignoreCase = true) }
+            if (existing != null) {
+                editor.update { it?.copy(tagIds = it.tagIds + existing.id, tagQuery = "", debouncedTagQuery = "") }
+            } else {
+                createTagNamed(name)
+            }
+        }
+
+        /**
+         * Create-on-the-fly (ADR-077): persists the tag immediately and selects it on
+         * the note being edited. Reuses a live tag whose name matches
+         * case-insensitively — names are unique per business among live rows.
+         */
+        fun createTagNamed(rawName: String) {
+            if (editor.value == null) return
+            val name = rawName.trim()
             if (name.isEmpty()) return
             if (!state.value.canEdit && !state.value.canCreate) return
             viewModelScope.launch {
@@ -287,7 +323,90 @@ class NotesHomeViewModel
                         createdAt = clock.instant(),
                         updatedAt = clock.instant(),
                     ).also { repository.saveTag(it) }
-                editor.update { it?.copy(tagIds = it.tagIds + tag.id, tagQuery = "") }
+                editor.update { it?.copy(tagIds = it.tagIds + tag.id, tagQuery = "", debouncedTagQuery = "") }
+            }
+        }
+
+        /** Legacy entry point (pre-type-ahead "New tag" button); creates from the typed text. */
+        fun createTagFromQuery() {
+            val name = editor.value?.tagQuery?.trim() ?: return
+            createTagNamed(name)
+        }
+
+        // ---- manage tags (drawer surface: rename + delete, notes.edit-gated) ----
+
+        fun openManageTags() {
+            if (!state.value.canEdit) return
+            manageTags.value = ManageTagsState()
+        }
+
+        fun dismissManageTags() {
+            manageTags.value = null
+        }
+
+        /** Start renaming a tag inline (prefills the current name). */
+        fun startRenameTag(tagId: String) {
+            val tag = state.value.tags.firstOrNull { it.id == tagId } ?: return
+            manageTags.update { it?.copy(renameTagId = tagId, renameValue = tag.name, renameDuplicate = false) }
+        }
+
+        fun setRenameValue(value: String) = manageTags.update { it?.copy(renameValue = value, renameDuplicate = false) }
+
+        fun cancelRenameTag() = manageTags.update { it?.copy(renameTagId = null, renameValue = "", renameDuplicate = false) }
+
+        /**
+         * Commit a rename: rejected with an inline duplicate error when another live
+         * tag already carries the name (case-insensitive — live names are unique per
+         * business); a blank or unchanged name is a no-op close.
+         */
+        fun confirmRenameTag() {
+            val manage = manageTags.value ?: return
+            val tagId = manage.renameTagId ?: return
+            if (!state.value.canEdit) return
+            val tag = state.value.tags.firstOrNull { it.id == tagId } ?: return
+            val name = manage.renameValue.trim()
+            if (name.isEmpty() || name == tag.name) {
+                cancelRenameTag()
+                return
+            }
+            val duplicate =
+                state.value.tags.any { it.id != tagId && it.name.equals(name, ignoreCase = true) }
+            if (duplicate) {
+                manageTags.update { it?.copy(renameDuplicate = true) }
+                return
+            }
+            viewModelScope.launch {
+                repository.saveTag(tag.copy(name = name, updatedAt = clock.instant()))
+                cancelRenameTag()
+            }
+        }
+
+        fun requestDeleteTag(tagId: String) {
+            if (!state.value.canEdit) return
+            manageTags.update { it?.copy(confirmDeleteTagId = tagId) }
+        }
+
+        fun dismissDeleteTag() = manageTags.update { it?.copy(confirmDeleteTagId = null) }
+
+        /**
+         * Confirmed tag delete: tombstones the tag AND soft-unlinks every live link
+         * (notes themselves untouched). Clears an active drawer filter on that tag.
+         */
+        fun confirmDeleteTag() {
+            val tagId = manageTags.value?.confirmDeleteTagId ?: return
+            manageTags.update { it?.copy(confirmDeleteTagId = null) }
+            if (!state.value.canEdit) return
+            viewModelScope.launch {
+                val businessId = session.businessId() ?: return@launch
+                val tag = repository.tags(businessId).first().firstOrNull { it.id == tagId } ?: return@launch
+                val now = clock.instant()
+                repository.tagLinks(businessId).first().filter { it.tagId == tagId }.forEach { link ->
+                    repository.saveTagLink(link.copy(updatedAt = now, deletedAt = now))
+                }
+                repository.saveTag(tag.copy(updatedAt = now, deletedAt = now))
+                if (selectedTagId.value == tagId) selectedTagId.value = null
+                // Drop the deleted tag from an open editor's selection buffer too.
+                editor.update { it?.copy(tagIds = it.tagIds - tagId) }
             }
         }
 
@@ -298,6 +417,17 @@ class NotesHomeViewModel
             val creating = current.noteId == null
             if (creating && !state.value.canCreate) return
             if (!creating && !state.value.canEdit) return
+            // PHANTOM-CARD GUARD: a brand-new note with no title, no content and no
+            // non-blank checklist item would render as an empty grey card in the grid —
+            // treat Save as a dismiss instead of persisting an empty husk.
+            val hasSubstance =
+                current.title.isNotBlank() ||
+                    (current.kind == NoteKind.NOTE && current.content.isNotBlank()) ||
+                    (current.kind == NoteKind.CHECKLIST && current.items.any { it.text.isNotBlank() })
+            if (creating && !hasSubstance) {
+                editor.value = null
+                return
+            }
             viewModelScope.launch {
                 val businessId = session.businessId() ?: return@launch
                 val userId = session.userId() ?: return@launch

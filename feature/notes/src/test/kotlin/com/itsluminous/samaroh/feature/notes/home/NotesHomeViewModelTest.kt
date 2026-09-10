@@ -328,6 +328,145 @@ class NotesHomeViewModelTest {
                 cancelAndIgnoreRemainingEvents()
             }
         }
+
+    // ---- feedback batch (ADR-079) ----
+
+    @Test
+    fun `saving an empty new note or checklist dismisses without persisting`() =
+        runTest {
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                // Empty plain note.
+                vm.startCreate(NoteKind.NOTE)
+                awaitItemMatching { it.editor != null }
+                vm.saveEditor()
+                awaitItemMatching { it.editor == null }
+                assertThat(repository.notesFlow.value).isEmpty()
+
+                // Checklist whose only rows are blank.
+                vm.startCreate(NoteKind.CHECKLIST)
+                awaitItemMatching { it.editor != null }
+                vm.addChecklistItem()
+                vm.saveEditor()
+                awaitItemMatching { it.editor == null }
+                assertThat(repository.notesFlow.value).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `selectTagSuggestion picks an existing tag by name or creates a new one`() =
+        runTest {
+            repository.tagsFlow.value = listOf(tagFixture("t-1", "Vendors"))
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.tags.isNotEmpty() }
+                vm.startCreate(NoteKind.NOTE)
+                awaitItemMatching { it.editor != null }
+
+                // Existing name (case-insensitive) selects, never duplicates.
+                vm.setTagQuery("vendors")
+                vm.selectTagSuggestion("vendors")
+                awaitItemMatching { it.editor?.tagIds == setOf("t-1") && it.editor?.tagQuery == "" }
+                assertThat(repository.tagsFlow.value).hasSize(1)
+
+                // Unknown name creates on the fly and selects it.
+                vm.setTagQuery("Urgent")
+                vm.selectTagSuggestion("Urgent")
+                val state = awaitItemMatching { it.editor?.tagIds?.size == 2 }
+                val created = repository.tagsFlow.value.single { it.name == "Urgent" }
+                assertThat(state.editor!!.tagIds).contains(created.id)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `rename tag rejects duplicates and commits unique names`() =
+        runTest {
+            repository.tagsFlow.value = listOf(tagFixture("t-1", "Vendors"), tagFixture("t-2", "Urgent"))
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.tags.size == 2 }
+                vm.openManageTags()
+                awaitItemMatching { it.manageTags != null }
+                vm.startRenameTag("t-2")
+                awaitItemMatching { it.manageTags?.renameTagId == "t-2" && it.manageTags?.renameValue == "Urgent" }
+
+                // Duplicate (case-insensitive) → inline error, nothing saved.
+                vm.setRenameValue("vendors")
+                vm.confirmRenameTag()
+                awaitItemMatching { it.manageTags?.renameDuplicate == true }
+                assertThat(
+                    repository.tagsFlow.value
+                        .single { it.id == "t-2" }
+                        .name,
+                ).isEqualTo("Urgent")
+
+                // Unique name commits and closes the rename row.
+                vm.setRenameValue("Suppliers")
+                vm.confirmRenameTag()
+                awaitItemMatching { it.manageTags?.renameTagId == null && it.tags.any { tag -> tag.name == "Suppliers" } }
+                assertThat(
+                    repository.tagsFlow.value
+                        .single { it.id == "t-2" }
+                        .name,
+                ).isEqualTo("Suppliers")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `delete tag exposes the linked count then tombstones the tag and its links only`() =
+        runTest {
+            repository.notesFlow.value = listOf(noteFixture("n-1"), noteFixture("n-2"))
+            repository.tagsFlow.value = listOf(tagFixture("t-1", "Vendors"))
+            repository.linksFlow.value = listOf(linkFixture("n-1", "t-1"), linkFixture("n-2", "t-1"))
+            val vm = viewModel()
+            vm.state.test {
+                // The confirmation dialog's N: two live linked notes.
+                awaitItemMatching { it.loaded && it.tagLinkCounts["t-1"] == 2 }
+                vm.openManageTags()
+                awaitItemMatching { it.manageTags != null }
+                vm.requestDeleteTag("t-1")
+                awaitItemMatching { it.manageTags?.confirmDeleteTagId == "t-1" }
+
+                vm.confirmDeleteTag()
+                awaitItemMatching { it.tags.isEmpty() }
+
+                // Tag + links tombstoned; the notes themselves untouched.
+                assertThat(
+                    repository.tagsFlow.value
+                        .single()
+                        .deletedAt,
+                ).isNotNull()
+                assertThat(repository.linksFlow.value).hasSize(2)
+                repository.linksFlow.value.forEach { assertThat(it.deletedAt).isNotNull() }
+                assertThat(repository.notesFlow.value).hasSize(2)
+                repository.notesFlow.value.forEach { assertThat(it.deletedAt).isNull() }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `deleting the drawer-filtered tag clears the filter`() =
+        runTest {
+            repository.notesFlow.value = listOf(noteFixture("n-1"))
+            repository.tagsFlow.value = listOf(tagFixture("t-1", "Vendors"))
+            repository.linksFlow.value = listOf(linkFixture("n-1", "t-1"))
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.tags.isNotEmpty() }
+                vm.selectTag("t-1")
+                awaitItemMatching { it.selectedTagId == "t-1" }
+                vm.openManageTags()
+                vm.requestDeleteTag("t-1")
+                awaitItemMatching { it.manageTags?.confirmDeleteTagId == "t-1" }
+                vm.confirmDeleteTag()
+                awaitItemMatching { it.selectedTagId == null && it.tags.isEmpty() }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
 }
 
 private suspend fun <T> app.cash.turbine.TurbineTestContext<T>.awaitItemMatching(predicate: (T) -> Boolean): T {

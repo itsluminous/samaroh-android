@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.notes.domain
 
 import com.itsluminous.samaroh.core.model.Note
+import com.itsluminous.samaroh.core.model.NoteChecklistItem
 import com.itsluminous.samaroh.core.model.NoteStatus
 import com.itsluminous.samaroh.core.model.NoteTag
 import com.itsluminous.samaroh.core.model.NoteTagLink
@@ -68,6 +69,36 @@ object NotesFilter {
 
     /** Pinned cards first (grid section), then the rest — both keeping list order. */
     fun splitPinned(cards: List<NoteCardData>): Pair<List<NoteCardData>, List<NoteCardData>> = cards.partition { it.note.pinned }
+
+    /** Max tag suggestions the type-ahead dropdown offers at once. */
+    const val TAG_SUGGESTION_LIMIT = 8
+
+    /**
+     * Type-ahead tag suggestions: live tags whose name contains [query]
+     * (case-insensitive), excluding tags already selected on the note. A BLANK query
+     * suggests NOTHING — the editor never lists every existing tag (feedback batch);
+     * suggestions appear only as the user types.
+     */
+    fun tagSuggestions(
+        tags: List<NoteTag>,
+        selectedIds: Set<String>,
+        query: String,
+        limit: Int = TAG_SUGGESTION_LIMIT,
+    ): List<NoteTag> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        return tags
+            .filter { it.id !in selectedIds && it.name.contains(trimmed, ignoreCase = true) }
+            .take(limit)
+    }
+
+    /**
+     * Checklist items a note CARD/VIEW may preview: blank-text items are never
+     * rendered (they draw as empty phantom rows — feedback batch). Blank items can
+     * arrive via sync from other clients, so the render path filters defensively even
+     * though the save paths also strip them.
+     */
+    fun checklistPreview(note: Note): List<NoteChecklistItem> = note.checklist.filter { it.text.isNotBlank() }
 
     private fun matches(
         card: NoteCardData,

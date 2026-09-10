@@ -2951,3 +2951,42 @@ re-picking dance.
 images and PDFs everywhere (Photos, Files, chat apps). Pre-onboarding shares simply
 open the app to onboarding — no crash path; everything downstream reuses ADR-050/052
 attachment behavior unchanged.
+
+## ADR-079 — Notes feedback batch: compact dot picker, tag type-ahead, tag management, phantom-row guards (2026-09-10)
+
+**Status:** accepted.
+
+**Context.** Owner feedback on the notes tab (ADR-077): the 4-per-row swatch grid
+dwarfs the note editor; the tag row listed EVERY business tag; tags could not be
+renamed or deleted; and the notes grid showed grey empty "phantom" rows.
+
+**Decision.**
+1. **Compact colour dots** — `core:designsystem` gains `ColorSwatchDotsRow`, a compact
+   variant of `ColorSwatchPicker` (same `ColorSwatchEntry` contract, ADR-030/031
+   semantics): ONE horizontally scrollable row (ChipRow pattern) of 26dp visual dots
+   inside 48dp touch targets; selected = primary ring, effective default = thinner
+   secondary ring, Default keeps the slash vocabulary. Used by the NOTE editor and the
+   BOOKING form; the Menu event-type dialog keeps the grid variant. The note editor's
+   content field grows to `minLines = 8` with the freed space.
+2. **Tag type-ahead** — the note editor never lists all tags. `TypeAheadField`
+   (300 ms debounce) surfaces at most 8 matching live tags as the user types, plus a
+   `Create "x"` suggestion when no live tag matches exactly; chosen tags render as
+   removable `InputChip`s. Pure suggestion shaping lives in
+   `NotesFilter.tagSuggestions` (blank query → NO suggestions).
+3. **Tag management** — an edit icon next to the drawer's Tags header (notes.edit
+   gated) opens a manage-tags dialog: inline RENAME with case-insensitive
+   duplicate-name validation against live tags, and DELETE confirmed with the tag's
+   live linked-note count. Confirm tombstones the tag AND soft-unlinks its live links
+   (existing `saveTag`/`saveTagLink` upserts — no repository/DAO contract change);
+   notes stay untouched, active drawer filters on the tag clear.
+4. **Phantom-row guards** — blank-text checklist items never render in card previews
+   or the view popup (`NotesFilter.checklistPreview`); `RoomNotesRepository.saveNote`
+   strips blank items at the repository boundary (covers inline toggles and future
+   callers, plus divergent rows arriving from other clients get normalized on next
+   local save); and saving a brand-new note with no title, content or non-blank item
+   is a dismiss, not a persist (no empty grey cards).
+
+**Consequences.** Both colour pickers share one compact component; note/booking forms
+get their vertical space back. Blank checklist items become unrepresentable through
+Android save paths and invisible if synced in from elsewhere. Tag hygiene (rename/
+delete) no longer requires SQL.

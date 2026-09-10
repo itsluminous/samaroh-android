@@ -185,4 +185,29 @@ class RoomNotesRepositoryTest {
             assertThat(record.entityId).isEqualTo("expired")
             assertThat(record.operation).isEqualTo(OutboxOperation.DELETE)
         }
+
+    @Test
+    fun `saveNote strips blank checklist items from room and the outbox payload`() =
+        runTest {
+            // Phantom-card guard (ADR-079): blank-text items must never persist —
+            // regardless of which caller saved (editor, inline toggle, future paths).
+            val dirty =
+                note("n-blank").copy(
+                    checklist =
+                        listOf(
+                            NoteChecklistItem("i-1", "Milk", done = false),
+                            NoteChecklistItem("i-2", "", done = false),
+                            NoteChecklistItem("i-3", "   ", done = true),
+                            NoteChecklistItem("i-4", "Diyas", done = true),
+                        ),
+                )
+
+            repository.saveNote(dirty)
+
+            val saved = repository.note("n-blank")!!
+            assertThat(saved.checklist.map { it.id }).containsExactly("i-1", "i-4").inOrder()
+            val payload = Json.parseToJsonElement(outbox.records.single().payloadJson).jsonObject
+            assertThat(payload.getValue("checklist").toString()).doesNotContain("i-2")
+            assertThat(payload.getValue("checklist").toString()).doesNotContain("i-3")
+        }
 }

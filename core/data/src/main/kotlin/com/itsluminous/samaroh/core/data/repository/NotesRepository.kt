@@ -95,8 +95,13 @@ class RoomNotesRepository
             linkDao.linksForBusiness(businessId).map { list -> list.map { it.toModel() } }
 
         override suspend fun saveNote(note: Note) {
-            noteDao.upsert(note.toEntity())
-            outboxWriter.enqueue("notes", note.id, OutboxOperation.UPSERT, json.encodeToString(Note.serializer(), note))
+            // PHANTOM-CARD GUARD (feedback batch): blank-text checklist items must
+            // never persist — they render as empty rows in card previews. The editor
+            // strips them too, but EVERY save path (inline card toggles included)
+            // funnels through here, so normalize once at the repository boundary.
+            val normalized = note.copy(checklist = note.checklist.filter { it.text.isNotBlank() })
+            noteDao.upsert(normalized.toEntity())
+            outboxWriter.enqueue("notes", normalized.id, OutboxOperation.UPSERT, json.encodeToString(Note.serializer(), normalized))
         }
 
         override suspend fun purgeNote(id: String) {

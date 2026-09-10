@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -58,6 +59,7 @@ import com.itsluminous.samaroh.core.designsystem.component.parseHexColor
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.NoteKind
 import com.itsluminous.samaroh.feature.notes.domain.NoteCardData
+import com.itsluminous.samaroh.feature.notes.domain.NotesFilter
 import com.itsluminous.samaroh.feature.notes.domain.NotesSection
 import com.itsluminous.samaroh.feature.notes.share.NotesShare
 import kotlinx.coroutines.launch
@@ -99,6 +101,7 @@ fun NotesHomeScreen(
                     viewModel.selectTag(tagId)
                     scope.launch { drawerState.close() }
                 },
+                onManageTags = viewModel::openManageTags,
             )
         },
     ) {
@@ -170,6 +173,9 @@ fun NotesHomeScreen(
         )
     }
     state.confirmPurgeId?.let { PurgeConfirmDialog(viewModel) }
+    state.manageTags?.let { manage ->
+        ManageTagsDialog(manage = manage, state = state, viewModel = viewModel)
+    }
 }
 
 @Composable
@@ -177,6 +183,7 @@ private fun NotesDrawer(
     state: NotesHomeState,
     onSection: (NotesSection) -> Unit,
     onTag: (String) -> Unit,
+    onManageTags: () -> Unit,
 ) {
     ModalDrawerSheet {
         Spacer(modifier = Modifier.height(12.dp))
@@ -203,12 +210,25 @@ private fun NotesDrawer(
         )
         if (state.tags.isNotEmpty()) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            Text(
-                text = stringResource(R.string.notes_drawer_tags_header),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp),
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(start = 28.dp, end = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.notes_drawer_tags_header),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                )
+                // Manage tags (feedback batch): rename/delete surface, notes.edit-gated.
+                if (state.canEdit) {
+                    ExplainableIcon(
+                        icon = Icons.Filled.Edit,
+                        explanationRes = R.string.notes_tags_manage_open,
+                        onClick = onManageTags,
+                    )
+                }
+            }
             state.tags.forEach { tag ->
                 NavigationDrawerItem(
                     label = { Text(tag.name) },
@@ -333,7 +353,9 @@ private fun NoteCard(
                 }
             }
             if (card.note.kind == NoteKind.CHECKLIST) {
-                card.note.checklist.take(CARD_CHECKLIST_PREVIEW).forEach { item ->
+                // Blank-text items NEVER render (phantom empty rows — feedback batch).
+                val preview = NotesFilter.checklistPreview(card.note)
+                preview.take(CARD_CHECKLIST_PREVIEW).forEach { item ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // Inline toggle (ADR-077) — a no-op without notes.edit.
                         Checkbox(
@@ -353,7 +375,7 @@ private fun NoteCard(
                         )
                     }
                 }
-                val overflow = card.note.checklist.size - CARD_CHECKLIST_PREVIEW
+                val overflow = preview.size - CARD_CHECKLIST_PREVIEW
                 if (overflow > 0) {
                     Text(
                         text = "+$overflow",

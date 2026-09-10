@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,6 +20,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -33,13 +36,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
+import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchDotsRow
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchEntry
-import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchPicker
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.TypeAheadField
 import com.itsluminous.samaroh.core.designsystem.component.parseHexColor
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.NoteKind
 import com.itsluminous.samaroh.core.model.NoteStatus
+import com.itsluminous.samaroh.feature.notes.domain.NotesFilter
 
 /**
  * The note POPUP (ADR-077): a dialog that VIEWS a note (read-only body + actions row:
@@ -141,7 +146,8 @@ private fun ViewBody(
     viewModel: NotesHomeViewModel,
 ) {
     if (editor.kind == NoteKind.CHECKLIST) {
-        editor.items.forEach { item ->
+        // Blank-text items never render in the read-only popup (phantom-row guard).
+        editor.items.filter { it.text.isNotBlank() }.forEach { item ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Checkbox(
                     checked = item.done,
@@ -196,22 +202,24 @@ private fun EditBody(
             Text(stringResource(R.string.notes_editor_add_item), modifier = Modifier.padding(start = 4.dp))
         }
     } else {
+        // The note box is the editor's star (feedback batch): the compact dot picker
+        // freed vertical space — give it to the content field.
         OutlinedTextField(
             value = editor.content,
             onValueChange = viewModel::setEditorContent,
             label = { Text(stringResource(R.string.notes_editor_content_hint)) },
-            minLines = 3,
+            minLines = 8,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
     }
-    // Colour swatches (ADR-030 palette via the shared picker, ADR-077).
+    // Colour dots (ADR-030 palette; compact single-row variant — feedback batch).
     Text(
         text = stringResource(R.string.notes_picker_color_title),
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
     )
-    ColorSwatchPicker(
+    ColorSwatchDotsRow(
         entries =
             viewModel.bookingColorsProvider.colors.mapNotNull { color ->
                 val fill = parseHexColor(color.hex) ?: return@mapNotNull null
@@ -224,6 +232,7 @@ private fun EditBody(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TagsRow(
     editor: NoteEditorState,
@@ -245,35 +254,54 @@ private fun TagsRow(
         }
         return
     }
-    // Edit mode: every business tag as a toggle chip, filtered by the type-ahead text;
-    // "New tag" creates the typed name on the fly (ADR-077).
-    val query = editor.tagQuery.trim()
-    val suggestions = liveState.tags.filter { query.isEmpty() || it.name.contains(query, ignoreCase = true) }
-    ChipRow {
-        suggestions.forEach { tag ->
-            FilterChip(
-                selected = tag.id in editor.tagIds,
-                onClick = { viewModel.toggleEditorTag(tag.id) },
-                label = { Text(tag.name) },
-            )
-        }
-    }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-        OutlinedTextField(
-            value = editor.tagQuery,
-            onValueChange = viewModel::setTagQuery,
-            label = { Text(stringResource(R.string.notes_picker_tags_name_placeholder)) },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(
-            onClick = viewModel::createTagFromQuery,
-            enabled = query.isNotEmpty(),
-            modifier = Modifier.padding(start = 8.dp),
+    // Edit mode (feedback batch): the note's tags render as REMOVABLE chips; existing
+    // tags are found via a debounced TYPE-AHEAD (never a full listing) with a
+    // Create "x" suggestion for brand-new names.
+    if (selected.isNotEmpty()) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
         ) {
-            Text(stringResource(R.string.notes_picker_tags_new))
+            selected.forEach { tag ->
+                val removeName = stringResource(R.string.notes_picker_tags_remove, tag.name)
+                InputChip(
+                    selected = true,
+                    onClick = { viewModel.toggleEditorTag(tag.id) },
+                    label = { Text(tag.name) },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = removeName,
+                            modifier = Modifier.size(InputChipDefaults.IconSize),
+                        )
+                    },
+                )
+            }
         }
     }
+    val debounced = editor.debouncedTagQuery.trim()
+    val tagSuggestions = NotesFilter.tagSuggestions(liveState.tags, editor.tagIds, debounced)
+    // Offer Create "x" when the typed name matches no live tag exactly.
+    val offerCreate =
+        debounced.isNotEmpty() && liveState.tags.none { it.name.equals(debounced, ignoreCase = true) }
+    val createLabel = if (offerCreate) stringResource(R.string.notes_picker_tags_create, debounced) else null
+    val suggestionLabels = tagSuggestions.map { it.name } + listOfNotNull(createLabel)
+    TypeAheadField(
+        value = editor.tagQuery,
+        onValueChange = viewModel::setTagQuery,
+        suggestions = suggestionLabels,
+        onSuggestionSelected = { picked ->
+            if (picked == createLabel) {
+                viewModel.createTagNamed(debounced)
+            } else {
+                viewModel.selectTagSuggestion(picked)
+            }
+        },
+        onQueryDebounced = viewModel::setDebouncedTagQuery,
+        label = { Text(stringResource(R.string.notes_picker_tags_name_placeholder)) },
+        queryOnBlank = true,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+    )
 }
 
 @Composable
