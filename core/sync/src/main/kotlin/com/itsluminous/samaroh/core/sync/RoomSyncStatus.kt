@@ -9,8 +9,15 @@ import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
+import com.itsluminous.samaroh.core.database.dao.SyncCursorDao
+import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
+import com.itsluminous.samaroh.core.sync.wire.SyncTables
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,10 +32,12 @@ class RoomSyncStatus
     constructor(
         private val outboxDao: OutboxDao,
         private val conflictDao: SyncConflictDao,
+        private val cursorDao: SyncCursorDao,
         private val syncMetaStore: SyncMetaStore,
         private val syncScheduler: SyncScheduler,
         syncRunState: SyncRunState,
     ) : SyncStatus {
+        private val json = Json { ignoreUnknownKeys = true }
         override val pendingCount: Flow<Int> = outboxDao.pendingCount()
 
         override val isSyncing: Flow<Boolean> = syncRunState.isRunning
@@ -88,5 +97,35 @@ class RoomSyncStatus
 
         override suspend fun acknowledgeConflict(id: Long) {
             conflictDao.acknowledge(id)
+        }
+
+        /**
+         * ADR-080: remove one queued change AND drop its table's pull cursor so the
+         * next sync re-pulls the server's row over the diverged local state (the pull
+         * cursor has already passed the row, so without the reset the local divergence
+         * would persist until the row changes remotely). Re-applies are no-ops for
+         * identical rows (ADR-051), so the EPOCH re-pull is safe, just not free.
+         */
+        override suspend fun discardItem(outboxId: Long) {
+            val entry = outboxDao.entryById(outboxId) ?: return
+            outboxDao.remove(outboxId)
+            val spec = SyncTables.ALL.find { it.name == entry.entityType }
+            if (spec != null) {
+                val scope =
+                    if (spec.businessScoped) {
+                        runCatching {
+                            json
+                                .parseToJsonElement(entry.payloadJson)
+                                .jsonObject["business_id"]
+                                ?.takeIf { it !is JsonNull }
+                                ?.jsonPrimitive
+                                ?.content
+                        }.getOrNull()
+                    } else {
+                        SyncCursorEntity.GLOBAL_SCOPE
+                    }
+                if (scope != null) cursorDao.delete(scope, spec.name)
+            }
+            syncScheduler.requestImmediateSync()
         }
     }

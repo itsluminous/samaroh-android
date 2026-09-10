@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,8 +52,39 @@ fun SyncStatusScreen(
     viewModel: SyncStatusViewModel = hiltViewModel(),
 ) {
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
 
-    MenuScreenScaffold(titleRes = R.string.settings_sync_title, onBack = onBack) {
+    // The failed item pending discard confirmation (ADR-080); null = dialog closed.
+    var pendingDiscard by remember { mutableStateOf<SyncErrorRow?>(null) }
+    pendingDiscard?.let { row ->
+        AlertDialog(
+            onDismissRequest = { pendingDiscard = null },
+            title = { Text(stringResource(R.string.settings_sync_discard_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_sync_discard_confirm_message, row.display.line())) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.discardError(row.outboxId)
+                        pendingDiscard = null
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_sync_discard_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDiscard = null }) {
+                    Text(stringResource(R.string.common_action_cancel))
+                }
+            },
+        )
+    }
+
+    MenuScreenScaffold(
+        titleRes = R.string.settings_sync_title,
+        onBack = onBack,
+        messageRes = message,
+        onMessageShown = viewModel::onMessageShown,
+    ) {
         val current = status ?: return@MenuScreenScaffold
         val allClear = current.pending.isEmpty() && current.conflicts.isEmpty() && current.errors.isEmpty()
 
@@ -193,6 +225,11 @@ fun SyncStatusScreen(
                                         error.entityId,
                                     ),
                                 )
+                                // ADR-080: a permanently rejected change (e.g. RLS denial)
+                                // would retry forever — let the user discard it, confirmed.
+                                TextButton(onClick = { pendingDiscard = error }) {
+                                    Text(stringResource(R.string.settings_sync_discard_action))
+                                }
                             }
                         }
                     },

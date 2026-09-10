@@ -86,9 +86,12 @@ class FakeSessionHolder(
 class FakeSyncStatus(
     val pendingCountFlow: MutableStateFlow<Int> = MutableStateFlow(0),
 ) : SyncStatus {
+    val itemErrorsFlow = MutableStateFlow<List<SyncItemError>>(emptyList())
+    val discardedIds = mutableListOf<Long>()
+
     override val pendingCount: Flow<Int> = pendingCountFlow
     override val pendingItems: Flow<List<SyncPendingItem>> = MutableStateFlow(emptyList())
-    override val itemErrors: Flow<List<SyncItemError>> = MutableStateFlow(emptyList())
+    override val itemErrors: Flow<List<SyncItemError>> = itemErrorsFlow
     override val conflictLog: Flow<List<SyncConflictEntry>> = MutableStateFlow(emptyList())
     override val lastSyncTime: Flow<Instant?> = MutableStateFlow(null)
     override val hasUnacknowledgedConflicts: Flow<Boolean> = MutableStateFlow(false)
@@ -97,6 +100,11 @@ class FakeSyncStatus(
     override fun syncNow() = Unit
 
     override suspend fun acknowledgeConflict(id: Long) = Unit
+
+    override suspend fun discardItem(outboxId: Long) {
+        discardedIds += outboxId
+        itemErrorsFlow.value = itemErrorsFlow.value.filterNot { it.outboxId == outboxId }
+    }
 }
 
 class FakeSignOutCleaner : SignOutCleaner {

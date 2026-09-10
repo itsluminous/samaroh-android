@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.database.entity.SyncConflictEntity
+import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
 import com.itsluminous.samaroh.core.sync.engine.FIXED_NOW
 import com.itsluminous.samaroh.core.sync.engine.InMemorySyncMetaStore
 import com.itsluminous.samaroh.core.sync.engine.newTestDatabase
@@ -42,7 +43,15 @@ class RoomSyncStatusTest {
     fun setUp() {
         db = newTestDatabase()
         scheduler = RecordingScheduler()
-        status = RoomSyncStatus(db.outboxDao(), db.syncConflictDao(), InMemorySyncMetaStore(), scheduler, syncRunState)
+        status =
+            RoomSyncStatus(
+                db.outboxDao(),
+                db.syncConflictDao(),
+                db.syncCursorDao(),
+                InMemorySyncMetaStore(),
+                scheduler,
+                syncRunState,
+            )
     }
 
     @After
@@ -138,4 +147,100 @@ class RoomSyncStatusTest {
 
         assertThat(scheduler.immediateRequests).isEqualTo(1)
     }
+
+    @Test
+    fun `discardItem removes the outbox row, resets the table cursor and requests a sync`() =
+        runTest {
+            // A business-scoped table's cursor keyed by the payload's business_id.
+            db.syncCursorDao().upsert(
+                SyncCursorEntity(
+                    businessId = "biz-1",
+                    tableName = "business_settings",
+                    lastPulledAt = FIXED_NOW,
+                    lastPulledId = "biz-1",
+                    lastPulledRaw = FIXED_NOW.toString(),
+                ),
+            )
+            val id =
+                db.outboxDao().enqueue(
+                    OutboxEntity(
+                        entityType = "business_settings",
+                        entityId = "biz-1",
+                        operation = "upsert",
+                        payloadJson = """{"business_id":"biz-1","gcal_sync_enabled":true}""",
+                        createdAt = FIXED_NOW,
+                    ),
+                )
+            db.outboxDao().recordFailure(id, "row-level security violation")
+
+            status.discardItem(id)
+
+            assertThat(status.pendingCount.first()).isEqualTo(0)
+            assertThat(status.itemErrors.first()).isEmpty()
+            assertThat(db.syncCursorDao().cursor("biz-1", "business_settings")).isNull()
+            assertThat(scheduler.immediateRequests).isEqualTo(1)
+        }
+
+    @Test
+    fun `discardItem on a global table resets the global-scope cursor`() =
+        runTest {
+            db.syncCursorDao().upsert(
+                SyncCursorEntity(
+                    businessId = SyncCursorEntity.GLOBAL_SCOPE,
+                    tableName = "businesses",
+                    lastPulledAt = FIXED_NOW,
+                    lastPulledId = "biz-1",
+                    lastPulledRaw = FIXED_NOW.toString(),
+                ),
+            )
+            val id =
+                db.outboxDao().enqueue(
+                    OutboxEntity(
+                        entityType = "businesses",
+                        entityId = "biz-1",
+                        operation = "upsert",
+                        payloadJson = """{"id":"biz-1","name":"Renamed by a viewer"}""",
+                        createdAt = FIXED_NOW,
+                    ),
+                )
+            db.outboxDao().recordFailure(id, "row-level security violation")
+
+            status.discardItem(id)
+
+            assertThat(status.itemErrors.first()).isEmpty()
+            assertThat(db.syncCursorDao().cursor(SyncCursorEntity.GLOBAL_SCOPE, "businesses")).isNull()
+            assertThat(scheduler.immediateRequests).isEqualTo(1)
+        }
+
+    @Test
+    fun `discardItem leaves other queued items untouched and tolerates a missing id`() =
+        runTest {
+            val keep =
+                db.outboxDao().enqueue(
+                    OutboxEntity(
+                        entityType = "bookings",
+                        entityId = "b-1",
+                        operation = "upsert",
+                        payloadJson = """{"id":"b-1","business_id":"biz-1"}""",
+                        createdAt = FIXED_NOW,
+                    ),
+                )
+            val drop =
+                db.outboxDao().enqueue(
+                    OutboxEntity(
+                        entityType = "businesses",
+                        entityId = "biz-1",
+                        operation = "upsert",
+                        payloadJson = """{"id":"biz-1"}""",
+                        createdAt = FIXED_NOW,
+                    ),
+                )
+
+            status.discardItem(drop)
+            status.discardItem(drop + 999) // Unknown id: silent no-op, no crash.
+
+            val remaining = status.pendingItems.first()
+            assertThat(remaining).hasSize(1)
+            assertThat(remaining.single().outboxId).isEqualTo(keep)
+        }
 }

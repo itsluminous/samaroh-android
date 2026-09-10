@@ -100,4 +100,13 @@ interface SyncStatus {
 
     /** Marks a conflict as seen; clears the banner once all entries are acknowledged. */
     suspend fun acknowledgeConflict(id: Long)
+
+    /**
+     * Discards one queued outbox item (ADR-080) — the Sync status screen's
+     * "Discard change" action on a permanently rejected push (e.g. an RLS denial).
+     * Removes the outbox row and resets the entity's table pull cursor so the next
+     * sync re-pulls the server's version over the diverged local row. Additive
+     * extension of the frozen contract (same pattern as ADR-029's [isSyncing]).
+     */
+    suspend fun discardItem(outboxId: Long)
 }

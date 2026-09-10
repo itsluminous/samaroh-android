@@ -494,4 +494,8 @@ interface OutboxDao {
     /** Every queued op in push (FIFO) order — the Sync status pending list (ADR-022). */
     @Query("SELECT * FROM outbox ORDER BY id ASC")
     fun pendingEntries(): Flow<List<OutboxEntity>>
+
+    /** One queued op by id — resolves the discarded item's table for the cursor reset (ADR-080). */
+    @Query("SELECT * FROM outbox WHERE id = :id")
+    suspend fun entryById(id: Long): OutboxEntity?
 }

@@ -2990,3 +2990,50 @@ renamed or deleted; and the notes grid showed grey empty "phantom" rows.
 get their vertical space back. Blank checklist items become unrepresentable through
 Android save paths and invisible if synced in from elsewhere. Tag hygiene (rename/
 delete) no longer requires SQL.
+
+## ADR-080 — Business-profile editor permission gate + discardable failed sync items (2026-09-11)
+
+**Status:** accepted.
+
+**Context.** A viewer could open Settings → Business profile, edit and save: the local
+save "succeeded" (Room + outbox), then the push died with an RLS violation that sat in
+Sync status retrying forever. Two gaps: the profile editor was the ONE Settings write
+surface with no §3 layer-2 UI gate (gcal toggle, backup, event types and members were
+already gated — audited in this change), and a permanently rejected outbox item had no
+way out.
+
+**What.**
+
+1. **Profile editor gate.** `BusinessProfileViewModel` gains
+   `canEdit: StateFlow<Boolean?>` — owner or `settings.manage_business`, null until the
+   first permission emission (no editor flash — the ADR-038 pattern; signed-out/offline
+   stays owner-mode editable). `save()`/`setLogo()` refuse when not editable (defence in
+   depth). The screen renders a read-only label+value view of the same details plus a
+   localized hint (`settings.business.read_only_hint`) for everyone else — save button,
+   logo picker and editable fields are hidden entirely (hide, never grey, ADR-038).
+   `SettingsViewModel.setGcalSyncEnabled` / `setBackupFrequency` / `backUpNow` gain the
+   matching VM-level guards their UI gates already implied (parity with
+   `EventTypesViewModel`).
+
+2. **Discard change (frozen-contract additive extensions).** `SyncStatus` gains
+   `suspend fun discardItem(outboxId: Long)` (same additive pattern as ADR-029's
+   `isSyncing`); `OutboxDao` gains `entryById`; `SyncCursorDao` gains
+   `delete(businessId, tableName)`. The Sync status screen's error rows (expanded) offer
+   a localized **Discard change** action behind a confirmation dialog (reuses the web
+   track's `settings.sync.discard_confirm_title/_message` keys; snackbar
+   `settings.sync.discarded`). `RoomSyncStatus.discardItem` removes the outbox row,
+   **drops the entity's table pull cursor** (payload `business_id` scope, or the global
+   scope for unscoped tables) and requests an immediate sync: the pull cursor has already
+   passed the rejected row, so without the reset the diverged local row (the viewer's
+   phantom edit) would persist until the row next changed remotely. The EPOCH re-pull is
+   safe — identical rows re-apply as no-ops (ADR-051) — just not free; discard is a rare,
+   user-confirmed action.
+
+**Why hide instead of grey.** Owner requirement (§3): members must not see affordances
+they cannot use. Postgres RLS remains the authoritative layer; all of this is §3 layer 2.
+
+**Consequences.** Viewers see business details read-only and can no longer create doomed
+outbox rows from the profile editor; stuck RLS-rejected items are user-dismissable and
+the device converges back to the server's state on the next sync. One deliberate
+non-goal: discard does not try to surgically revert the local row itself — the cursor
+reset + re-pull is the single convergence mechanism.

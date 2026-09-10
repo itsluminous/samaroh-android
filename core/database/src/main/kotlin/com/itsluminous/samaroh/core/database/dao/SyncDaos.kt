@@ -24,6 +24,17 @@ interface SyncCursorDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(cursor: SyncCursorEntity)
+
+    /**
+     * Drops one table+scope cursor so the next sync re-pulls that table from EPOCH
+     * (ADR-080: converges a diverged local row after a queued change is discarded).
+     * Re-applies are cheap — identical rows are no-ops (ADR-051).
+     */
+    @Query("DELETE FROM sync_cursors WHERE business_id = :businessId AND table_name = :tableName")
+    suspend fun delete(
+        businessId: String,
+        tableName: String,
+    )
 }
 
 @Dao

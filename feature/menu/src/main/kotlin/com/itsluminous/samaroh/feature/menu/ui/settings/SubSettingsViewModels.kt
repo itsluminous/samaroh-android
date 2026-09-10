@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.reminders.ReminderTestFirer
 import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
+import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.data.ReminderStyle
 import com.itsluminous.samaroh.feature.menu.data.SettingsPreferencesDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -101,6 +103,14 @@ class SyncStatusViewModel
         private val syncStatus: SyncStatus,
         private val displayResolver: SyncEntryDisplayResolver,
     ) : ViewModel() {
+        /** One-shot snackbar message (string resource id) — e.g. "Change discarded" (ADR-080). */
+        private val _message = MutableStateFlow<Int?>(null)
+        val message: StateFlow<Int?> = _message
+
+        fun onMessageShown() {
+            _message.value = null
+        }
+
         val status: StateFlow<SyncStatusUiState?> =
             combine(
                 syncStatus.pendingItems,
@@ -142,5 +152,17 @@ class SyncStatusViewModel
 
         fun acknowledgeConflict(id: Long) {
             viewModelScope.launch { syncStatus.acknowledgeConflict(id) }
+        }
+
+        /**
+         * "Discard change" on a failed item (ADR-080): removes the queued op; the sync
+         * engine resets the table's pull cursor so the server's version re-pulls over
+         * the diverged local row. Confirmed in the UI before this is called.
+         */
+        fun discardError(outboxId: Long) {
+            viewModelScope.launch {
+                syncStatus.discardItem(outboxId)
+                _message.value = R.string.settings_sync_discarded
+            }
         }
     }

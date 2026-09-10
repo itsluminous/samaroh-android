@@ -245,6 +245,9 @@ class SettingsViewModel
 
         /** §4.1: enable → bulk push; disable → offer the remove-events option. */
         fun setGcalSyncEnabled(enabled: Boolean) {
+            // Defence in depth (ADR-080): owner / `settings.gcal_sync` only — the UI
+            // hides the toggle, this stops a doomed server write regardless.
+            if (!uiState.value.canToggleGcalSync) return
             val businessId = uiState.value.businessId ?: return
             viewModelScope.launch {
                 saveBusinessSettings(businessId) { it.copy(gcalSyncEnabled = enabled) }
@@ -265,6 +268,9 @@ class SettingsViewModel
         }
 
         fun setBackupFrequency(frequency: BackupFrequency) {
+            // Defence in depth (ADR-080): backups are OWNER-ONLY (§4.4) — the section is
+            // hidden otherwise; this stops the business_settings write regardless.
+            if (!uiState.value.isOwner) return
             val businessId = uiState.value.businessId ?: return
             viewModelScope.launch {
                 saveBusinessSettings(businessId) { it.copy(backupFrequency = frequency.wire) }
@@ -273,6 +279,7 @@ class SettingsViewModel
         }
 
         fun backUpNow() {
+            if (!uiState.value.isOwner) return
             val businessId = uiState.value.businessId ?: return
             backupScheduler.backUpNow(businessId)
             _message.value = R.string.settings_backup_started

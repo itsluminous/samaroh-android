@@ -122,6 +122,9 @@ class SettingsViewModelTest {
         runTest(dispatcherRule.dispatcher) {
             val collector = launch { viewModel.uiState.collect {} }
             runCurrent()
+            permissionGuard.permissionsFlow.value =
+                MemberPermissions(settings = SettingsPermissions(gcalSync = true))
+            runCurrent()
 
             viewModel.setGcalSyncEnabled(true)
             runCurrent()
@@ -133,9 +136,26 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `gcal toggle write is a no-op without the gcal_sync permission`() =
+        runTest(dispatcherRule.dispatcher) {
+            // ADR-080 defence in depth: the UI hides the toggle; the VM refuses anyway.
+            val collector = launch { viewModel.uiState.collect {} }
+            runCurrent()
+            assertThat(viewModel.uiState.value.canToggleGcalSync).isFalse()
+
+            viewModel.setGcalSyncEnabled(true)
+            runCurrent()
+
+            assertThat(businessRepository.settings(Fixtures.BUSINESS_ID).first()).isNull()
+            collector.cancel()
+        }
+
+    @Test
     fun `disabling gcal sync persists and offers the remove-events option`() =
         runTest(dispatcherRule.dispatcher) {
             val collector = launch { viewModel.uiState.collect {} }
+            runCurrent()
+            permissionGuard.ownerFlow.value = true
             runCurrent()
 
             viewModel.setGcalSyncEnabled(true)
@@ -170,12 +190,36 @@ class SettingsViewModelTest {
         runTest(dispatcherRule.dispatcher) {
             val collector = launch { viewModel.uiState.collect {} }
             runCurrent()
+            permissionGuard.ownerFlow.value = true
+            runCurrent()
 
             viewModel.setBackupFrequency(BackupFrequency.DAILY)
             runCurrent()
 
             assertThat(businessRepository.settings(Fixtures.BUSINESS_ID).first()?.backupFrequency).isEqualTo("daily")
             assertThat(viewModel.uiState.value.backupFrequency).isEqualTo(BackupFrequency.DAILY)
+            collector.cancel()
+        }
+
+    @Test
+    fun `backup writes are a no-op for non-owners`() =
+        runTest(dispatcherRule.dispatcher) {
+            // ADR-080 defence in depth: backups are owner-only (§4.4) — even with every
+            // settings permission granted, a member's backup write is refused.
+            val collector = launch { viewModel.uiState.collect {} }
+            runCurrent()
+            permissionGuard.permissionsFlow.value =
+                MemberPermissions(
+                    settings = SettingsPermissions(manageBusiness = true, manageMembers = true, gcalSync = true),
+                )
+            runCurrent()
+
+            viewModel.setBackupFrequency(BackupFrequency.WEEKLY)
+            viewModel.backUpNow()
+            runCurrent()
+
+            assertThat(businessRepository.settings(Fixtures.BUSINESS_ID).first()).isNull()
+            assertThat(viewModel.message.value).isNull()
             collector.cancel()
         }
 
