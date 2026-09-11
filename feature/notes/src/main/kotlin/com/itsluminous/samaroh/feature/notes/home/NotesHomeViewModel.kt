@@ -11,6 +11,7 @@ import com.itsluminous.samaroh.core.model.NoteStatus
 import com.itsluminous.samaroh.core.model.NoteTag
 import com.itsluminous.samaroh.core.model.NoteTagLink
 import com.itsluminous.samaroh.feature.notes.NotesSession
+import com.itsluminous.samaroh.feature.notes.domain.ChecklistReorder
 import com.itsluminous.samaroh.feature.notes.domain.NoteCardData
 import com.itsluminous.samaroh.feature.notes.domain.NotesFilter
 import com.itsluminous.samaroh.feature.notes.domain.NotesSection
@@ -261,18 +262,19 @@ class NotesHomeViewModel
 
         fun removeChecklistItem(itemId: String) = editor.update { state -> state?.copy(items = state.items.filterNot { it.id == itemId }) }
 
-        /** Simple reorder (ADR-077): move the item one position up. */
-        fun moveChecklistItemUp(itemId: String) =
-            editor.update { state ->
-                state ?: return@update null
-                val index = state.items.indexOfFirst { it.id == itemId }
-                if (index <= 0) return@update state
-                val items = state.items.toMutableList()
-                val above = items[index - 1]
-                items[index - 1] = items[index]
-                items[index] = above
-                state.copy(items = items)
-            }
+        /**
+         * Drag reorder (feedback batch, replaces ADR-077's move-up button): moves the
+         * item to [toIndex] (clamped). Fired by the editor's long-press-checkbox drag
+         * each time the dragged row crosses a neighbour's midpoint.
+         */
+        fun moveChecklistItem(
+            itemId: String,
+            toIndex: Int,
+        ) = editor.update { state ->
+            state ?: return@update null
+            val from = state.items.indexOfFirst { it.id == itemId }
+            state.copy(items = ChecklistReorder.move(state.items, from, toIndex))
+        }
 
         fun setTagQuery(value: String) = editor.update { it?.copy(tagQuery = value) }
 

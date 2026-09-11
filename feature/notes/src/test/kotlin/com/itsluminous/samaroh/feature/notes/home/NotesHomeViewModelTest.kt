@@ -99,8 +99,8 @@ class NotesHomeViewModelTest {
                 vm.setChecklistItemText(second, "Sugar")
                 vm.toggleEditorChecklistItem(second)
                 vm.addChecklistItem() // stays blank — dropped on save
-                // Simple reorder: move Sugar above Milk.
-                vm.moveChecklistItemUp(second)
+                // Drag reorder (ADR-081): move Sugar above Milk.
+                vm.moveChecklistItem(second, 0)
                 vm.saveEditor()
                 awaitItemMatching { it.editor == null && (it.pinned + it.others).isNotEmpty() }
 

@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
@@ -23,7 +24,9 @@ import androidx.compose.ui.unit.dp
  * app must use this wrapper. [explanationRes] doubles as the content description, so
  * TalkBack users get the same information.
  *
- * The touch target is 48dp minimum (§6) regardless of icon size.
+ * The default touch target is 48dp (§6). Dense per-row controls (e.g. the checklist
+ * item remove cross) may pass a smaller [targetSize]/[iconSize] pair when the default
+ * target makes rows cramped — keep compact targets ≥32dp.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -32,6 +35,8 @@ fun ExplainableIcon(
     @StringRes explanationRes: Int,
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    targetSize: Dp = 48.dp,
+    iconSize: Dp = 24.dp,
     onClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -39,7 +44,7 @@ fun ExplainableIcon(
     Box(
         modifier =
             modifier
-                .size(48.dp)
+                .size(targetSize)
                 .combinedClickable(
                     role = Role.Button,
                     onClick = { onClick?.invoke() },
@@ -51,7 +56,7 @@ fun ExplainableIcon(
             imageVector = icon,
             contentDescription = explanation,
             tint = tint,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(iconSize),
         )
     }
 }

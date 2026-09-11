@@ -3037,3 +3037,41 @@ outbox rows from the profile editor; stuck RLS-rejected items are user-dismissab
 the device converges back to the server's state on the next sync. One deliberate
 non-goal: discard does not try to surgically revert the local row itself — the cursor
 reset + re-pull is the single convergence mechanism.
+
+## ADR-081 — Note popup overhaul: wide dialog, create-mode pin removal, checklist drag reorder, compact remove cross (2026-09-11)
+
+**Status:** accepted.
+
+**Context.** Owner feedback on the note popup (ADR-077/079): the dialog feels cramped —
+the platform default width wastes screen, the create popup's pin icon crowds the header,
+the per-row move-up arrow + full-size remove cross eat checklist row width, and one-step
+move-up is a clumsy way to reorder.
+
+**Decision.**
+1. **Near-full-width dialog** — `NoteEditorDialog` sets
+   `DialogProperties(usePlatformDefaultWidth = false)` and sizes the surface at
+   `fillMaxWidth(0.95f)`: slim margins, materially wider text fields.
+2. **No pin in the CREATE popup** — the header's pin toggle renders only for existing
+   notes (`pinToggleVisible`: `canEdit && ACTIVE && noteId != null`); a new note always
+   starts unpinned. Remaining pin surfaces: the toggle in the view-mode popup and the
+   edit popup of an existing note (immediate vs buffered, unchanged from ADR-077), plus
+   the read-only pinned badge on grid cards and the pinned-first grid split.
+3. **Checklist drag reorder** — the move-up arrow is gone. LONG-PRESSING a row's
+   CHECKBOX picks the row up (`LongPress` haptic) via
+   `detectDragGesturesAfterLongPress`; the row translates with the finger
+   (`graphicsLayer` + `zIndex`) and swaps one position each time it crosses a
+   neighbour's measured midpoint, compensating the drag offset by the crossed row's
+   height so the motion stays continuous. The index maths is the pure
+   `ChecklistReorder.move` (unit-tested); the ViewModel API is
+   `moveChecklistItem(itemId, toIndex)` (replaces `moveChecklistItemUp` — the
+   `notes_editor_move_up` key stays in the catalog for the web track). Rows are wrapped
+   in `key(item.id)` so the active gesture survives reorder recompositions.
+4. **Compact remove cross** — `ExplainableIcon` gains optional `targetSize`/`iconSize`
+   (defaults 48/24dp, §6 unchanged); checklist rows use the 32/18dp compact variant so
+   the per-item cross reads differently from the dialog's 48dp top close cross and the
+   row saves width. Compact targets stay ≥32dp.
+
+**Consequences.** The popup uses the screen it has; checklist reordering is one gesture
+instead of N taps of an arrow. Trade-off accepted: the per-item remove target drops
+below the 48dp default (dense in-row control, ≥32dp floor); the checkbox keeps its full
+target and still toggles on tap — long-press is additive.
