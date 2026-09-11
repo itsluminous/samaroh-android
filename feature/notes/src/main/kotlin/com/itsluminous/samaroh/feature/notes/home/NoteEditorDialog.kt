@@ -223,6 +223,14 @@ internal fun pinToggleVisible(
     editor: NoteEditorState,
 ): Boolean = canEdit && editor.status == NoteStatus.ACTIVE && editor.noteId != null
 
+/**
+ * "Tags" section-label visibility in the popup (feedback batch): EDIT mode only, where
+ * it heads the removable chips + type-ahead as one "manage tags" section. The VIEW
+ * popup shows the disabled chips bare — they are self-evident as tags, and a label
+ * above an empty chip row (untagged note) would dangle.
+ */
+internal fun tagsSectionLabelVisible(editor: NoteEditorState): Boolean = editor.editing
+
 @Composable
 private fun EditBody(
     editor: NoteEditorState,
@@ -417,21 +425,25 @@ private fun TagsRow(
     viewModel: NotesHomeViewModel,
 ) {
     val liveState by viewModel.state.collectAsStateWithLifecycle()
+    val selected = liveState.tags.filter { it.id in editor.tagIds }
+    if (!tagsSectionLabelVisible(editor)) {
+        // VIEW mode (feedback batch): NO section label — the disabled chips are
+        // self-evident as tags, and a label above zero chips would dangle. The label
+        // stays in EDIT mode only, where it heads the chips + type-ahead as one
+        // "manage tags" section (see tagsSectionLabelVisible).
+        if (selected.isNotEmpty()) {
+            ChipRow(modifier = Modifier.padding(top = 12.dp)) {
+                selected.forEach { tag -> FilterChip(selected = true, onClick = {}, enabled = false, label = { Text(tag.name) }) }
+            }
+        }
+        return
+    }
     Text(
         text = stringResource(R.string.notes_picker_tags_title),
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
     )
-    val selected = liveState.tags.filter { it.id in editor.tagIds }
-    if (!editor.editing) {
-        if (selected.isNotEmpty()) {
-            ChipRow {
-                selected.forEach { tag -> FilterChip(selected = true, onClick = {}, enabled = false, label = { Text(tag.name) }) }
-            }
-        }
-        return
-    }
     // Edit mode (feedback batch): the note's tags render as REMOVABLE chips; existing
     // tags are found via a debounced TYPE-AHEAD (never a full listing) with a
     // Create "x" suggestion for brand-new names.
