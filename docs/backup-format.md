@@ -31,6 +31,7 @@ backup-2026-08-25-0900.zip
     ├── businesses.json
     ├── business_members.json
     ├── business_settings.json
+    ├── event_types.json
     ├── bookings.json
     ├── date_blocks.json
     ├── booking_payments.json
@@ -39,7 +40,10 @@ backup-2026-08-25-0900.zip
     ├── expenses.json
     ├── expense_attachments.json
     ├── master_items.json
-    └── inventory_transactions.json
+    ├── inventory_transactions.json
+    ├── notes.json
+    ├── note_tags.json
+    └── note_tag_links.json
 ```
 
 **Content contract (references-only).** The archive contains table data + *references*
@@ -60,8 +64,22 @@ to images — never the image bytes themselves:
   of 1 MiB (`BackupArchive.MAX_LOGO_BYTES`) skips oversized legacy files so the archive
   can never balloon with image bytes.
 
-Excluded by design: `google_accounts` (per-user row, no business data; ADR-003 keeps
-tokens server-side anyway) and `outbox` (device-local queue, §8).
+**Excluded by design** (audited against the full canonical schema; the exporter's
+schema-guard test fails the build if a future synced table is neither exported nor on
+one of these lists):
+
+- `google_accounts` — per-user, not per-business. It carries no business data; tokens
+  were never stored client-side (ADR-003), and its non-secret columns (`email`,
+  `scopes`, `drive_root_folder_id`, `calendar_id`) are Google-account identifiers that
+  a post-disaster restore **re-derives when the user re-links Google**. After a
+  backend loss the auth user ids themselves are recreated, so an exported row would
+  only dangle — deliberately NOT exported, not even partially.
+- `outbox`, `sync_cursors`, `sync_conflicts` — device-local sync machinery (§8),
+  meaningless off-device.
+
+The notes domain (`notes`, `note_tags`, `note_tag_links`) and `event_types` carry **no
+file assets** — a checklist is a JSON text column, not a file — so they add nothing to
+the attachment manifest.
 
 ## `manifest.json`
 
@@ -111,7 +129,7 @@ mechanically mirror the canonical Postgres schema — keys are the **schema colu
 | Dates / times (`start_date`, `paid_on`, `start_time`, …) | ISO-8601 `TEXT` (`2026-09-10`, `18:30`) |
 | Enums (`status`, `method`, `direction`, …) | Postgres wire strings (`confirmed`, `cash`, `paid`, …) |
 | `permissions` (business_members) | embedded JSON document string (permissions-schema.json) |
-| `scopes` and other list columns | embedded JSON array string |
+| `scopes`, `checklist` and other list/document columns | embedded JSON array/document string |
 | Booleans | 0 / 1 integers |
 | NULL | JSON `null` |
 

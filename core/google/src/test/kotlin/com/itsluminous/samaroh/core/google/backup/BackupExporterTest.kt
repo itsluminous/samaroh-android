@@ -5,8 +5,14 @@ import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.BookingEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessEntity
+import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
+import com.itsluminous.samaroh.core.database.entity.NoteEntity
+import com.itsluminous.samaroh.core.database.entity.NoteTagEntity
+import com.itsluminous.samaroh.core.database.entity.NoteTagLinkEntity
+import com.itsluminous.samaroh.core.model.NoteChecklistItem
+import com.itsluminous.samaroh.core.model.NoteKind
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -121,6 +127,7 @@ class BackupExporterTest {
                     "businesses",
                     "business_members",
                     "business_settings",
+                    "event_types",
                     "bookings",
                     "date_blocks",
                     "booking_payments",
@@ -130,6 +137,9 @@ class BackupExporterTest {
                     "expense_attachments",
                     "master_items",
                     "inventory_transactions",
+                    "notes",
+                    "note_tags",
+                    "note_tag_links",
                 ).inOrder()
         }
 
@@ -171,6 +181,70 @@ class BackupExporterTest {
                 assertThat(fileName).isEqualTo("bill.pdf")
                 assertThat(mimeType).isEqualTo("application/pdf")
             }
+        }
+
+    /**
+     * Disaster-recovery completeness for the notes domain + event types (backlog fix):
+     * notes/tags/links and event_type presets are user data that only exists in the
+     * database — losing the backend without them in the archive loses them forever.
+     * Notes carry NO file assets (a checklist is a JSON text column), so the
+     * attachment manifest must stay untouched by these rows.
+     */
+    @Test
+    fun `notes domain and event types export rows but add no attachment refs`() =
+        runTest {
+            seed()
+            db.eventTypeDao().upsert(
+                EventTypeEntity(
+                    id = "et-1",
+                    businessId = businessId,
+                    label = "Wedding",
+                    icon = "💒",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            db.noteDao().upsert(
+                NoteEntity(
+                    id = "note-1",
+                    businessId = businessId,
+                    kind = NoteKind.CHECKLIST,
+                    title = "Shopping",
+                    checklist = listOf(NoteChecklistItem(id = "i-1", text = "Milk", done = true)),
+                    pinned = true,
+                    createdBy = "user-1",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            db.noteTagDao().upsert(
+                NoteTagEntity(id = "tag-1", businessId = businessId, name = "Urgent", createdAt = now, updatedAt = now),
+            )
+            db.noteTagLinkDao().upsert(
+                NoteTagLinkEntity(noteId = "note-1", tagId = "tag-1", businessId = businessId, createdAt = now, updatedAt = now),
+            )
+            // Another business's note must not leak.
+            db.noteDao().upsert(
+                NoteEntity(id = "note-other", businessId = "biz-other", createdBy = "user-2", createdAt = now, updatedAt = now),
+            )
+
+            val content = exporter.export(businessId)
+            val byName = content.tables.associateBy { it.table }
+            assertThat(byName.getValue("event_types").rowCount).isEqualTo(1)
+            assertThat(byName.getValue("note_tags").rowCount).isEqualTo(1)
+            assertThat(byName.getValue("note_tag_links").rowCount).isEqualTo(1)
+
+            val notes = Json.parseToJsonElement(byName.getValue("notes").rowsJson).jsonArray.map { it.jsonObject }
+            assertThat(notes).hasSize(1)
+            with(notes.single()) {
+                assertThat(getValue("id").jsonPrimitive.content).isEqualTo("note-1")
+                // Booleans export as 0/1 integers; the checklist as its embedded JSON document string.
+                assertThat(getValue("pinned").jsonPrimitive.longOrNull).isEqualTo(1L)
+                assertThat(getValue("checklist").jsonPrimitive.content).contains("Milk")
+            }
+
+            // Only the seed()'s bill attachment — nothing note-related.
+            assertThat(content.attachments.map { it.table }).containsExactly("expense_attachments")
         }
 
     /**
@@ -242,6 +316,7 @@ class BackupExporterTest {
                     "tables/businesses.json",
                     "tables/business_members.json",
                     "tables/business_settings.json",
+                    "tables/event_types.json",
                     "tables/bookings.json",
                     "tables/date_blocks.json",
                     "tables/booking_payments.json",
@@ -251,6 +326,9 @@ class BackupExporterTest {
                     "tables/expense_attachments.json",
                     "tables/master_items.json",
                     "tables/inventory_transactions.json",
+                    "tables/notes.json",
+                    "tables/note_tags.json",
+                    "tables/note_tag_links.json",
                     "logo.webp",
                 ).inOrder()
 

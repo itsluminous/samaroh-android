@@ -74,7 +74,12 @@ class BackupExporter
             return JsonObject(fields)
         }
 
-        /** Attachment manifest: Drive file ids referenced by exported rows (§4.4, §9.1). */
+        /**
+         * Attachment manifest: Drive file ids referenced by exported rows (§4.4, §9.1).
+         * Only `expense_attachments` and `master_items` carry file references — notes,
+         * tags, links and event types are pure row data (a checklist is a JSON text
+         * column, not a file), so they contribute nothing here.
+         */
         private fun collectAttachmentRefs(tables: List<BackupTableExport>): List<BackupAttachmentRef> {
             val refs = mutableListOf<BackupAttachmentRef>()
             val byName = tables.associateBy { it.table }
@@ -117,12 +122,13 @@ class BackupExporter
         private fun JsonObject.stringOrNull(key: String): String? =
             (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull && it.isString }?.jsonPrimitive?.content
 
-        private companion object {
-            /** Every synced, business-scoped table. `google_accounts` (per-user) and `outbox` (local-only) are excluded by design. */
+        internal companion object {
+            /** Every synced, business-scoped table (see [EXCLUDED_PER_USER_TABLES]/[EXCLUDED_LOCAL_TABLES] for what stays out). */
             val BUSINESS_SCOPED_TABLES =
                 listOf(
                     "business_members",
                     "business_settings",
+                    "event_types",
                     "bookings",
                     "date_blocks",
                     "booking_payments",
@@ -132,6 +138,25 @@ class BackupExporter
                     "expense_attachments",
                     "master_items",
                     "inventory_transactions",
+                    "notes",
+                    "note_tags",
+                    "note_tag_links",
                 )
+
+            /** The complete archive table list: the business row + every business-scoped table. */
+            val EXPORTED_TABLES: List<String> = listOf("businesses") + BUSINESS_SCOPED_TABLES
+
+            /**
+             * `google_accounts` holds NO business data: it is keyed by the auth user (not
+             * business_id), never stores tokens client-side (ADR-003), and its remaining
+             * columns (email, scopes, drive_root_folder_id, calendar_id) are Google-account
+             * identifiers that a post-disaster restore re-derives when the user re-links —
+             * after a backend loss the auth user ids themselves are recreated, so an
+             * exported row would only dangle. Excluded by design (docs/backup-format.md).
+             */
+            val EXCLUDED_PER_USER_TABLES = setOf("google_accounts")
+
+            /** Sync-machinery tables that are meaningless off-device (§8): never exported. */
+            val EXCLUDED_LOCAL_TABLES = setOf("outbox", "sync_cursors", "sync_conflicts")
         }
     }
