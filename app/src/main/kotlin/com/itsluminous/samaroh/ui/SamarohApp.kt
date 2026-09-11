@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -25,6 +27,8 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -40,6 +44,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -221,7 +228,7 @@ fun SamarohApp(
                 // §4.5 app bar: the active business name (fallback: app name pre-onboarding).
                 val businessName by viewModel.activeBusinessName.collectAsStateWithLifecycle()
                 TopAppBar(
-                    title = { Text(businessName ?: stringResource(R.string.common_app_name)) },
+                    title = { AppBarTitle(businessName ?: stringResource(R.string.common_app_name)) },
                     actions = {
                         SyncCloudIcon(
                             indicator = syncIndicator,
@@ -419,4 +426,48 @@ private fun SyncCloudIcon(
                 )
         }
     }
+}
+
+/** The app-bar title never shrinks below this fraction of its base font size. */
+internal const val TITLE_MIN_FONT_SCALE = 0.65f
+
+/**
+ * Scale selection for the app-bar title: shrink between [TITLE_MIN_FONT_SCALE] and 1×
+ * of [fontSize] to keep long business names on one line (same BasicText autoSize
+ * pattern as the report money cells); anything still wider ellipsizes. Returns null
+ * when [fontSize] is not an sp value (em/unspecified) — no scaling then, plain layout.
+ */
+internal fun titleAutoSize(fontSize: TextUnit): TextAutoSize? =
+    if (fontSize.isSp) {
+        TextAutoSize.StepBased(
+            minFontSize = fontSize * TITLE_MIN_FONT_SCALE,
+            maxFontSize = fontSize,
+        )
+    } else {
+        null
+    }
+
+/**
+ * App-bar business name (§4.5). Long names shrink their font to stay on ONE line
+ * instead of wrapping the app bar taller, down to [TITLE_MIN_FONT_SCALE]; below
+ * that they ellipsize.
+ */
+@Composable
+private fun AppBarTitle(text: String) {
+    // TopAppBar provides titleLarge + content color via the locals; BasicText applies
+    // no content color of its own, so resolve it the way material Text does.
+    val style = LocalTextStyle.current
+    val autoSize = titleAutoSize(style.fontSize)
+    if (autoSize == null) {
+        Text(text = text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        return
+    }
+    BasicText(
+        text = text,
+        style = style.merge(TextStyle(color = LocalContentColor.current)),
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        autoSize = autoSize,
+    )
 }
