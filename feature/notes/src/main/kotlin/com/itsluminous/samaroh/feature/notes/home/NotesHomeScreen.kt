@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -122,12 +123,17 @@ fun NotesHomeScreen(
                         ) {
                             Text(stringResource(R.string.notes_home_create_note), style = MaterialTheme.typography.titleMedium)
                         }
-                        Button(
-                            onClick = { viewModel.startCreate(NoteKind.CHECKLIST) },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
-                            modifier = Modifier.weight(1f).height(56.dp),
-                        ) {
-                            Text(stringResource(R.string.notes_home_create_checklist), style = MaterialTheme.typography.titleMedium)
+                        // Create checklist additionally needs the normalized
+                        // view_checklists grant (ADR-082): a member who can't SEE
+                        // checklists would create one they can never find again.
+                        if (state.canViewChecklists) {
+                            Button(
+                                onClick = { viewModel.startCreate(NoteKind.CHECKLIST) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                                modifier = Modifier.weight(1f).height(56.dp),
+                            ) {
+                                Text(stringResource(R.string.notes_home_create_checklist), style = MaterialTheme.typography.titleMedium)
+                            }
                         }
                     }
                 }
@@ -387,11 +393,12 @@ private fun NoteCard(
                 val preview = NotesFilter.checklistPreview(card.note)
                 preview.take(CARD_CHECKLIST_PREVIEW).forEach { item ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Inline toggle (ADR-077) — a no-op without notes.edit.
+                        // Inline toggle — gated on the normalized toggle_checklist
+                        // grant (ADR-082); a no-op checkbox renders without it.
                         Checkbox(
                             checked = item.done,
                             onCheckedChange =
-                                if (state.canEdit) {
+                                if (state.canToggleChecklist) {
                                     { viewModel.toggleChecklistItemInline(card.note.id, item.id) }
                                 } else {
                                     null
@@ -400,6 +407,9 @@ private fun NoteCard(
                         Text(
                             text = item.text,
                             style = MaterialTheme.typography.bodyMedium,
+                            // Done items strike through (ADR-082) — consistent with
+                            // the popup's view and edit bodies.
+                            textDecoration = if (item.done) TextDecoration.LineThrough else null,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )

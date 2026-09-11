@@ -1,5 +1,8 @@
 package com.itsluminous.samaroh.feature.notes.home
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -31,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +49,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -58,15 +66,18 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.NoteKind
 import com.itsluminous.samaroh.core.model.NoteStatus
 import com.itsluminous.samaroh.feature.notes.domain.NotesFilter
+import com.itsluminous.samaroh.feature.notes.domain.RowDrag
 
 /**
- * The note POPUP (ADR-077, widened per ADR-081): a NEAR-FULL-WIDTH dialog
- * (`usePlatformDefaultWidth = false` + 95% width) that VIEWS a note (read-only body +
- * actions row: Share / Edit / Complete / Restore / Delete) or EDITS it (title, body or
- * checklist items with add/toggle/remove + long-press-checkbox drag reorder, colour
+ * The note POPUP (ADR-077, widened per ADR-081, checklist model per ADR-082): a
+ * NEAR-FULL-WIDTH dialog (`usePlatformDefaultWidth = false` + 95% width) that VIEWS a
+ * note (read-only body observing the LIVE note + actions row: Share / Edit / Complete /
+ * Restore / Delete) or EDITS it (title, body or non-editable checklist rows with
+ * toggle/remove, one pinned Add-item field, whole-row long-press drag reorder, colour
  * swatches, tag row with type-ahead + create-on-the-fly). The pin toggle renders only
  * for EXISTING notes — never in the create popup (ADR-081). A member without
- * `notes.edit` gets the view-only popup: Share stays, every mutation is hidden.
+ * `notes.edit` gets the view-only popup: Share stays, every mutation is hidden; inline
+ * checklist ticking follows the normalized `toggle_checklist` grant (ADR-082).
  */
 @Composable
 internal fun NoteEditorDialog(
@@ -172,13 +183,24 @@ private fun ViewBody(
                 Checkbox(
                     checked = item.done,
                     onCheckedChange =
-                        if (state.canEdit) {
+                        if (state.canToggleChecklist) {
                             { editor.noteId?.let { id -> viewModel.toggleChecklistItemInline(id, item.id) } }
                         } else {
                             null
                         },
                 )
-                Text(text = item.text, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = item.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    // Done items read struck-through (ADR-082) — same on cards.
+                    textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                    color =
+                        if (item.done) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                )
             }
         }
     } else if (editor.content.isNotBlank()) {
@@ -208,10 +230,19 @@ private fun EditBody(
 ) {
     if (editor.kind == NoteKind.CHECKLIST) {
         ChecklistEditRows(editor, viewModel)
-        TextButton(onClick = viewModel::addChecklistItem) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Text(stringResource(R.string.notes_editor_add_item), modifier = Modifier.padding(start = 4.dp))
-        }
+        // ONE pinned "Add item" field below the rows (ADR-082): Enter appends the
+        // typed text as a new row, clears the field and KEEPS focus (the default
+        // keyboard action is not invoked), so consecutive items type straight in.
+        OutlinedTextField(
+            value = editor.newItemText,
+            onValueChange = viewModel::setNewItemText,
+            label = { Text(stringResource(R.string.notes_editor_add_item)) },
+            leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { viewModel.commitNewItem() }),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
     } else {
         // The note box is the editor's star (feedback batch): the compact dot picker
         // freed vertical space — give it to the content field.
@@ -243,12 +274,17 @@ private fun EditBody(
     )
 }
 
+/** Pickup scale of the dragged checklist row (standard drag affordance, ADR-082). */
+private const val DRAG_PICKUP_SCALE = 1.03f
+
 /**
- * Checklist rows in EDIT mode (ADR-081): LONG-PRESS the row's CHECKBOX to drag it
- * up/down (haptic on pickup; the dragged row translates with the finger and swaps
- * places each time it crosses a neighbour's midpoint — replaces the old move-up
- * arrow). The remove cross is the COMPACT [ExplainableIcon] variant so it stays
- * visually distinct from the dialog's top close cross and saves row width.
+ * Checklist rows in EDIT mode (ADR-082, matching the web track): items are
+ * NON-EDITABLE once added — each row is a checkbox, the plain item text and a compact
+ * remove cross (to change a text: remove and re-add). LONG-PRESSING anywhere on the
+ * ROW picks it up (haptic + shadow + slight scale); the row follows the finger, its
+ * target slot advances on midpoint crossing ([RowDrag.targetIndexFor]) while
+ * neighbours animate out of the way ([RowDrag.rowShift]), and the reorder commits
+ * ONCE on drop via [NotesHomeViewModel.moveChecklistItem].
  */
 @Composable
 private fun ChecklistEditRows(
@@ -258,11 +294,28 @@ private fun ChecklistEditRows(
     val haptics = LocalHapticFeedback.current
     var draggedItemId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
+    var targetIndex by remember { mutableIntStateOf(-1) }
     // Measured row heights by item id — the midpoint-crossing thresholds.
     val rowHeights = remember { mutableStateMapOf<String, Int>() }
-    editor.items.forEach { item ->
+    val items = editor.items
+    val fromIndex = items.indexOfFirst { it.id == draggedItemId }
+    val draggedHeight = draggedItemId?.let { rowHeights[it] } ?: 0
+    items.forEachIndexed { index, item ->
         key(item.id) {
             val dragged = draggedItemId == item.id
+            val shift =
+                if (draggedItemId != null && !dragged && fromIndex >= 0 && targetIndex >= 0) {
+                    RowDrag.rowShift(index, fromIndex, targetIndex, draggedHeight)
+                } else {
+                    0
+                }
+            // Neighbours slide while a drag is live; on drop the shift SNAPS back to
+            // 0 in the same frame the model reorders, so nothing visually double-moves.
+            val animatedShift by animateFloatAsState(
+                targetValue = shift.toFloat(),
+                animationSpec = if (draggedItemId != null) tween(150) else snap(),
+                label = "checklistRowShift",
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier =
@@ -270,58 +323,77 @@ private fun ChecklistEditRows(
                         .fillMaxWidth()
                         .onSizeChanged { rowHeights[item.id] = it.height }
                         .zIndex(if (dragged) 1f else 0f)
-                        .graphicsLayer { translationY = if (dragged) dragOffset else 0f },
-            ) {
-                Checkbox(
-                    checked = item.done,
-                    onCheckedChange = { viewModel.toggleEditorChecklistItem(item.id) },
-                    modifier =
-                        Modifier.pointerInput(item.id) {
+                        .graphicsLayer {
+                            translationY = if (dragged) dragOffset else animatedShift
+                            if (dragged) {
+                                shadowElevation = 8.dp.toPx()
+                                scaleX = DRAG_PICKUP_SCALE
+                                scaleY = DRAG_PICKUP_SCALE
+                            }
+                        }.pointerInput(item.id) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     draggedItemId = item.id
                                     dragOffset = 0f
+                                    targetIndex =
+                                        viewModel.state.value.editor
+                                            ?.items
+                                            .orEmpty()
+                                            .indexOfFirst { it.id == item.id }
                                 },
                                 onDrag = { change, amount ->
                                     change.consume()
                                     dragOffset += amount.y
-                                    // Fresh order from the ViewModel — the buffer may
-                                    // have been reordered by earlier crossings.
-                                    val items =
+                                    // The buffer order stays FIXED during the drag
+                                    // (commit happens on drop) — recompute only the
+                                    // hovered target slot from the accumulated offset.
+                                    val current =
                                         viewModel.state.value.editor
                                             ?.items
                                             .orEmpty()
-                                    val index = items.indexOfFirst { it.id == item.id }
-                                    if (index >= 0) {
-                                        val next = items.getOrNull(index + 1)
-                                        val prev = items.getOrNull(index - 1)
-                                        val nextHeight = next?.let { rowHeights[it.id] } ?: 0
-                                        val prevHeight = prev?.let { rowHeights[it.id] } ?: 0
-                                        if (next != null && nextHeight > 0 && dragOffset > nextHeight / 2f) {
-                                            viewModel.moveChecklistItem(item.id, index + 1)
-                                            dragOffset -= nextHeight
-                                        } else if (prev != null && prevHeight > 0 && dragOffset < -prevHeight / 2f) {
-                                            viewModel.moveChecklistItem(item.id, index - 1)
-                                            dragOffset += prevHeight
-                                        }
+                                    val from = current.indexOfFirst { it.id == item.id }
+                                    if (from >= 0) {
+                                        targetIndex =
+                                            RowDrag.targetIndexFor(from, dragOffset, current.map { rowHeights[it.id] ?: 0 })
                                     }
                                 },
                                 onDragEnd = {
+                                    val current =
+                                        viewModel.state.value.editor
+                                            ?.items
+                                            .orEmpty()
+                                    val from = current.indexOfFirst { it.id == item.id }
+                                    if (from >= 0 && targetIndex >= 0 && targetIndex != from) {
+                                        viewModel.moveChecklistItem(item.id, targetIndex)
+                                    }
                                     draggedItemId = null
                                     dragOffset = 0f
+                                    targetIndex = -1
                                 },
                                 onDragCancel = {
                                     draggedItemId = null
                                     dragOffset = 0f
+                                    targetIndex = -1
                                 },
                             )
                         },
+            ) {
+                Checkbox(
+                    checked = item.done,
+                    onCheckedChange = { viewModel.toggleEditorChecklistItem(item.id) },
                 )
-                OutlinedTextField(
-                    value = item.text,
-                    onValueChange = { viewModel.setChecklistItemText(item.id, it) },
-                    singleLine = true,
+                Text(
+                    text = item.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    // Done items strike through in the edit popup too (ADR-082).
+                    textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                    color =
+                        if (item.done) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                     modifier = Modifier.weight(1f),
                 )
                 // Compact remove cross (ADR-081): smaller than the dialog's 48dp top

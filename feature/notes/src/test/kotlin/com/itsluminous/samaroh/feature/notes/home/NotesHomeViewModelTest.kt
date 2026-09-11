@@ -82,24 +82,31 @@ class NotesHomeViewModelTest {
         }
 
     @Test
-    fun `creating a checklist keeps item order and drops blank rows`() =
+    fun `creating a checklist appends via the add field and keeps item order`() =
         runTest {
             val vm = viewModel()
             vm.state.test {
                 awaitItemMatching { it.loaded }
                 vm.startCreate(NoteKind.CHECKLIST)
                 val editor = awaitItemMatching { it.editor != null }.editor!!
-                val first = editor.items.single().id
-                vm.setChecklistItemText(first, "Milk")
-                vm.addChecklistItem()
+                // ADR-082: no seeded blank row — items only come from the add field.
+                assertThat(editor.items).isEmpty()
+                vm.setNewItemText("Milk")
+                vm.commitNewItem()
+                vm.setNewItemText("  Sugar  ") // trimmed on commit
+                vm.commitNewItem()
                 val second =
                     vm.state.value.editor!!
                         .items[1]
                         .id
-                vm.setChecklistItemText(second, "Sugar")
                 vm.toggleEditorChecklistItem(second)
-                vm.addChecklistItem() // stays blank — dropped on save
-                // Drag reorder (ADR-081): move Sugar above Milk.
+                vm.setNewItemText("   ") // blank — commit is a no-op
+                vm.commitNewItem()
+                assertThat(
+                    vm.state.value.editor!!
+                        .items,
+                ).hasSize(2)
+                // Drag commit (ADR-082): Sugar settles above Milk on drop.
                 vm.moveChecklistItem(second, 0)
                 vm.saveEditor()
                 awaitItemMatching { it.editor == null && (it.pinned + it.others).isNotEmpty() }
@@ -108,6 +115,23 @@ class NotesHomeViewModelTest {
                 assertThat(note.kind).isEqualTo(NoteKind.CHECKLIST)
                 assertThat(note.checklist.map { it.text }).containsExactly("Sugar", "Milk").inOrder()
                 assertThat(note.checklist.first().done).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `save folds a typed but not entered add-item text into the checklist`() =
+        runTest {
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded }
+                vm.startCreate(NoteKind.CHECKLIST)
+                awaitItemMatching { it.editor != null }
+                vm.setNewItemText("Paneer")
+                vm.saveEditor() // no explicit commitNewItem — Save must not drop it
+                awaitItemMatching { it.editor == null && (it.pinned + it.others).isNotEmpty() }
+                val note = repository.notesFlow.value.single()
+                assertThat(note.checklist.map { it.text }).containsExactly("Paneer")
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -344,10 +368,10 @@ class NotesHomeViewModelTest {
                 awaitItemMatching { it.editor == null }
                 assertThat(repository.notesFlow.value).isEmpty()
 
-                // Checklist whose only rows are blank.
+                // Checklist with no items (and only whitespace in the add field).
                 vm.startCreate(NoteKind.CHECKLIST)
                 awaitItemMatching { it.editor != null }
-                vm.addChecklistItem()
+                vm.setNewItemText("   ")
                 vm.saveEditor()
                 awaitItemMatching { it.editor == null }
                 assertThat(repository.notesFlow.value).isEmpty()
@@ -464,6 +488,269 @@ class NotesHomeViewModelTest {
                 awaitItemMatching { it.manageTags?.confirmDeleteTagId == "t-1" }
                 vm.confirmDeleteTag()
                 awaitItemMatching { it.selectedTagId == null && it.tags.isEmpty() }
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- live view popup (stale-snapshot bug fix) ----
+
+    @Test
+    fun `view popup reflects an inline checkbox toggle instantly`() =
+        runTest {
+            repository.notesFlow.value =
+                listOf(
+                    noteFixture(
+                        "n-1",
+                        kind = NoteKind.CHECKLIST,
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk"), NoteChecklistItem("i-2", "Sugar")),
+                    ),
+                )
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                vm.openNote("n-1")
+                val opened = awaitItemMatching { it.editor != null }
+                assertThat(
+                    opened.editor!!
+                        .items
+                        .single { it.id == "i-2" }
+                        .done,
+                ).isFalse()
+
+                // The toggle persists via the repository AND the open popup follows.
+                vm.toggleChecklistItemInline("n-1", "i-2")
+                val toggled =
+                    awaitItemMatching {
+                        it.editor
+                            ?.items
+                            ?.single { item -> item.id == "i-2" }
+                            ?.done == true
+                    }
+                assertThat(toggled.editor!!.editing).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `view popup follows external note changes and Edit seeds the live copy`() =
+        runTest {
+            val original =
+                noteFixture(
+                    "n-1",
+                    kind = NoteKind.CHECKLIST,
+                    checklist = listOf(NoteChecklistItem("i-1", "Milk")),
+                )
+            repository.notesFlow.value = listOf(original)
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                vm.openNote("n-1")
+                awaitItemMatching { it.editor != null }
+
+                // A concurrent change (another device via sync pull) lands in Room.
+                repository.saveNote(
+                    original.copy(
+                        title = "Groceries",
+                        pinned = true,
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk", done = true)),
+                    ),
+                )
+                val updated =
+                    awaitItemMatching {
+                        it.editor?.title == "Groceries" && it.editor?.pinned == true
+                    }
+                assertThat(
+                    updated.editor!!
+                        .items
+                        .single()
+                        .done,
+                ).isTrue()
+
+                // Edit starts from the LIVE copy, not the open-time snapshot.
+                vm.startEditing()
+                val editing = awaitItemMatching { it.editor?.editing == true }
+                assertThat(editing.editor!!.title).isEqualTo("Groceries")
+                assertThat(
+                    editing.editor!!
+                        .items
+                        .single()
+                        .done,
+                ).isTrue()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- fine-grained checklist permissions (ADR-082) ----
+
+    private fun memberSession(notes: NotesPermissions) =
+        fakeNotesSession(
+            userId = "member-1",
+            isOwner = false,
+            permissions = MemberPermissions(notes = notes),
+        )
+
+    @Test
+    fun `without view_checklists checklists vanish from grid search and tag counts`() =
+        runTest {
+            repository.notesFlow.value =
+                listOf(
+                    noteFixture("n-1", title = "Plain note"),
+                    noteFixture(
+                        "c-1",
+                        kind = NoteKind.CHECKLIST,
+                        title = "Groceries",
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk")),
+                    ),
+                )
+            repository.tagsFlow.value = listOf(tagFixture("t-1", "Vendors"))
+            repository.linksFlow.value = listOf(linkFixture("n-1", "t-1"), linkFixture("c-1", "t-1"))
+            val vm = viewModel(memberSession(NotesPermissions(view = true, viewChecklists = false)))
+            vm.state.test {
+                val loaded = awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                assertThat(loaded.canViewChecklists).isFalse()
+                // Grid: only the plain note.
+                assertThat((loaded.pinned + loaded.others).map { it.note.id }).containsExactly("n-1")
+                // Tag counts skip links to invisible checklists.
+                assertThat(loaded.tagLinkCounts["t-1"]).isEqualTo(1)
+                // Search cannot surface the hidden checklist either.
+                vm.setSearchQuery("Milk")
+                val searched = awaitItemMatching { it.searchQuery == "Milk" }
+                assertThat(searched.pinned + searched.others).isEmpty()
+                // And it can't be opened.
+                vm.openNote("c-1")
+                assertThat(vm.state.value.editor).isNull()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `absent view_checklists inherits view so checklists stay visible`() =
+        runTest {
+            repository.notesFlow.value =
+                listOf(
+                    noteFixture(
+                        "c-1",
+                        kind = NoteKind.CHECKLIST,
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk")),
+                    ),
+                )
+            val vm = viewModel(memberSession(NotesPermissions(view = true)))
+            vm.state.test {
+                val loaded = awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                assertThat(loaded.canViewChecklists).isTrue()
+                assertThat((loaded.pinned + loaded.others).map { it.note.id }).containsExactly("c-1")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `explicit toggle_checklist lets a non-editor tick items and nothing else`() =
+        runTest {
+            repository.notesFlow.value =
+                listOf(
+                    noteFixture(
+                        "c-1",
+                        kind = NoteKind.CHECKLIST,
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk")),
+                    ),
+                )
+            val vm = viewModel(memberSession(NotesPermissions(view = true, toggleChecklist = true)))
+            vm.state.test {
+                val loaded = awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                assertThat(loaded.canEdit).isFalse()
+                assertThat(loaded.canToggleChecklist).isTrue()
+                vm.toggleChecklistItemInline("c-1", "i-1")
+                awaitItemMatching {
+                    (it.pinned + it.others)
+                        .firstOrNull()
+                        ?.note
+                        ?.checklist
+                        ?.single()
+                        ?.done == true
+                }
+                // updated_by carries the toggler (the guard's requirement).
+                assertThat(
+                    repository.notesFlow.value
+                        .single()
+                        .updatedBy,
+                ).isEqualTo("member-1")
+                // Every other mutation stays blocked.
+                vm.trashNote("c-1")
+                assertThat(
+                    repository.notesFlow.value
+                        .single()
+                        .status,
+                ).isEqualTo(NoteStatus.ACTIVE)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `toggle_checklist inherits edit when absent and explicit false beats edit`() =
+        runTest {
+            repository.notesFlow.value =
+                listOf(
+                    noteFixture(
+                        "c-1",
+                        kind = NoteKind.CHECKLIST,
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk")),
+                    ),
+                )
+            // Editor with NO explicit toggle key → inherits edit=true.
+            val vm = viewModel(memberSession(NotesPermissions(view = true, edit = true)))
+            vm.state.test {
+                val loaded = awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                assertThat(loaded.canToggleChecklist).isTrue()
+                vm.toggleChecklistItemInline("c-1", "i-1")
+                awaitItemMatching {
+                    (it.pinned + it.others)
+                        .firstOrNull()
+                        ?.note
+                        ?.checklist
+                        ?.single()
+                        ?.done == true
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            // Explicit false NEVER falls through to edit (json null vs false).
+            repository.notesFlow.value =
+                listOf(
+                    noteFixture(
+                        "c-2",
+                        kind = NoteKind.CHECKLIST,
+                        checklist = listOf(NoteChecklistItem("i-1", "Milk")),
+                    ),
+                )
+            val strict = viewModel(memberSession(NotesPermissions(view = true, edit = true, toggleChecklist = false)))
+            strict.state.test {
+                val loaded = awaitItemMatching { it.loaded && (it.pinned + it.others).isNotEmpty() }
+                assertThat(loaded.canToggleChecklist).isFalse()
+                strict.toggleChecklistItemInline("c-2", "i-1")
+                assertThat(
+                    repository.notesFlow.value
+                        .single()
+                        .checklist
+                        .single()
+                        .done,
+                ).isFalse()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `create checklist needs create AND view_checklists`() =
+        runTest {
+            val vm = viewModel(memberSession(NotesPermissions(view = true, viewChecklists = false, create = true)))
+            vm.state.test {
+                val loaded = awaitItemMatching { it.loaded }
+                assertThat(loaded.canCreate).isTrue()
+                assertThat(loaded.canViewChecklists).isFalse()
+                // Plain notes still create; checklists are re-guarded in the VM.
+                vm.startCreate(NoteKind.CHECKLIST)
+                assertThat(vm.state.value.editor).isNull()
+                vm.startCreate(NoteKind.NOTE)
+                awaitItemMatching { it.editor != null }
                 cancelAndIgnoreRemainingEvents()
             }
         }

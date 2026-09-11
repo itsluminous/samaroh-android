@@ -44,6 +44,19 @@ class NotesSession
         /** `notes.edit` gate: edit, pin, complete/restore, trash/restore, tag changes. */
         val canEdit: Flow<Boolean> = permissionGate { it.notes.edit }
 
+        /**
+         * Normalized `notes.view_checklists` gate (absent inherits `view` — ADR-082):
+         * whether checklists exist at all for this member (grid, search, tag counts,
+         * the Create checklist button).
+         */
+        val canViewChecklists: Flow<Boolean> = permissionGate { it.notes.viewChecklistsEffective }
+
+        /**
+         * Normalized `notes.toggle_checklist` gate (absent inherits `edit` — ADR-082):
+         * ticking/unticking checklist items inline (cards + the view popup).
+         */
+        val canToggleChecklist: Flow<Boolean> = permissionGate { it.notes.toggleChecklistEffective }
+
         /** `notes.delete` gate: delete forever from Trash + the 30-day purge sweep. */
         val canDelete: Flow<Boolean> = permissionGate { it.notes.delete }
 

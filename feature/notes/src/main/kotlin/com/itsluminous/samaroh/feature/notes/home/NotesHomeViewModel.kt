@@ -56,6 +56,8 @@ data class NoteEditorState(
     val title: String = "",
     val content: String = "",
     val items: List<EditorChecklistItem> = emptyList(),
+    /** The pinned bottom "Add item" field's text (ADR-082: items are add-only). */
+    val newItemText: String = "",
     val colorKey: String? = null,
     val pinned: Boolean = false,
     val status: NoteStatus = NoteStatus.ACTIVE,
@@ -94,6 +96,10 @@ data class NotesHomeState(
     val canCreate: Boolean = true,
     val canEdit: Boolean = true,
     val canDelete: Boolean = true,
+    /** Normalized `view_checklists` (absent inherits view — ADR-082). */
+    val canViewChecklists: Boolean = true,
+    /** Normalized `toggle_checklist` (absent inherits edit — ADR-082). */
+    val canToggleChecklist: Boolean = true,
     val editor: NoteEditorState? = null,
     /** Note id pending the delete-forever confirmation dialog (Trash only). */
     val confirmPurgeId: String? = null,
@@ -157,9 +163,23 @@ class NotesHomeViewModel
                 }
             }
 
-        private val gates: Flow<Triple<Boolean, Boolean, Boolean>> =
-            combine(session.canCreate, session.canEdit, session.canDelete) { create, edit, delete ->
-                Triple(create, edit, delete)
+        private data class Gates(
+            val create: Boolean,
+            val edit: Boolean,
+            val delete: Boolean,
+            val viewChecklists: Boolean,
+            val toggleChecklist: Boolean,
+        )
+
+        private val gates: Flow<Gates> =
+            combine(
+                session.canCreate,
+                session.canEdit,
+                session.canDelete,
+                session.canViewChecklists,
+                session.canToggleChecklist,
+            ) { create, edit, delete, viewChecklists, toggleChecklist ->
+                Gates(create, edit, delete, viewChecklists, toggleChecklist)
             }
 
         val state: StateFlow<NotesHomeState> =
@@ -171,9 +191,16 @@ class NotesHomeViewModel
             ) { data, filters, gates, dialogs ->
                 val (currentSection, tagId, query) = filters
                 val (editorState, purgeId, manageState) = dialogs
+                // ADR-082 view_checklists enforcement: without the (normalized) grant,
+                // checklists don't exist for this member — the grid, search, section
+                // empty-states and drawer tag counts all work off the filtered cards.
+                val cards =
+                    if (gates.viewChecklists) data.cards else data.cards.filter { it.note.kind != NoteKind.CHECKLIST }
+                val visibleNoteIds = cards.mapTo(mutableSetOf()) { it.note.id }
+                val links = data.links.filter { it.noteId in visibleNoteIds }
                 // The tag filter only shapes the main list; Completed/Trash show all.
                 val effectiveTag = tagId.takeIf { currentSection == NotesSection.NOTES }
-                val visible = NotesFilter.visible(data.cards, currentSection, effectiveTag, query)
+                val visible = NotesFilter.visible(cards, currentSection, effectiveTag, query)
                 val (pinned, others) = NotesFilter.splitPinned(visible)
                 NotesHomeState(
                     loaded = true,
@@ -182,17 +209,45 @@ class NotesHomeViewModel
                     searchQuery = query,
                     pinned = pinned,
                     others = others,
-                    sectionHasNotes = data.cards.any { NotesFilter.sectionOf(it.note) == currentSection },
+                    sectionHasNotes = cards.any { NotesFilter.sectionOf(it.note) == currentSection },
                     tags = data.tags,
-                    tagLinkCounts = data.links.groupBy { it.tagId }.mapValues { (_, links) -> links.map { it.noteId }.distinct().size },
-                    canCreate = gates.first,
-                    canEdit = gates.second,
-                    canDelete = gates.third,
-                    editor = editorState,
+                    tagLinkCounts = links.groupBy { it.tagId }.mapValues { (_, links) -> links.map { it.noteId }.distinct().size },
+                    canCreate = gates.create,
+                    canEdit = gates.edit,
+                    canDelete = gates.delete,
+                    canViewChecklists = gates.viewChecklists,
+                    canToggleChecklist = gates.toggleChecklist,
+                    editor = liveEditor(editorState, data.cards),
                     confirmPurgeId = purgeId,
                     manageTags = manageState,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotesHomeState())
+
+        /**
+         * The VIEW-mode popup observes the LIVE note (the Room flow), never the
+         * snapshot taken when it opened: an inline checkbox toggle (or any concurrent
+         * edit/sync pull) persists via the repository, and this overlay reflects it in
+         * the open popup instantly — the stale-snapshot bug fix. Edit mode keeps its
+         * buffer untouched (in-progress typing must never be clobbered); a note that
+         * vanished mid-view (purged) keeps the last snapshot until dismissed.
+         */
+        private fun liveEditor(
+            editorState: NoteEditorState?,
+            cards: List<NoteCardData>,
+        ): NoteEditorState? {
+            if (editorState == null || editorState.editing || editorState.noteId == null) return editorState
+            val card = cards.firstOrNull { it.note.id == editorState.noteId } ?: return editorState
+            return editorState.copy(
+                kind = card.note.kind,
+                title = card.note.title.orEmpty(),
+                content = card.note.content.orEmpty(),
+                items = card.note.checklist.map { EditorChecklistItem(it.id, it.text, it.done) },
+                colorKey = card.note.color,
+                pinned = card.note.pinned,
+                status = card.note.status,
+                tagIds = card.tags.map { it.id }.toSet(),
+            )
+        }
 
         // ---- list shaping ----
 
@@ -220,18 +275,23 @@ class NotesHomeViewModel
 
         fun startCreate(kind: NoteKind) {
             if (!state.value.canCreate) return
+            // Create checklist additionally needs the (normalized) view_checklists
+            // grant (ADR-082): a member who can't SEE checklists must not create one
+            // they'd never find again. The UI hides the button; this re-guards.
+            if (kind == NoteKind.CHECKLIST && !state.value.canViewChecklists) return
             editor.value =
                 NoteEditorState(
                     noteId = null,
                     kind = kind,
                     editing = true,
-                    items = if (kind == NoteKind.CHECKLIST) listOf(newItem()) else emptyList(),
                 )
         }
 
         fun startEditing() {
             if (!state.value.canEdit) return
-            editor.update { it?.copy(editing = true) }
+            // Seed the edit buffer from the STATE's editor — the live-note overlay —
+            // not the raw snapshot flow, so edits start from what the popup shows.
+            editor.value = state.value.editor?.copy(editing = true)
         }
 
         fun dismissEditor() {
@@ -246,14 +306,24 @@ class NotesHomeViewModel
 
         fun toggleEditorPin() = editor.update { it?.copy(pinned = !it.pinned) }
 
-        fun addChecklistItem() = editor.update { it?.copy(items = it.items + newItem()) }
+        /** The pinned bottom "Add item" field's text (ADR-082). */
+        fun setNewItemText(value: String) = editor.update { it?.copy(newItemText = value) }
 
-        fun setChecklistItemText(
-            itemId: String,
-            text: String,
-        ) = editor.update { state ->
-            state?.copy(items = state.items.map { if (it.id == itemId) it.copy(text = text) else it })
-        }
+        /**
+         * Enter / the add action on the bottom field (ADR-082): appends the trimmed
+         * text as a new (non-editable) row and clears the field — the field keeps
+         * focus so the next item types straight in. Blank input is a no-op.
+         */
+        fun commitNewItem() =
+            editor.update { state ->
+                state ?: return@update null
+                val text = state.newItemText.trim()
+                if (text.isEmpty()) {
+                    state
+                } else {
+                    state.copy(items = state.items + newItem(text), newItemText = "")
+                }
+            }
 
         fun toggleEditorChecklistItem(itemId: String) =
             editor.update { state ->
@@ -263,9 +333,10 @@ class NotesHomeViewModel
         fun removeChecklistItem(itemId: String) = editor.update { state -> state?.copy(items = state.items.filterNot { it.id == itemId }) }
 
         /**
-         * Drag reorder (feedback batch, replaces ADR-077's move-up button): moves the
-         * item to [toIndex] (clamped). Fired by the editor's long-press-checkbox drag
-         * each time the dragged row crosses a neighbour's midpoint.
+         * Drag reorder (ADR-082, replaces ADR-081's checkbox-handle variant): moves
+         * the item to [toIndex] (clamped). Fired ONCE on drop — the whole-row
+         * long-press drag tracks its target slot visually (midpoint crossing) and
+         * commits the final position when the finger lifts.
          */
         fun moveChecklistItem(
             itemId: String,
@@ -414,6 +485,9 @@ class NotesHomeViewModel
 
         /** Save button of the edit mode: upserts the note and diffs the tag links. */
         fun saveEditor() {
+            // Fold a typed-but-not-entered "Add item" text in first (ADR-082): Save
+            // must never silently drop what's sitting in the bottom field.
+            commitNewItem()
             val current = editor.value ?: return
             if (!current.editing) return
             val creating = current.noteId == null
@@ -488,12 +562,16 @@ class NotesHomeViewModel
 
         // ---- card / popup quick actions (all notes.edit-gated status updates) ----
 
-        /** Inline checkbox on a checklist CARD (and the view-mode popup). */
+        /**
+         * Inline checkbox on a checklist CARD (and the view-mode popup) — gated on
+         * the NORMALIZED `toggle_checklist` (absent inherits edit — ADR-082), the one
+         * mutation a non-editor member may hold.
+         */
         fun toggleChecklistItemInline(
             noteId: String,
             itemId: String,
         ) {
-            if (!state.value.canEdit) return
+            if (!state.value.canToggleChecklist) return
             viewModelScope.launch {
                 val note = repository.note(noteId) ?: return@launch
                 mutate(
@@ -506,8 +584,8 @@ class NotesHomeViewModel
             if (!state.value.canEdit) return
             viewModelScope.launch {
                 val note = repository.note(noteId) ?: return@launch
+                // The open view popup reflects this via the live-note overlay.
                 mutate(note.copy(pinned = !note.pinned))
-                editor.update { if (it?.noteId == noteId) it.copy(pinned = !note.pinned) else it }
             }
         }
 
@@ -592,5 +670,5 @@ class NotesHomeViewModel
                 tagIds = card.tags.map { it.id }.toSet(),
             )
 
-        private fun newItem() = EditorChecklistItem(id = UUID.randomUUID().toString(), text = "", done = false)
+        private fun newItem(text: String) = EditorChecklistItem(id = UUID.randomUUID().toString(), text = text, done = false)
     }
