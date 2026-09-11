@@ -10,8 +10,8 @@ import com.itsluminous.samaroh.core.testing.MainDispatcherRule
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import com.itsluminous.samaroh.feature.menu.fakes.FakeSyncStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -57,16 +57,16 @@ class SyncStatusViewModelTest {
                         payloadJson = """{"id":"biz-1","name":"Sharma Palace"}""",
                     ),
                 )
-            val collector = launch { viewModel.status.collect {} }
-            runCurrent()
 
+            // Display resolution runs suspend DAO lookups on Room's own executor, so
+            // await the first emission instead of racing runCurrent() against it.
             val errors =
-                viewModel.status.value
-                    ?.errors
-                    .orEmpty()
+                viewModel.status
+                    .filterNotNull()
+                    .first()
+                    .errors
             assertThat(errors).hasSize(1)
             assertThat(errors.single().outboxId).isEqualTo(7L)
-            collector.cancel()
         }
 
     @Test
@@ -84,18 +84,25 @@ class SyncStatusViewModelTest {
                         payloadJson = """{"id":"biz-1"}""",
                     ),
                 )
-            val collector = launch { viewModel.status.collect {} }
-            runCurrent()
+            // Await the error row landing in the shared state (resolver hops through
+            // Room's executor, outside the test scheduler).
+            assertThat(
+                viewModel.status
+                    .filterNotNull()
+                    .first()
+                    .errors,
+            ).hasSize(1)
 
             viewModel.discardError(7L)
-            runCurrent()
 
+            // The discard runs in viewModelScope; await the state converging to
+            // empty errors — that emission can only follow the discard completing.
+            val after = viewModel.status.filterNotNull().first { it.errors.isEmpty() }
+            assertThat(after.errors).isEmpty()
             assertThat(syncStatus.discardedIds).containsExactly(7L)
-            assertThat(viewModel.status.value?.errors).isEmpty()
             assertThat(viewModel.message.value).isEqualTo(R.string.settings_sync_discarded)
 
             viewModel.onMessageShown()
             assertThat(viewModel.message.value).isNull()
-            collector.cancel()
         }
 }
