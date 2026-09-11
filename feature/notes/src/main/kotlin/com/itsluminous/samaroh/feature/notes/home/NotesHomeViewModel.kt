@@ -599,7 +599,11 @@ class NotesHomeViewModel
             }
         }
 
-        /** Un-complete / un-trash: back to the active Notes list. */
+        /**
+         * Un-complete / un-trash: back to the active Notes list. Deliberately does NOT
+         * re-pin a note that was pinned before trashing — [trashNote] cleared the flag,
+         * and a restored note re-enters the grid unpinned (re-pin is an explicit action).
+         */
         fun restoreNote(noteId: String) {
             if (!state.value.canEdit) return
             viewModelScope.launch {
@@ -609,12 +613,18 @@ class NotesHomeViewModel
             }
         }
 
-        /** Delete on an active/completed note → Trash with the purge anchor (ADR-077). */
+        /**
+         * Delete on an active/completed note → Trash with the purge anchor (ADR-077).
+         * The ONLY place trash is set. Trashing also CLEARS `pinned`: a pinned note in
+         * Trash would otherwise jump back to the top of the grid on restore, and the
+         * pinned row is a curated surface — trash is an eviction from it (see
+         * [restoreNote]: restoring does not re-pin).
+         */
         fun trashNote(noteId: String) {
             if (!state.value.canEdit) return
             viewModelScope.launch {
                 val note = repository.note(noteId) ?: return@launch
-                mutate(note.copy(status = NoteStatus.TRASHED, trashedAt = clock.instant()))
+                mutate(note.copy(status = NoteStatus.TRASHED, trashedAt = clock.instant(), pinned = false))
                 editor.value = null
             }
         }

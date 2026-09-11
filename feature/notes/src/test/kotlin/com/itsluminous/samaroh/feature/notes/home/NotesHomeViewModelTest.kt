@@ -186,6 +186,36 @@ class NotesHomeViewModelTest {
             }
         }
 
+    /**
+     * Trash clears the pin (feedback batch): the pinned row is a curated surface and
+     * trash is an eviction from it. Restore deliberately does NOT re-pin — the note
+     * re-enters the grid unpinned and re-pinning is an explicit user action.
+     */
+    @Test
+    fun `trashing a pinned note clears pinned and restore does not re-pin`() =
+        runTest {
+            repository.notesFlow.value = listOf(noteFixture("n-1", pinned = true))
+            val vm = viewModel()
+            vm.state.test {
+                awaitItemMatching { it.loaded && it.pinned.isNotEmpty() }
+
+                vm.trashNote("n-1")
+                awaitItemMatching { (it.pinned + it.others).isEmpty() }
+                val trashed = repository.notesFlow.value.single()
+                assertThat(trashed.status).isEqualTo(NoteStatus.TRASHED)
+                assertThat(trashed.pinned).isFalse()
+
+                vm.restoreNote("n-1")
+                awaitItemMatching { it.others.isNotEmpty() }
+                val restored = repository.notesFlow.value.single()
+                assertThat(restored.status).isEqualTo(NoteStatus.ACTIVE)
+                // Back in the unpinned bucket — no automatic re-pin.
+                assertThat(restored.pinned).isFalse()
+                assertThat(vm.state.value.pinned).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
     @Test
     fun `complete trash restore and purge walk the lifecycle`() =
         runTest {
