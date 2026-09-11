@@ -8,11 +8,11 @@ import com.itsluminous.samaroh.core.model.NotesPermissions
 import com.itsluminous.samaroh.core.model.ReportsPermissions
 import com.itsluminous.samaroh.core.model.SettingsPermissions
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /** One toggle row: `actionKey` is the schema/wire action name (e.g. `record_payment`). */
 data class PermissionToggle(
@@ -50,7 +50,27 @@ enum class PermissionPreset {
 object PermissionMatrix {
     private val json = Json { encodeDefaults = true }
 
-    /** Groups in tab order with every action toggle, reflecting [permissions]. */
+    /**
+     * Inheriting actions (schema/migration 007, ADR-082): an ABSENT (JSON null) value
+     * displays and toggles from its parent action's value — the exact
+     * `coalesce(child, parent, false)` normalization the DB applies.
+     */
+    private val inheritsFrom = mapOf("view_checklists" to "view", "toggle_checklist" to "edit")
+
+    private fun effective(
+        module: JsonObject,
+        actionKey: String,
+        value: JsonElement,
+    ): Boolean =
+        (value as? JsonPrimitive)?.booleanOrNull
+            ?: inheritsFrom[actionKey]?.let { parent -> (module[parent] as? JsonPrimitive)?.booleanOrNull }
+            ?: false
+
+    /**
+     * Groups in tab order with every action toggle, reflecting [permissions]. An
+     * inheriting action that is unset renders its NORMALIZED (inherited) value, so the
+     * matrix always shows what the member can actually do.
+     */
     fun groups(permissions: MemberPermissions): List<PermissionGroup> =
         json
             .encodeToJsonElement(MemberPermissions.serializer(), permissions)
@@ -58,11 +78,18 @@ object PermissionMatrix {
             .map { (module, actions) ->
                 PermissionGroup(
                     moduleKey = module,
-                    toggles = actions.jsonObject.map { (action, value) -> PermissionToggle(action, value.jsonPrimitive.boolean) },
+                    toggles =
+                        actions.jsonObject.map { (action, value) ->
+                            PermissionToggle(action, effective(actions.jsonObject, action, value))
+                        },
                 )
             }
 
-    /** Returns [permissions] with the [moduleKey]/[actionKey] toggle flipped. */
+    /**
+     * Returns [permissions] with the [moduleKey]/[actionKey] toggle flipped. Flipping
+     * an unset inheriting action writes the EXPLICIT negation of its inherited value —
+     * from then on that member's key no longer follows the parent toggle.
+     */
     fun toggle(
         permissions: MemberPermissions,
         moduleKey: String,
@@ -70,7 +97,8 @@ object PermissionMatrix {
     ): MemberPermissions {
         val root = json.encodeToJsonElement(MemberPermissions.serializer(), permissions).jsonObject
         val module = root[moduleKey]?.jsonObject ?: return permissions
-        val current = module[actionKey]?.jsonPrimitive?.boolean ?: return permissions
+        val value = module[actionKey] ?: return permissions
+        val current = effective(module, actionKey, value)
         val flippedModule = JsonObject(module + (actionKey to JsonPrimitive(!current)))
         val flippedRoot = JsonObject(root + (moduleKey to flippedModule))
         return json.decodeFromJsonElement(MemberPermissions.serializer(), flippedRoot)
@@ -100,7 +128,7 @@ object PermissionMatrix {
                 ExpensesPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageParties = true),
             inventory =
                 InventoryPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageMasterItems = true),
-            notes = NotesPermissions(view = true, create = true, edit = true, delete = true),
+            notes = NotesPermissions(view = true, viewChecklists = true, create = true, edit = true, toggleChecklist = true, delete = true),
             reports = ReportsPermissions(view = true, viewAmounts = true),
             settings = SettingsPermissions(manageBusiness = true, manageMembers = true, gcalSync = true),
         )

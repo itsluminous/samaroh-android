@@ -96,15 +96,31 @@ data class InventoryPermissions(
 
 /**
  * Notes module actions (ADR-077). No `view_amounts` — notes carry no money, so the
- * absent-defaults-to-true exception does not apply; every action is absent = false.
+ * absent-defaults-to-true exception does not apply; every action is absent = false
+ * EXCEPT the two INHERITING checklist keys (schema/migration 007, ADR-082):
+ * `view_checklists` absent = inherits `view`, `toggle_checklist` absent = inherits
+ * `edit`. Both are nullable so absent stays distinguishable from an explicit false —
+ * clients MUST normalize exactly like the DB (`coalesce(view_checklists, view, false)`
+ * / `coalesce(toggle_checklist, edit, false)`); use the `Effective` accessors, never
+ * the raw nullable keys, for gating.
  */
 @Serializable
 data class NotesPermissions(
     val view: Boolean = false,
+    /** ABSENT = inherits [view]: see checklists (kind='checklist'). */
+    @SerialName("view_checklists") val viewChecklists: Boolean? = null,
     val create: Boolean = false,
     val edit: Boolean = false,
+    /** ABSENT = inherits [edit]: tick/untick checklist items (done flags only). */
+    @SerialName("toggle_checklist") val toggleChecklist: Boolean? = null,
     val delete: Boolean = false,
-)
+) {
+    /** Normalized checklist visibility: `coalesce(view_checklists, view, false)`. */
+    val viewChecklistsEffective: Boolean get() = viewChecklists ?: view
+
+    /** Normalized checklist ticking: `coalesce(toggle_checklist, edit, false)`. */
+    val toggleChecklistEffective: Boolean get() = toggleChecklist ?: edit
+}
 
 @Serializable
 data class ReportsPermissions(

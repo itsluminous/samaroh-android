@@ -19,9 +19,10 @@ class PermissionMatrixTest {
             .containsExactly("view", "view_amounts", "create", "edit", "delete", "manage_parties")
         assertThat(groups.first { it.moduleKey == "inventory" }.toggles.map { it.actionKey })
             .containsExactly("view", "view_amounts", "create", "edit", "delete", "manage_master_items")
-        // Notes has no amounts, so no view_amounts toggle (ADR-077).
+        // Notes has no amounts, but carries the two inheriting checklist keys (ADR-082).
         assertThat(groups.first { it.moduleKey == "notes" }.toggles.map { it.actionKey })
-            .containsExactly("view", "create", "edit", "delete")
+            .containsExactly("view", "view_checklists", "create", "edit", "toggle_checklist", "delete")
+            .inOrder()
         assertThat(groups.first { it.moduleKey == "reports" }.toggles.map { it.actionKey })
             .containsExactly("view", "view_amounts")
         assertThat(groups.first { it.moduleKey == "settings" }.toggles.map { it.actionKey })
@@ -71,10 +72,12 @@ class PermissionMatrixTest {
         assertThat(PermissionPreset.STAFF.permissions()).isEqualTo(MemberPermissions.staff())
         assertThat(PermissionPreset.MANAGER.permissions()).isEqualTo(MemberPermissions.manager())
 
-        // Viewer = all view (+ default-true view_amounts), nothing else.
+        // Viewer = all view (+ default-true view_amounts + the INHERITED
+        // view_checklists, which follows view when unset — ADR-082), nothing else.
         val viewerGroups = PermissionMatrix.groups(MemberPermissions.viewer())
         viewerGroups.flatMap { it.toggles }.forEach { toggle ->
-            assertThat(toggle.enabled).isEqualTo(toggle.actionKey == "view" || toggle.actionKey == "view_amounts")
+            assertThat(toggle.enabled)
+                .isEqualTo(toggle.actionKey == "view" || toggle.actionKey == "view_amounts" || toggle.actionKey == "view_checklists")
         }
 
         // Manager = everything except settings/members.
@@ -110,5 +113,50 @@ class PermissionMatrixTest {
         PermissionMatrix.groups(PermissionMatrix.fullAccess()).flatMap { it.toggles }.forEach { toggle ->
             assertThat(toggle.enabled).isTrue()
         }
+    }
+
+    // ---- inheriting checklist keys (ADR-082) ----
+
+    private fun notesToggle(
+        permissions: MemberPermissions,
+        actionKey: String,
+    ): PermissionToggle =
+        PermissionMatrix
+            .groups(permissions)
+            .first { it.moduleKey == "notes" }
+            .toggles
+            .first { it.actionKey == actionKey }
+
+    @Test
+    fun `unset checklist keys render their inherited value in the matrix`() {
+        // view=true, edit=false, both checklist keys unset.
+        val member = MemberPermissions.viewer()
+        assertThat(notesToggle(member, "view_checklists").enabled).isTrue() // ← view
+        assertThat(notesToggle(member, "toggle_checklist").enabled).isFalse() // ← edit
+
+        // edit=true flows into an unset toggle_checklist.
+        val manager = MemberPermissions.manager()
+        assertThat(notesToggle(manager, "toggle_checklist").enabled).isTrue()
+
+        // An explicit false NEVER falls through to the parent.
+        val strict = MemberPermissions.viewer().let { it.copy(notes = it.notes.copy(viewChecklists = false)) }
+        assertThat(notesToggle(strict, "view_checklists").enabled).isFalse()
+    }
+
+    @Test
+    fun `toggling an unset inheriting key writes the explicit negation`() {
+        // Viewer inherits view_checklists=true; the toggle pins an explicit false.
+        val hidden = PermissionMatrix.toggle(MemberPermissions.viewer(), "notes", "view_checklists")
+        assertThat(hidden.notes.viewChecklists).isFalse()
+        assertThat(hidden.notes.viewChecklistsEffective).isFalse()
+        // And back on — now explicitly true, no longer following view.
+        val shown = PermissionMatrix.toggle(hidden, "notes", "view_checklists")
+        assertThat(shown.notes.viewChecklists).isTrue()
+
+        // toggle_checklist inherits edit=false; the toggle grants an explicit true.
+        val toggler = PermissionMatrix.toggle(MemberPermissions.viewer(), "notes", "toggle_checklist")
+        assertThat(toggler.notes.toggleChecklist).isTrue()
+        assertThat(toggler.notes.edit).isFalse()
+        assertThat(toggler.notes.toggleChecklistEffective).isTrue()
     }
 }

@@ -97,4 +97,59 @@ class PermissionsSerializationTest {
         assertThat(manager.settings.manageMembers).isFalse()
         assertThat(manager.settings.manageBusiness).isFalse()
     }
+
+    // ---- inheriting checklist keys (schema/migration 007, ADR-082) ----
+
+    @Test
+    fun `absent checklist keys inherit view and edit exactly like the DB coalesce`() {
+        // Pre-007 permissions object: no checklist keys at all.
+        val legacy = json.decodeFromString<MemberPermissions>("""{ "notes": { "view": true, "edit": false } }""")
+        assertThat(legacy.notes.viewChecklists).isNull()
+        assertThat(legacy.notes.toggleChecklist).isNull()
+        // coalesce(view_checklists, view, false) / coalesce(toggle_checklist, edit, false).
+        assertThat(legacy.notes.viewChecklistsEffective).isTrue()
+        assertThat(legacy.notes.toggleChecklistEffective).isFalse()
+
+        val editor = json.decodeFromString<MemberPermissions>("""{ "notes": { "view": true, "edit": true } }""")
+        assertThat(editor.notes.toggleChecklistEffective).isTrue()
+
+        val empty = json.decodeFromString<MemberPermissions>("{}")
+        assertThat(empty.notes.viewChecklistsEffective).isFalse()
+        assertThat(empty.notes.toggleChecklistEffective).isFalse()
+    }
+
+    @Test
+    fun `explicit false checklist keys never fall through to the parent`() {
+        val payload =
+            """{ "notes": { "view": true, "view_checklists": false, "edit": true, "toggle_checklist": false } }"""
+        val perms = json.decodeFromString<MemberPermissions>(payload)
+        assertThat(perms.notes.viewChecklistsEffective).isFalse()
+        assertThat(perms.notes.toggleChecklistEffective).isFalse()
+
+        // And the reverse: explicit true with the parent false.
+        val reverse =
+            json.decodeFromString<MemberPermissions>(
+                """{ "notes": { "view": false, "view_checklists": true, "toggle_checklist": true } }""",
+            )
+        assertThat(reverse.notes.viewChecklistsEffective).isTrue()
+        assertThat(reverse.notes.toggleChecklistEffective).isTrue()
+    }
+
+    @Test
+    fun `explicit checklist keys round-trip and unset keys stay unset`() {
+        val explicit =
+            MemberPermissions.viewer().let {
+                it.copy(notes = it.notes.copy(viewChecklists = false, toggleChecklist = true))
+            }
+        val encoded = json.encodeToString(MemberPermissions.serializer(), explicit)
+        assertThat(encoded).contains("view_checklists")
+        assertThat(encoded).contains("toggle_checklist")
+        assertThat(json.decodeFromString<MemberPermissions>(encoded)).isEqualTo(explicit)
+
+        // Unset (inheriting) keys are OMITTED on the default wire encoding, so a
+        // pre-007 member row keeps inheriting after any client re-save.
+        val unset = json.encodeToString(MemberPermissions.serializer(), MemberPermissions.viewer())
+        assertThat(unset).doesNotContain("view_checklists")
+        assertThat(unset).doesNotContain("toggle_checklist")
+    }
 }

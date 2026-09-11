@@ -3040,7 +3040,7 @@ reset + re-pull is the single convergence mechanism.
 
 ## ADR-081 — Note popup overhaul: wide dialog, create-mode pin removal, checklist drag reorder, compact remove cross (2026-09-11)
 
-**Status:** accepted.
+**Status:** accepted; point 3 (checkbox-handle drag) and the editable-row model superseded by ADR-082.
 
 **Context.** Owner feedback on the note popup (ADR-077/079): the dialog feels cramped —
 the platform default width wastes screen, the create popup's pin icon crowds the header,
@@ -3075,3 +3075,78 @@ move-up is a clumsy way to reorder.
 instead of N taps of an arrow. Trade-off accepted: the per-item remove target drops
 below the 48dp default (dense in-row control, ≥32dp floor); the checkbox keeps its full
 target and still toggles on tap — long-press is additive.
+
+## ADR-082 — Notes: fine-grained checklist permissions, live view popup, add-only checklist rows with whole-row drag (2026-09-11)
+
+**Status:** accepted. Supersedes ADR-081 point 3 (checkbox-handle drag) and the
+editable checklist rows of ADR-077/081. Contract change: `core:model`
+`NotesPermissions` gains two keys mirroring shared schema/migration 007.
+
+**Context.** Three drivers landed together. (1) Shared migration 007
+(`samaroh-shared` 84adc7d) split the notes permissions: `view_checklists`
+(ABSENT → inherits `view`) and `toggle_checklist` (ABSENT → inherits `edit`),
+with RLS + a BEFORE UPDATE guard enforcing that a toggle-only member may change
+ONLY checklist `done` flags (plus `updated_by = auth.uid()`; `updated_at` is
+server-set). (2) Bug: the note VIEW popup rendered the snapshot taken at open —
+an inline checkbox toggle persisted to Room but the open popup never updated.
+(3) Owner feedback simplified the checklist editor; the web track shipped the
+model first (69c03cc) and Android must match its semantics.
+
+**Decision.**
+1. **`NotesPermissions.viewChecklists`/`toggleChecklist` are NULLABLE**
+   (`Boolean?`, wire keys `view_checklists`/`toggle_checklist`): absent must stay
+   distinguishable from explicit false, because absent INHERITS the parent action
+   and explicit false never falls through — the client normalizes exactly like
+   the DB (`coalesce(view_checklists, view, false)` /
+   `coalesce(toggle_checklist, edit, false)`) via the `viewChecklistsEffective` /
+   `toggleChecklistEffective` accessors, the ONLY sanctioned read path for
+   gating. Default wire encoding omits unset keys, so pre-007 member rows keep
+   inheriting after any re-save.
+2. **Matrix editor renders NORMALIZED values and writes EXPLICIT ones.**
+   `PermissionMatrix.groups` resolves a JSON-null inheriting action to its
+   parent's value (the member's real capability); flipping such a row pins the
+   explicit negation — from then on that key no longer follows its parent. The
+   notes group labels come from the shared `notes.permission.*` keys (the
+   checklist split makes generic "View"/"Edit" ambiguous there).
+3. **Enforcement:** without normalized `view_checklists`, checklists are
+   filtered out of the home pipeline ahead of everything else — grid, search,
+   section empty-states and drawer tag counts all derive from the filtered
+   cards, and `openNote` can't reach them. Inline checkbox toggles (cards + view
+   popup) gate on normalized `toggle_checklist` instead of `notes.edit`. The
+   **Create checklist button requires `create` AND normalized
+   `view_checklists`** — a member who cannot SEE checklists must not create one
+   they could never find again (UI hides the button; the ViewModel re-guards).
+   Toggle pushes stay full-row upserts: the DB guard compares OLD vs NEW per
+   column, so an up-to-date local row passes; a stale row is rejected and the
+   outbox op is rebased by the next pull (LWW), same as every other conflict.
+4. **The VIEW popup observes the live note.** The home state overlays the open
+   (non-editing) editor with the note's current Room row (title, content,
+   checklist, colour, pin, status, tags) on every emission — inline toggles,
+   concurrent edits and sync pulls reflect instantly. Edit mode keeps its buffer
+   untouched; `startEditing` seeds from the overlaid (live) state, and
+   `togglePin` no longer hand-patches the editor.
+5. **Checked items render struck-through** (with the dimmed on-surface-variant
+   colour in the popup) in the view popup, the edit rows and card previews —
+   one consistent affordance across all three checklist surfaces.
+6. **Checklist rows are ADD-ONLY and drag as whole rows** (matching web
+   69c03cc): a row is checkbox + plain text + the compact 32/18dp remove cross —
+   to change a text, remove and re-add. ONE "Add item" field sits pinned below
+   the rows: Enter (IME Done) appends the trimmed text, clears the field and
+   KEEPS focus for the next item; Save folds a typed-but-not-entered text in.
+   LONG-PRESSING anywhere on a row picks it up (LongPress haptic, 8dp
+   `shadowElevation`, 1.03 scale, zIndex 1); the row follows the finger, the
+   hovered target slot advances on midpoint crossing (`RowDrag.targetIndexFor`)
+   while neighbours animate aside with a 150 ms tween (`RowDrag.rowShift`), and
+   the reorder commits ONCE on drop (`moveChecklistItem`) with the shift
+   snapping (not animating) back so nothing double-moves. `RowDrag` is pure
+   Kotlin, unit-tested against the same cases as the web `rowDrag.ts` suite;
+   `ChecklistReorder.move` remains the commit-time index math. The ViewModel's
+   `addChecklistItem()`/`setChecklistItemText` are replaced by
+   `setNewItemText`/`commitNewItem`; a new checklist starts with ZERO rows (the
+   phantom-card guard already dismisses an empty save).
+
+**Consequences.** Owners can hand a member "tick the shopping list" without
+"rewrite my notes"; both clients and the DB agree byte-for-byte on the
+inheritance rule. The popup can no longer go stale by construction. Items lose
+in-place text editing — accepted (owner call; removal + re-add covers the rare
+fix) in exchange for a calmer editor and an unambiguous whole-row drag.

@@ -60,7 +60,7 @@ fun PermissionMatrixEditor(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = actionLabel(toggle.actionKey),
+                        text = actionLabel(group.moduleKey, toggle.actionKey),
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f),
                     )
@@ -100,8 +100,23 @@ private fun moduleLabel(moduleKey: String): String =
     }
 
 @Composable
-private fun actionLabel(actionKey: String): String =
-    when (actionKey) {
+private fun actionLabel(
+    moduleKey: String,
+    actionKey: String,
+): String {
+    // Notes rows carry their own labels (shared `notes.permission.action_*` keys):
+    // the checklist split (ADR-082) makes generic "View"/"Edit" ambiguous there.
+    if (moduleKey == "notes") {
+        when (actionKey) {
+            "view" -> return stringResource(R.string.notes_permission_action_view)
+            "view_checklists" -> return stringResource(R.string.notes_permission_action_view_checklists)
+            "create" -> return stringResource(R.string.notes_permission_action_create)
+            "edit" -> return stringResource(R.string.notes_permission_action_edit)
+            "toggle_checklist" -> return stringResource(R.string.notes_permission_action_toggle_checklist)
+            "delete" -> return stringResource(R.string.notes_permission_action_delete)
+        }
+    }
+    return when (actionKey) {
         "view" -> stringResource(R.string.auth_permissions_action_view)
         "view_amounts" -> stringResource(R.string.auth_permissions_action_view_amounts)
         "create" -> stringResource(R.string.auth_permissions_action_create)
@@ -117,3 +132,4 @@ private fun actionLabel(actionKey: String): String =
         // Unknown future schema action: show the raw key rather than crash.
         else -> actionKey
     }
+}
