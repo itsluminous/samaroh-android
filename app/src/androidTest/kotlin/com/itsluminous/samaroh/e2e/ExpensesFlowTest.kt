@@ -44,7 +44,8 @@ abstract class ExpensesFlowTest(
     @Test
     fun typeAheadSteersToExisting_entriesUpdateRunningBalance() {
         openExpensesTab()
-        waitForText(string(R.string.expenses_home_add_person)).performClick()
+        // Icon-only FAB (ADR-071): the label lives in the contentDescription, not as text.
+        waitForContentDescription(string(R.string.expenses_home_add_person)).performClick()
 
         // Debounced type-ahead (§4.2): a prefix of an existing party surfaces it.
         waitForText(string(R.string.expenses_add_person_name_label), substring = true)
@@ -70,7 +71,8 @@ abstract class ExpensesFlowTest(
     @Test
     fun addNewPerson_opensEmptyLedger() {
         openExpensesTab()
-        waitForText(string(R.string.expenses_home_add_person)).performClick()
+        // Icon-only FAB (ADR-071): the label lives in the contentDescription, not as text.
+        waitForContentDescription(string(R.string.expenses_home_add_person)).performClick()
         waitForText(string(R.string.expenses_add_person_name_label), substring = true)
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.expenses_add_person_name_label)))
