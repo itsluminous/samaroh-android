@@ -39,9 +39,14 @@ abstract class InventoryFlowTest(
         qty: String,
         unitPrice: String? = null,
     ) {
-        // The IME from the previous dialog's text fields can overlay the FAB.
-        androidx.test.espresso.Espresso
-            .closeSoftKeyboard()
+        // The IME from the previous dialog's text fields can overlay the FAB. Hide it
+        // through InputMethodManager on the UI thread: Espresso.closeSoftKeyboard()
+        // waits for a window-focused root view and flakes on CI emulators with
+        // RootViewWithoutFocusException when focus is briefly lost.
+        scenario.onActivity { activity ->
+            val imm = activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            activity.currentFocus?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
+        }
         compose.waitForIdle()
         waitForContentDescription(string(R.string.inventory_fab_record_transaction)).performClick()
         waitForText(string(R.string.inventory_txn_title))
