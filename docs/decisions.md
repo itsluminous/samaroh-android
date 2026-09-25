@@ -3150,3 +3150,51 @@ model first (69c03cc) and Android must match its semantics.
 inheritance rule. The popup can no longer go stale by construction. Items lose
 in-place text editing — accepted (owner call; removal + re-add covers the rare
 fix) in exchange for a calmer editor and an unambiguous whole-row drag.
+
+## ADR-083 — Tombstoned names never block re-creation: LIVE-only, case-insensitive name uniqueness (shared migration 008) (2026-09-25)
+
+**Status:** accepted (contract change in `samaroh-shared`, submodule bump to follow;
+no Room schema change; additive DAO test only).
+
+**Context.** The owner deleted parties and later tried to add someone with the same
+name again ("bhuneshwar singh", "Ganga Bhog", …). The outbox items never left the
+device: every retry failed with PostgREST 409 / Postgres `23505` on
+`parties_business_id_name_key` (live probes T1–T4 on 2026-09-25; the earlier
+`42501` report was not reproducible). Root cause: the 001 baseline declared
+`unique (business_id, name)` on `parties` and `master_items` as plain NON-PARTIAL
+constraints, so a soft-deleted (tombstoned) row keeps owning its name forever.
+Both clients already dedup against LIVE rows only and mint a fresh id for a
+re-created name, so every re-create of a deleted name was blocked server-side.
+`note_tags` (005) and `event_types` (001) already used partial indexes and were
+never affected.
+
+**Decision.**
+
+1. **Server contract (shared `008_live_name_uniqueness.sql`).** The two plain
+   constraints are dropped and replaced by partial unique indexes on
+   `(business_id, lower(name)) WHERE deleted_at IS NULL`
+   (`uq_parties_biz_name`, `uq_master_items_biz_name`) — the same shape as
+   `uq_note_tags_biz_name`. Uniqueness is now (a) over LIVE rows only and
+   (b) CASE-INSENSITIVE, which is stricter than before for mixed-case twins; the
+   migration pre-checks live data and aborts listing any offending names
+   (live DB had none).
+2. **Client contract (unchanged, now pinned).** Clients NEVER resurrect a
+   tombstoned id — a re-created name is a brand-new row with a new UUID
+   (`AddPersonViewModel.save`, `MasterlistViewModel`, tag/preset creation). Every
+   duplicate-steering source stays LIVE-only and case-insensitive:
+   `PartyDao.partiesWithBalance`/`searchByName`, `MasterItemDao.itemsForBusiness`/
+   `searchByName`, `NoteTagDao.tagsForBusiness`, `EventTypeDao.countLabelUses`
+   (all `deleted_at IS NULL`, matched with `FuzzyNameMatcher.normalize` /
+   `equals(ignoreCase = true)` / `COLLATE NOCASE`). Room keeps NO local uniqueness
+   on names, so a tombstoned twin and its live re-creation coexist on device
+   exactly as on the server. New `LiveNameSteeringDaoTest` pins all four sources.
+3. **Self-healing.** Nothing to do on the device: the stuck outbox items are plain
+   inserts with fresh ids; once 008 is applied server-side the next sync retry
+   succeeds (23505 was the only rejection).
+
+**Consequences.** Deleting and re-adding a person/item works on both clients.
+Because names are now case-insensitively unique server-side, a client that lets
+"Ram Sweets" and "ram sweets" both exist would get 23505 — both clients already
+reject that case-insensitively, so behaviour is unchanged in practice. Anything
+that ever relied on `ON CONFLICT (business_id, name)` would break (audited: nothing
+in either app or the Planning import scripts does).
