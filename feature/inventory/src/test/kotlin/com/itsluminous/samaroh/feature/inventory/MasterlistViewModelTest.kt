@@ -39,6 +39,51 @@ class MasterlistViewModelTest {
             }
         }
 
+    // ---- search (ADR-084, stock-screen rule) ----
+
+    @Test
+    fun `search filters the list case-insensitively by name`() =
+        runTest {
+            inventory.masterItemsFlow.value = listOf(plate, Fixtures.masterItem(id = "item-bowl", name = "Bowl"))
+            viewModel.listState.test {
+                expectMostRecentItem()
+                viewModel.onSearchQueryChange("  sTEEL ")
+                val state = expectMostRecentItem()
+                assertThat(state.items.map { it.name }).containsExactly("Steel Plate")
+                assertThat(state.noSearchResults).isFalse()
+            }
+        }
+
+    @Test
+    fun `no-results flag is set only when a query filters everything out`() =
+        runTest {
+            viewModel.listState.test {
+                expectMostRecentItem()
+                viewModel.onSearchQueryChange("missing thing")
+                val state = expectMostRecentItem()
+                assertThat(state.items).isEmpty()
+                assertThat(state.noSearchResults).isTrue()
+
+                viewModel.onSearchQueryChange("")
+                val restored = expectMostRecentItem()
+                assertThat(restored.items.map { it.name }).containsExactly("Steel Plate")
+                assertThat(restored.noSearchResults).isFalse()
+            }
+        }
+
+    @Test
+    fun `an empty item list never reports no-results`() =
+        runTest {
+            inventory.masterItemsFlow.value = emptyList()
+            viewModel.listState.test {
+                expectMostRecentItem()
+                viewModel.onSearchQueryChange("x")
+                // The state is unchanged (empty, not "no results"), so StateFlow emits nothing new.
+                expectNoEvents()
+                assertThat(viewModel.listState.value.noSearchResults).isFalse()
+            }
+        }
+
     @Test
     fun `typing three or more similar characters surfaces duplicate chips`() =
         runTest {

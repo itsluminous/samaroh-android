@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -66,6 +67,13 @@ data class MasterItemEditorState(
     val targetItemId: String get() = editingItem?.id ?: newItemId
 }
 
+/** What the item list renders: the search-filtered items and whether a search emptied it. */
+data class MasterlistListState(
+    val items: List<MasterItem> = emptyList(),
+    /** True when a non-blank search filtered out every item (the list itself is not empty). */
+    val noSearchResults: Boolean = false,
+)
+
 /** State of the delete flow: confirmation for deletable items, a blocked notice otherwise. */
 data class DeleteRequestState(
     val item: MasterItem,
@@ -103,6 +111,28 @@ class MasterlistViewModel
             activeBusinessId
                 .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else inventoryRepository.masterItems(id) }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+        private val query = MutableStateFlow("")
+        val searchQuery: StateFlow<String> = query.asStateFlow()
+
+        /**
+         * The list the screen renders (ADR-084, web Masterlist parity): [items] filtered by a
+         * case-insensitive name substring — the exact stock-screen rule
+         * ([CurrentInventoryViewModel]); a blank query shows every item.
+         */
+        val listState: StateFlow<MasterlistListState> =
+            combine(items, query) { all, q ->
+                val trimmed = q.trim()
+                val matches = if (trimmed.isEmpty()) all else all.filter { it.name.contains(trimmed, ignoreCase = true) }
+                MasterlistListState(
+                    items = matches,
+                    noSearchResults = trimmed.isNotEmpty() && matches.isEmpty() && all.isNotEmpty(),
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MasterlistListState())
+
+        fun onSearchQueryChange(value: String) {
+            query.value = value
+        }
 
         private val editorState = MutableStateFlow<MasterItemEditorState?>(null)
         val editor: StateFlow<MasterItemEditorState?> = editorState.asStateFlow()

@@ -16,10 +16,12 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -60,6 +62,8 @@ fun MasterlistScreen(
     viewModel: MasterlistViewModel = hiltViewModel(),
 ) {
     val items by viewModel.items.collectAsState()
+    val listState by viewModel.listState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
     val editor by viewModel.editor.collectAsState()
     val deleteRequest by viewModel.deleteRequest.collectAsState()
     val canManage by viewModel.canManageMasterItems.collectAsState()
@@ -89,30 +93,50 @@ fun MasterlistScreen(
             }
         },
     ) { padding ->
-        if (items.isEmpty()) {
-            EmptyState(
-                icon = Icons.Filled.Inventory2,
-                title = stringResource(R.string.inventory_masterlist_empty_title),
-                message = stringResource(R.string.inventory_masterlist_empty_message),
-                modifier = Modifier.padding(padding),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                contentPadding =
-                    androidx.compose.foundation.layout
-                        .PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(items, key = { it.id }) { item ->
-                    MasterItemRow(
-                        item = item,
-                        canManage = canManage,
-                        onEdit = { viewModel.openEditor(item) },
-                        onDelete = { viewModel.requestDelete(item) },
-                        modifier = animatedListItem(),
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (items.isNotEmpty()) {
+                // Same search box as the stock screen (ADR-084): live, case-insensitive
+                // name filter; hidden while the list itself is empty (nothing to filter).
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = viewModel::onSearchQueryChange,
+                    label = { Text(stringResource(R.string.inventory_list_search_placeholder)) },
+                    leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            when {
+                items.isEmpty() ->
+                    EmptyState(
+                        icon = Icons.Filled.Inventory2,
+                        title = stringResource(R.string.inventory_masterlist_empty_title),
+                        message = stringResource(R.string.inventory_masterlist_empty_message),
                     )
-                }
+                listState.noSearchResults ->
+                    EmptyState(
+                        icon = Icons.Filled.Search,
+                        title = stringResource(R.string.inventory_list_no_results),
+                        message = stringResource(R.string.inventory_masterlist_no_results_message),
+                    )
+                else ->
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding =
+                            androidx.compose.foundation.layout
+                                .PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(listState.items, key = { it.id }) { item ->
+                            MasterItemRow(
+                                item = item,
+                                canManage = canManage,
+                                onEdit = { viewModel.openEditor(item) },
+                                onDelete = { viewModel.requestDelete(item) },
+                                modifier = animatedListItem(),
+                            )
+                        }
+                    }
             }
         }
     }
