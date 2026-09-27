@@ -124,7 +124,11 @@ class RoomSyncStatus
                     } else {
                         SyncCursorEntity.GLOBAL_SCOPE
                     }
-                if (scope != null) cursorDao.delete(scope, spec.name)
+                if (scope != null) {
+                    cursorDao.delete(scope, spec.name)
+                    // Immutable tables keep a second (tombstone) keyset position (ADR-084).
+                    spec.tombstoneCursorKey?.let { cursorDao.delete(scope, it) }
+                }
             }
             syncScheduler.requestImmediateSync()
         }

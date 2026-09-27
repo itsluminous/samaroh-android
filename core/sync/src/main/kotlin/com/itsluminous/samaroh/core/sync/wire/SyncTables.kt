@@ -21,6 +21,13 @@ import kotlinx.serialization.json.jsonPrimitive
  *   `updated_at` everywhere except immutable tables: `expense_attachments` has no
  *   `updated_at` by design (created once, tombstoned via `deleted_at` — see 001_schema.sql),
  *   so it pulls by `created_at`.
+ * @param tombstoneCursorColumn SECOND keyset pull leg for immutable tables (ADR-084): a
+ *   remote tombstone only ever writes `deleted_at`, which never moves the row past a
+ *   `created_at` cursor, so the removal was invisible to every other device. Tables that
+ *   set this pull twice per scope — by [cursorColumn] (new rows) and by this column
+ *   (tombstones; Postgres `>` excludes NULLs, so live rows are never re-served) — with an
+ *   independent cursor stored under [tombstoneCursorKey]. Null for `updated_at` tables,
+ *   whose tombstones already bump the cursor column.
  * @param localOnlyKeys payload keys that must NEVER reach the wire — device-only state
  *   whose server column does not exist (ADR-065: `master_items.image_path` was dropped
  *   server-side). Stripped by [WireConverter.toWire] as a safety net for outbox payloads
@@ -43,10 +50,18 @@ data class SyncTableSpec(
     val idColumn2: String? = null,
     val selectColumns: String? = null,
     val cursorColumn: String = "updated_at",
+    val tombstoneCursorColumn: String? = null,
     val localOnlyKeys: Set<String> = emptySet(),
 ) {
     /** Whether the server table carries `updated_at` (LWW bump + tombstone touch are valid). */
     val hasUpdatedAt: Boolean get() = cursorColumn == "updated_at"
+
+    /**
+     * `sync_cursors.table_name` key of the tombstone leg's keyset position (ADR-084) —
+     * distinct from [name] so the two legs of one table never overwrite each other's
+     * cursor. Null when the table has no tombstone leg.
+     */
+    val tombstoneCursorKey: String? get() = tombstoneCursorColumn?.let { "$name$TOMBSTONE_CURSOR_SUFFIX$it" }
 
     /** The sync entity id of a pulled wire/local row — composite-aware (ADR-077). */
     fun entityIdOf(row: kotlinx.serialization.json.JsonObject): String {
@@ -61,6 +76,9 @@ data class SyncTableSpec(
     companion object {
         /** Separator of composite entity ids; safe because uuid columns never carry it. */
         const val COMPOSITE_ID_SEPARATOR = "|"
+
+        /** Joins a table name and its tombstone cursor column into the second leg's cursor key (ADR-084). */
+        const val TOMBSTONE_CURSOR_SUFFIX = "#"
     }
 }
 
@@ -106,7 +124,16 @@ object SyncTables {
                 moneyFields = mapOf("amountPaise" to "amount"),
                 enumFields = setOf("direction"),
             ),
-            SyncTableSpec("expense_attachments", businessScoped = true, cursorColumn = "created_at"),
+            // Immutable metadata rows: `created_at` finds new bills, `deleted_at` finds
+            // removals made on ANY client (web chip-X, another phone's viewer delete) —
+            // without the second leg a tombstone never crossed the created_at cursor
+            // and removed bills stayed visible forever (ADR-084).
+            SyncTableSpec(
+                "expense_attachments",
+                businessScoped = true,
+                cursorColumn = "created_at",
+                tombstoneCursorColumn = "deleted_at",
+            ),
             // image_path is device-only since ADR-065 (the server column is dropped;
             // other devices serve the photo from drive_image_id) — strip it from any
             // legacy outbox payload so old rows still push cleanly.

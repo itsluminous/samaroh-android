@@ -56,7 +56,8 @@ data class SyncOutcome(
  * 1. Push the outbox FIFO — attachment uploads first (queue contract), then Postgrest
  *    upserts; tombstones propagate as `deleted_at` updates; RLS rejections mark the item
  *    `error` (retriable) without blocking other entities.
- * 2. Pull per-table incremental changes (`updated_at > cursor`, per business scope),
+ * 2. Pull per-table incremental changes (`updated_at > cursor`, per business scope;
+ *    immutable tables add a `deleted_at > cursor` tombstone leg — ADR-084),
  *    apply to Room with LWW conflict resolution — a pulled row newer than a pending
  *    outbox op is REBASED (pending upsert) or the op is DROPPED (pending delete /
  *    remote tombstone), always with a persisted conflict-log entry, a local notification
@@ -368,10 +369,34 @@ class SyncEngine
             scope: String,
             collectAppliedIds: Boolean,
         ): TablePull {
+            val main = pullLeg(remote, spec, scope, collectAppliedIds, spec.cursorColumn, spec.name)
+            val tombstoneColumn = spec.tombstoneCursorColumn ?: return main
+            // Second leg (ADR-084): tombstones of an immutable table, keyed by deleted_at.
+            val tombstones = pullLeg(remote, spec, scope, collectAppliedIds, tombstoneColumn, checkNotNull(spec.tombstoneCursorKey))
+            return TablePull(
+                applied = main.applied + tombstones.applied,
+                conflicts = main.conflicts + tombstones.conflicts,
+                appliedIds = main.appliedIds + tombstones.appliedIds,
+            )
+        }
+
+        /**
+         * One keyset pull over [cursorColumn], persisting its position under [cursorKey]
+         * (`sync_cursors.table_name`). The main leg uses the table name; an immutable
+         * table's tombstone leg (ADR-084) uses [SyncTableSpec.tombstoneCursorKey].
+         */
+        private suspend fun pullLeg(
+            remote: RemoteStore,
+            spec: SyncTableSpec,
+            scope: String,
+            collectAppliedIds: Boolean,
+            cursorColumn: String,
+            cursorKey: String,
+        ): TablePull {
             var applied = 0
             var conflicts = 0
             val appliedIds = mutableListOf<String>()
-            val stored = cursorDao.cursor(scope, spec.name)
+            val stored = cursorDao.cursor(scope, cursorKey)
             var cursorAt = stored?.lastPulledAt ?: Instant.EPOCH
             // The wire position is the EXACT server-serialized timestamp (ADR-060):
             // Room's millisecond Instant can never `eq`-match the server's microsecond
@@ -394,7 +419,7 @@ class SyncEngine
                         afterId = afterId,
                         limit = PULL_PAGE_SIZE,
                         columns = spec.selectColumns,
-                        cursorColumn = spec.cursorColumn,
+                        cursorColumn = cursorColumn,
                         idColumn = spec.idColumn,
                         idColumn2 = spec.idColumn2,
                         afterId2 = afterId2,
@@ -405,7 +430,7 @@ class SyncEngine
                 var lastId = cursorId
                 for (raw in rows) {
                     val row = WireConverter.toLocal(spec.name, raw)
-                    val rawTimestamp = raw.getValue(spec.cursorColumn).jsonPrimitive.content
+                    val rawTimestamp = raw.getValue(cursorColumn).jsonPrimitive.content
                     val remoteUpdated = WireConverter.parseTimestamp(rawTimestamp)
                     // Rows arrive ordered by (cursorColumn, id) — the last one is the new keyset position.
                     lastAt = remoteUpdated
@@ -420,7 +445,7 @@ class SyncEngine
                 }
                 // Defensive: a page that fails to advance the position would loop forever.
                 if (lastRaw == cursorRaw && lastId == cursorId) break
-                cursorDao.upsert(SyncCursorEntity(scope, spec.name, lastAt, lastId, lastRaw))
+                cursorDao.upsert(SyncCursorEntity(scope, cursorKey, lastAt, lastId, lastRaw))
                 if (rows.size < PULL_PAGE_SIZE) break
                 cursorAt = lastAt
                 cursorRaw = lastRaw

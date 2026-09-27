@@ -357,8 +357,9 @@ class SyncEnginePullTest {
 
             syncEngine(db, remote, notifier).runSync()
 
-            assertThat(remote.pullCursorColumns["expense_attachments"]).isEqualTo("created_at")
-            assertThat(remote.pullCursorColumns["bookings"]).isEqualTo("updated_at")
+            // Two legs (ADR-084): new rows by created_at, then tombstones by deleted_at.
+            assertThat(remote.pullCursorColumns["expense_attachments"]).containsExactly("created_at", "deleted_at").inOrder()
+            assertThat(remote.pullCursorColumns["bookings"]).containsExactly("updated_at")
             assertThat(db.expenseAttachmentDao().byId("att-1")).isNotNull()
             assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "expense_attachments"))
                 .isEqualTo(
@@ -370,6 +371,73 @@ class SyncEnginePullTest {
                         "2026-08-25T10:00:00+00:00",
                     ),
                 )
+        }
+
+    // ---- ADR-084: remote attachment removals reach the device via the deleted_at tombstone leg ----
+
+    @Test
+    fun `a remote attachment tombstone behind the created_at cursor removes the local live row`() =
+        runTest {
+            seedBusiness()
+            // Run 1: the attachment arrives live and the created_at cursor moves past it.
+            remote.servePage("expense_attachments", listOf(remoteAttachmentRow("att-1")))
+            syncEngine(db, remote, notifier).runSync()
+            assertThat(db.expenseAttachmentDao().liveForExpense("exp-1").map { it.id }).containsExactly("att-1")
+            assertThat(db.expenseAttachmentDao().byId("att-1")!!.deletedAt).isNull()
+
+            // Run 2: the web client set deleted_at only — created_at is unchanged, so the
+            // main leg has nothing new (the row sits BEHIND its cursor); the tombstone leg
+            // serves it by deleted_at and the local row converges on the removal.
+            val deletedAt = "2026-08-26T09:30:00+00:00"
+            remote.servePage(
+                "expense_attachments",
+                listOf(remoteAttachmentRow("att-1", deletedAt = deletedAt)),
+                cursorColumn = "deleted_at",
+            )
+            syncEngine(db, remote, notifier).runSync()
+
+            assertThat(db.expenseAttachmentDao().liveForExpense("exp-1")).isEmpty()
+            assertThat(db.expenseAttachmentDao().byId("att-1")!!.deletedAt).isEqualTo(Instant.parse("2026-08-26T09:30:00Z"))
+            // Each leg keeps its own keyset position under a distinct cursor key.
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "expense_attachments")!!.lastPulledRaw)
+                .isEqualTo("2026-08-25T10:00:00+00:00")
+            assertThat(db.syncCursorDao().cursor(Fixtures.BUSINESS_ID, "expense_attachments#deleted_at"))
+                .isEqualTo(
+                    SyncCursorEntity(
+                        Fixtures.BUSINESS_ID,
+                        "expense_attachments#deleted_at",
+                        Instant.parse("2026-08-26T09:30:00Z"),
+                        "att-1",
+                        deletedAt,
+                    ),
+                )
+        }
+
+    @Test
+    fun `a remote row with fewer live attachments than local drops the removed ones only`() =
+        runTest {
+            seedBusiness()
+            remote.servePage(
+                "expense_attachments",
+                listOf(remoteAttachmentRow("att-1"), remoteAttachmentRow("att-2"), remoteAttachmentRow("att-3")),
+            )
+            syncEngine(db, remote, notifier).runSync()
+            assertThat(db.expenseAttachmentDao().liveForExpense("exp-1")).hasSize(3)
+
+            // Two of the three bills were removed on the web; the tombstone leg serves both.
+            remote.servePage(
+                "expense_attachments",
+                listOf(
+                    remoteAttachmentRow("att-1", deletedAt = "2026-08-26T09:30:00+00:00"),
+                    remoteAttachmentRow("att-3", deletedAt = "2026-08-26T09:31:00+00:00"),
+                ),
+                cursorColumn = "deleted_at",
+            )
+            syncEngine(db, remote, notifier).runSync()
+
+            assertThat(db.expenseAttachmentDao().liveForExpense("exp-1").map { it.id }).containsExactly("att-2")
+            // The tombstone leg preserves Room-only state exactly like the main leg.
+            assertThat(db.expenseAttachmentDao().byId("att-3")!!.deletedAt).isNotNull()
         }
 
     // ---- one-run coverage: businesses discovered mid-run (§8 "calendar empty after sign-in" bug) ----
@@ -727,6 +795,22 @@ class SyncEnginePullTest {
             put("created_at", "2026-08-01T09:00:00+00:00")
             put("updated_at", updatedAt)
             put("deleted_at", JsonNull)
+        }
+
+    private fun remoteAttachmentRow(
+        id: String,
+        deletedAt: String? = null,
+        createdAt: String = "2026-08-25T10:00:00+00:00",
+    ): JsonObject =
+        buildJsonObject {
+            put("id", id)
+            put("expense_id", "exp-1")
+            put("business_id", Fixtures.BUSINESS_ID)
+            put("drive_file_id", "drive-$id")
+            put("mime_type", "image/jpeg")
+            put("file_name", "$id.jpg")
+            put("created_at", createdAt)
+            if (deletedAt != null) put("deleted_at", deletedAt) else put("deleted_at", JsonNull)
         }
 
     private fun remoteBusinessRow(

@@ -16,6 +16,7 @@ import com.itsluminous.samaroh.core.sync.SyncMetaStore
 import com.itsluminous.samaroh.core.sync.SyncRunState
 import com.itsluminous.samaroh.core.sync.remote.RemoteStore
 import com.itsluminous.samaroh.core.sync.remote.RemoteStoreProvider
+import com.itsluminous.samaroh.core.sync.wire.SyncTables
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,10 +49,16 @@ class FakeRemoteStore : RemoteStore {
     /** Composite-PK second keyset leg per pull call (ADR-077), parallel to [pullCalls]. */
     val pullAfterId2s = mutableListOf<String?>()
 
-    /** Last cursor column requested per table (asserts the expense_attachments created_at cursor). */
-    val pullCursorColumns = mutableMapOf<String, String>()
+    /**
+     * Cursor columns requested per table, in call order — an immutable table pulls two
+     * legs (`created_at` then `deleted_at`, ADR-084); every other table exactly one.
+     */
+    val pullCursorColumns = mutableMapOf<String, MutableList<String>>()
 
-    /** Pages served per table; each pull for a table pops one page (then empty). */
+    /**
+     * Pages served per (table, cursor column); each pull pops one page (then empty). The
+     * key separates an immutable table's tombstone leg from its main leg (ADR-084).
+     */
     val pullPages = mutableMapOf<String, ArrayDeque<List<JsonObject>>>()
 
     /** Programmable failure hook for upserts. */
@@ -67,12 +74,22 @@ class FakeRemoteStore : RemoteStore {
      */
     var onPull: (suspend (table: String, businessId: String?) -> Unit)? = null
 
+    /**
+     * Queues one page for [table]'s pull over [cursorColumn] — defaults to the table's
+     * registered main cursor column; pass `"deleted_at"` to feed the tombstone leg.
+     */
     fun servePage(
         table: String,
         rows: List<JsonObject>,
+        cursorColumn: String = SyncTables.byName(table)?.cursorColumn ?: "updated_at",
     ) {
-        pullPages.getOrPut(table) { ArrayDeque() }.addLast(rows)
+        pullPages.getOrPut(pageKey(table, cursorColumn)) { ArrayDeque() }.addLast(rows)
     }
+
+    private fun pageKey(
+        table: String,
+        cursorColumn: String,
+    ) = "$table@$cursorColumn"
 
     override suspend fun upsert(
         table: String,
@@ -108,9 +125,9 @@ class FakeRemoteStore : RemoteStore {
         pullCalls += Triple(table, businessId, after)
         pullAfterIds += afterId
         pullAfterId2s += afterId2
-        pullCursorColumns[table] = cursorColumn
+        pullCursorColumns.getOrPut(table) { mutableListOf() } += cursorColumn
         onPull?.invoke(table, businessId)
-        return pullPages[table]?.removeFirstOrNull() ?: emptyList()
+        return pullPages[pageKey(table, cursorColumn)]?.removeFirstOrNull() ?: emptyList()
     }
 }
 
