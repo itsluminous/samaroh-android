@@ -3198,3 +3198,73 @@ Because names are now case-insensitively unique server-side, a client that lets
 reject that case-insensitively, so behaviour is unchanged in practice. Anything
 that ever relied on `ON CONFLICT (business_id, name)` would break (audited: nothing
 in either app or the Planning import scripts does).
+
+## ADR-084 — Expense-attachment parity: tombstone pull leg, edit-form removal, item-list search (2026-09-27)
+
+**Status:** accepted. Additive only: a new `SyncTableSpec` field, one new
+`sync_cursors` key shape, additive ViewModel/UI, one new shared string key
+(`inventory.masterlist.no_results_message`, shared 7127e68). No Room schema change,
+no server migration, no wire-shape change.
+
+**Context.** Three web/Android gaps reported by the owner.
+
+1. *Remote bill removals never reached Android.* A bill removed on the web (or in
+   another phone's viewer) stayed visible here after every sync. Root cause is in the
+   pull, not the applier or the image cache: `expense_attachments` is an IMMUTABLE table
+   (no `updated_at` by design — 001_schema.sql), so it pulls by a `created_at` keyset.
+   Every client removes an attachment by writing `deleted_at` ONLY (web
+   `updateExpense` → `.update({deleted_at})`; Android `updateTombstone(...,
+   touchUpdatedAt = false)`), which never moves the row past the device's `created_at`
+   cursor — the tombstone sits BEHIND the cursor forever and is never re-served. The
+   `LocalApplier` would have applied it correctly had it ever arrived. This affected
+   Android→Android removals too, not just web→Android.
+2. *Edit entry could add bills but not remove saved ones.* The ADR-053 viewer delete
+   exists, but the edit form (the place the web offers removal) showed only newly
+   staged files; saved attachments were invisible there, and the 4-bill cap ignored
+   them.
+3. *Item list had no search* while the stock screen and the web Masterlist both do.
+
+**Decision.**
+
+1. **Tombstone pull leg for immutable tables.** `SyncTableSpec.tombstoneCursorColumn`
+   (set to `deleted_at` for `expense_attachments` only) makes `SyncEngine.pullTable`
+   run a SECOND keyset pull over `(deleted_at, id)` after the main `created_at` leg,
+   with its own persisted position under `sync_cursors.table_name =
+   "expense_attachments#deleted_at"` (`SyncTableSpec.tombstoneCursorKey`). Postgres
+   `>`/`>=` exclude NULLs, so live rows are never re-served by this leg; the same
+   `applyWithLww` path handles it (a remote tombstone still drops a pending local op).
+   The ADR-080 discard reset clears both legs' cursors. Chosen over adding
+   `updated_at` + trigger server-side because it is purely client-side, works
+   against the CURRENT schema on install (no "migration must land first" window in
+   which attachments would stop syncing), and keeps the immutable-row contract intact.
+   The first run after upgrade pulls every historical attachment tombstone once (cheap
+   metadata rows; idempotent applies).
+2. **Edit-form removal mirrors the web dialog's UX and wire contract.** In edit mode
+   the form lists the entry's live attachments (a one-shot snapshot at open — a pull
+   mid-edit must not resurrect a chip the user removed) before the newly staged ones,
+   each with the existing compact X (`expenses.entry.remove_attachment`, no confirm —
+   the web chip has none). Removal is DEFERRED to Save exactly like web
+   (`removedAttachmentIds` → applied in `updateExpense`): Back/cancel keeps every bill.
+   On Save each removed attachment runs the existing ADR-053 `AttachmentDeleter`
+   cascade — row tombstone + outbox DELETE (the authoritative, web-identical wire
+   write), local cache file removal, and BEST-EFFORT Drive `files.delete` when a
+   `drive_file_id` exists and Google is linked. *Drive handling choice:* web leaves the
+   Drive file in place only because it has no Drive client at all (its ADR calls the
+   removal "a legitimate metadata tombstone"); Android already owns a Drive client and
+   an accepted contract (ADR-053) that deletes the orphan for the same row tombstone,
+   so the edit form reuses it rather than introducing a second, weaker removal path in
+   the same app. The cross-device contract both clients share is the tombstone; the
+   Drive delete stays non-fatal and swallowed. The 4-bill cap now counts kept existing
+   + newly staged (`AddEntryState.attachmentCount`). Gated as before: the edit route
+   itself requires `expenses.edit`.
+3. **Item-list search** = the stock-screen component and rule verbatim (outlined
+   field, `inventory.list.search_placeholder`, live case-insensitive name substring,
+   hidden while the list is empty), with the `inventory.list.no_results` title and the
+   new `inventory.masterlist.no_results_message` body. `MasterlistViewModel.items`
+   stays unfiltered (the duplicate-name suggestions must see every item);
+   `listState` carries the filtered view.
+
+**Consequences.** Removals converge on every device within one sync in both
+directions. Anything else that ever becomes an immutable, tombstone-only table gets
+convergence by setting one field. The redundant `created_at` cursor doc in
+`SyncTables` now points here.
