@@ -63,6 +63,7 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.i18n.R
@@ -242,9 +243,17 @@ fun AddEntryScreen(
                         Text(stringResource(R.string.expenses_entry_attach_pdf), modifier = Modifier.padding(start = 4.dp))
                     }
                 }
-                if (state.attachments.isNotEmpty()) {
+                if (state.existingAttachments.isNotEmpty() || state.attachments.isNotEmpty()) {
                     // Scrollable single line: four 72dp thumbs overflow a narrow viewport.
+                    // Edit mode lists the saved bills first (ADR-084) — the X only removes
+                    // them from the form; Save applies the tombstones, Back keeps them.
                     ChipRow {
+                        state.existingAttachments.forEach { existing ->
+                            ExistingAttachmentThumb(
+                                attachment = existing,
+                                onRemove = { viewModel.removeExistingAttachment(existing) },
+                            )
+                        }
                         state.attachments.forEach { staged ->
                             StagedAttachmentThumb(staged = staged, onRemove = { viewModel.removeAttachment(staged) })
                         }
@@ -335,10 +344,42 @@ private fun StagedAttachmentThumb(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    AttachmentThumb(
+        imageFile = staged.file.takeIf { staged.mimeType.startsWith("image/") },
+        onRemove = onRemove,
+        modifier = modifier,
+    )
+}
+
+/**
+ * An already-saved bill in edit mode (ADR-084): the cached copy when the device has
+ * one (the ledger's own thumbnail source), otherwise the document placeholder — the
+ * form never downloads from Drive just to draw a 72dp thumb.
+ */
+@Composable
+private fun ExistingAttachmentThumb(
+    attachment: AttachmentWithLocalState,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cached = attachment.localCachePath?.let(::File)?.takeIf { it.exists() }
+    AttachmentThumb(
+        imageFile = cached?.takeIf { attachment.attachment.mimeType.startsWith("image/") },
+        onRemove = onRemove,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun AttachmentThumb(
+    imageFile: File?,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Box(modifier = modifier.size(72.dp)) {
-        if (staged.mimeType.startsWith("image/")) {
+        if (imageFile != null) {
             AsyncImage(
-                model = staged.file,
+                model = imageFile,
                 contentDescription = stringResource(R.string.expenses_ledger_attachment_thumbnail),
                 modifier = Modifier.size(72.dp).clip(RoundedCornerShape(8.dp)),
             )

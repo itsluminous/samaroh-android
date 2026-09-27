@@ -7,16 +7,20 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
+import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
+import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
+import com.itsluminous.samaroh.feature.expenses.FakeDriveService
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.expenses.FakeGoogleAccountLinker
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
+import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentDeleter
 import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
 import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
@@ -67,6 +71,7 @@ class AddEntryViewModelTest {
     private lateinit var ledgerRepository: FakeExpensesLedgerRepository
     private lateinit var uploadQueue: RecordingUploadQueue
     private lateinit var linker: FakeGoogleAccountLinker
+    private lateinit var driveService: FakeDriveService
     private lateinit var syncScheduler: RecordingSyncScheduler
     private lateinit var shareTargetHolder: ShareTargetHolder
 
@@ -77,6 +82,7 @@ class AddEntryViewModelTest {
         ledgerRepository = FakeExpensesLedgerRepository()
         uploadQueue = RecordingUploadQueue()
         linker = FakeGoogleAccountLinker()
+        driveService = FakeDriveService()
         syncScheduler = RecordingSyncScheduler()
         shareTargetHolder = ShareTargetHolder()
     }
@@ -84,15 +90,28 @@ class AddEntryViewModelTest {
     private fun viewModel(
         direction: ExpenseDirection = ExpenseDirection.PAID,
         fromShare: Boolean = false,
+        expenseId: String? = null,
     ) = AddEntryViewModel(
         savedStateHandle =
             SavedStateHandle(
-                mapOf(ARG_PARTY_ID to partyId, ARG_DIRECTION to direction.wire, ARG_FROM_SHARE to fromShare),
+                mapOf(
+                    ARG_PARTY_ID to partyId,
+                    ARG_DIRECTION to direction.wire,
+                    ARG_FROM_SHARE to fromShare,
+                    ARG_EXPENSE_ID to expenseId.orEmpty(),
+                ),
             ),
         expensesRepository = expensesRepository,
         ledgerRepository = ledgerRepository,
         uploadQueue = uploadQueue,
         compressor = AttachmentCompressor(context, ioDispatcher = mainDispatcherRule.dispatcher),
+        attachmentDeleter =
+            AttachmentDeleter(
+                ledgerRepository = ledgerRepository,
+                driveService = driveService,
+                googleAccountLinker = linker,
+                ioDispatcher = mainDispatcherRule.dispatcher,
+            ),
         session = fakeExpensesSession(),
         googleAccountLinker = linker,
         syncScheduler = syncScheduler,
@@ -303,5 +322,95 @@ class AddEntryViewModelTest {
         runTest {
             val viewModel = viewModel(fromShare = true)
             assertThat(viewModel.state.value.attachments).isEmpty()
+        }
+
+    // ---- edit mode: removing already-saved bills (ADR-084, web entry-dialog parity) ----
+
+    private suspend fun seedEditableExpenseWithBills(): String {
+        val expense = Fixtures.expense(partyId = partyId, id = "exp-edit")
+        expensesRepository.saveExpense(expense)
+        listOf("att-1" to "drive-1", "att-2" to null).forEach { (id, driveId) ->
+            ledgerRepository.saveAttachment(
+                ExpenseAttachment(
+                    id = id,
+                    expenseId = expense.id,
+                    businessId = Fixtures.BUSINESS_ID,
+                    driveFileId = driveId,
+                    mimeType = "image/jpeg",
+                    fileName = "$id.jpg",
+                    createdAt = Fixtures.NOW,
+                ),
+                localCachePath = null,
+            )
+        }
+        return expense.id
+    }
+
+    @Test
+    fun `edit mode lists the saved bills and removal is deferred until Save`() =
+        runTest {
+            val expenseId = seedEditableExpenseWithBills()
+            linker.state.value = GoogleLinkState.Linked("owner@example.com", emptyList())
+            val viewModel = viewModel(expenseId = expenseId)
+            assertThat(
+                viewModel.state.value.existingAttachments
+                    .map { it.attachment.id },
+            ).containsExactly("att-1", "att-2")
+
+            val removed: AttachmentWithLocalState =
+                viewModel.state.value.existingAttachments
+                    .first { it.attachment.id == "att-1" }
+            viewModel.removeExistingAttachment(removed)
+
+            // Only the form changed: nothing tombstoned yet (Back would keep the bill).
+            assertThat(
+                viewModel.state.value.existingAttachments
+                    .map { it.attachment.id },
+            ).containsExactly("att-2")
+            assertThat(ledgerRepository.deletedAttachmentIds).isEmpty()
+            assertThat(driveService.deletedFileIds).isEmpty()
+
+            viewModel.save()
+
+            // Save applies the ADR-053 cascade: row tombstone (+ outbox) and best-effort Drive delete.
+            assertThat(ledgerRepository.deletedAttachmentIds).containsExactly("att-1")
+            assertThat(driveService.deletedFileIds).containsExactly("drive-1")
+            assertThat(ledgerRepository.attachments.value.map { it.attachment.id }).containsExactly("att-2")
+            assertThat(
+                expensesRepository.expenses.value
+                    .single()
+                    .id,
+            ).isEqualTo(expenseId)
+        }
+
+    @Test
+    fun `removing a pending (not yet uploaded) bill tombstones the row without touching Drive`() =
+        runTest {
+            val expenseId = seedEditableExpenseWithBills()
+            linker.state.value = GoogleLinkState.Linked("owner@example.com", emptyList())
+            val viewModel = viewModel(expenseId = expenseId)
+
+            viewModel.removeExistingAttachment(
+                viewModel.state.value.existingAttachments
+                    .first { it.attachment.id == "att-2" },
+            )
+            viewModel.save()
+
+            assertThat(ledgerRepository.deletedAttachmentIds).containsExactly("att-2")
+            assertThat(driveService.deletedFileIds).isEmpty()
+        }
+
+    @Test
+    fun `the attachment cap counts kept existing bills plus newly staged ones`() =
+        runTest {
+            val expenseId = seedEditableExpenseWithBills()
+            val viewModel = viewModel(expenseId = expenseId)
+            assertThat(viewModel.state.value.attachmentCount).isEqualTo(2)
+
+            repeat(MAX_ATTACHMENTS) { viewModel.onAttachmentPicked(imageUri(), "image/png", "bill-$it.png") }
+
+            // 2 existing + 2 staged = the cap; the extra picks were refused.
+            assertThat(viewModel.state.value.attachments).hasSize(MAX_ATTACHMENTS - 2)
+            assertThat(viewModel.state.value.attachmentCount).isEqualTo(MAX_ATTACHMENTS)
         }
 }

@@ -8,6 +8,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
+import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
@@ -19,6 +20,7 @@ import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
+import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentDeleter
 import com.itsluminous.samaroh.feature.expenses.domain.AmountInput
 import com.itsluminous.samaroh.feature.expenses.ledger.ARG_PARTY_ID
 import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
@@ -67,13 +69,22 @@ data class AddEntryState(
     val amountError: Boolean = false,
     val date: LocalDate,
     val notes: String = "",
+    /**
+     * Edit mode (ADR-084): the entry's live attachments as of opening, with the ones the
+     * user removed already filtered out. Removal is DEFERRED to Save — exactly like the
+     * web entry dialog's chip-X — so Back/cancel leaves the bills untouched.
+     */
+    val existingAttachments: List<AttachmentWithLocalState> = emptyList(),
     val attachments: List<StagedAttachment> = emptyList(),
     val saving: Boolean = false,
     /** Set after save when attachments exist but no Google account is linked (§4.2 prompt). */
     val showGooglePrompt: Boolean = false,
     /** The prompt's Link button is running the account-picker/consent flow. */
     val linking: Boolean = false,
-)
+) {
+    /** Bills on the entry after Save: kept existing ones plus newly staged (the §4.2 cap counts both). */
+    val attachmentCount: Int get() = existingAttachments.size + attachments.size
+}
 
 sealed interface AddEntryEvent {
     data object Saved : AddEntryEvent
@@ -98,6 +109,7 @@ class AddEntryViewModel
         private val ledgerRepository: ExpensesLedgerRepository,
         private val uploadQueue: AttachmentUploadQueue,
         private val compressor: AttachmentCompressor,
+        private val attachmentDeleter: AttachmentDeleter,
         private val session: ExpensesSession,
         private val googleAccountLinker: GoogleAccountLinker,
         private val syncScheduler: SyncScheduler,
@@ -110,6 +122,9 @@ class AddEntryViewModel
         /** Non-null when editing an existing entry (gated by `expenses.edit`, §4.2). */
         private val editingExpenseId: String? = savedStateHandle.get<String>(ARG_EXPENSE_ID)?.ifEmpty { null }
         private var editingExpense: Expense? = null
+
+        /** Existing attachments the user removed in this edit session; tombstoned on Save (ADR-084). */
+        private val removedAttachments = mutableListOf<AttachmentWithLocalState>()
 
         private val _state =
             MutableStateFlow(
@@ -128,6 +143,9 @@ class AddEntryViewModel
                             amountText = BigDecimal(existing.amountPaise).movePointLeft(2).toPlainString(),
                             date = existing.expenseDate,
                             notes = existing.notes.orEmpty(),
+                            // Snapshot (not a live flow): a sync pull mid-edit must not
+                            // resurrect a chip the user already removed from the form.
+                            existingAttachments = ledgerRepository.attachmentsForExpense(id).first(),
                         )
                     }
                 }
@@ -177,7 +195,7 @@ class AddEntryViewModel
             mimeType: String,
             displayName: String,
         ) {
-            if (_state.value.attachments.size >= MAX_ATTACHMENTS) {
+            if (_state.value.attachmentCount >= MAX_ATTACHMENTS) {
                 _events.tryEmit(AddEntryEvent.AttachmentLimitReached)
                 return
             }
@@ -188,7 +206,7 @@ class AddEntryViewModel
 
         /** Stages a camera capture written to [file] by the TakePicture contract. */
         fun onImageCaptured(file: File) {
-            if (_state.value.attachments.size >= MAX_ATTACHMENTS) {
+            if (_state.value.attachmentCount >= MAX_ATTACHMENTS) {
                 _events.tryEmit(AddEntryEvent.AttachmentLimitReached)
                 return
             }
@@ -211,6 +229,19 @@ class AddEntryViewModel
         fun removeAttachment(attachment: StagedAttachment) {
             attachment.file.delete()
             _state.update { current -> current.copy(attachments = current.attachments - attachment) }
+        }
+
+        /**
+         * Removes an ALREADY-SAVED attachment from the form (edit mode, ADR-084). Only the
+         * form state changes here; the tombstone + Drive cleanup run on [save], mirroring
+         * the web dialog (chip-X collects ids, Save applies them, Cancel discards).
+         */
+        fun removeExistingAttachment(attachment: AttachmentWithLocalState) {
+            val id = attachment.attachment.id
+            if (removedAttachments.none { it.attachment.id == id }) removedAttachments += attachment
+            _state.update { current ->
+                current.copy(existingAttachments = current.existingAttachments.filterNot { it.attachment.id == id })
+            }
         }
 
         private fun stage(prepared: AttachmentCompressor.Prepared) {
@@ -254,6 +285,11 @@ class AddEntryViewModel
                         updatedAt = now,
                     )
                 expensesRepository.saveExpense(expense)
+                // Deferred removals (ADR-084): the same cascade as the viewer delete
+                // (ADR-053) — row tombstone + outbox DELETE, cache file, best-effort Drive
+                // delete — so every device converges via the tombstone pull leg.
+                removedAttachments.toList().forEach { removed -> attachmentDeleter.delete(removed) }
+                removedAttachments.clear()
                 current.attachments.forEach { staged ->
                     val attachment =
                         ExpenseAttachment(
