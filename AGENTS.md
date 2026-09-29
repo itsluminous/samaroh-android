@@ -6,9 +6,9 @@ Instructions for AI agents (and humans) working in this repo. Read fully before 
 
 Samaroh is an offline-first, multilingual (en + hi) Material You Android app for small
 venue businesses: calendar-first **Booking**, party-ledger **Expenses**, photo-per-item
-**Inventory**, **Notes**, Drive-indexed **Files** (ADR-085), and a **Menu** tab
-(Settings/Reports/Members/About; modules past the 4-module bottom-bar cap overflow into
-its "More" section). Room is the source of
+**Inventory**, **Notes**, Drive-indexed **Files** (ADR-085) as the bottom-bar tabs, and a
+**Menu** (Settings/Reports/Members/About) behind the title-bar kebab, right of the sync
+icon (ADR-087). Room is the source of
 truth; Supabase is the sync target (never read directly by UI); Google is used for
 Sign-In, Drive backups and Calendar sync.
 
@@ -16,7 +16,7 @@ Sign-In, Drive backups and Calendar sync.
 
 | Module | Contents | Status |
 |---|---|---|
-| `app` | MainActivity, nav host, bottom bar (business-name app bar + tappable sync cloud icon), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
+| `app` | MainActivity, nav host, bottom bar (modules only) + business-name app bar (tappable sync cloud icon, Menu kebab — ADR-087), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
 | `shared/` | git submodule → `samaroh-shared` (string catalogs, codegen, schema, brand) | external |
 | `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
 | `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter`, catalog parity + usage-audit tests | done |

@@ -22,7 +22,7 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -82,7 +82,6 @@ import com.itsluminous.samaroh.feature.menu.MENU_ROUTE
 import com.itsluminous.samaroh.feature.menu.SYNC_STATUS_ROUTE
 import com.itsluminous.samaroh.feature.menu.menuGraph
 import com.itsluminous.samaroh.feature.menu.syncStatusGraph
-import com.itsluminous.samaroh.feature.menu.ui.home.MenuOverflowModule
 import com.itsluminous.samaroh.feature.notes.NOTES_ROUTE
 import com.itsluminous.samaroh.feature.notes.notesGraph
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_ROUTE
@@ -94,7 +93,7 @@ import com.itsluminous.samaroh.share.ShareBlocked
 import com.itsluminous.samaroh.share.ShareChooserDialog
 import dagger.hilt.android.EntryPointAccessors
 
-/** The module tabs + Menu (§0, ADR-085). Labels are catalog keys; icons are decorative duplicates of the label. */
+/** The module tabs (§0, ADR-085/087). Labels are catalog keys; icons are decorative duplicates of the label. */
 private data class TopLevelDestination(
     val route: String,
     @StringRes val labelRes: Int,
@@ -108,18 +107,15 @@ private val topLevelDestinations =
         TopLevelDestination(INVENTORY_ROUTE, R.string.common_nav_inventory, Icons.Filled.Inventory2),
         // NOTES tab (ADR-077): hidden without notes.view like every module tab.
         TopLevelDestination(NOTES_ROUTE, R.string.notes_nav_tab, Icons.AutoMirrored.Filled.StickyNote2),
-        // FILES tab (ADR-085): fifth module — overflows into the Menu's "More" section
-        // when four modules already fill the bar (NavPermissions.barTabRoutes).
+        // FILES tab (ADR-085/087): fifth module — takes the bar slot the Menu used to
+        // hold; the Menu itself lives behind the title-bar kebab now.
         TopLevelDestination(FILES_ROUTE, R.string.files_nav_tab, Icons.Filled.Folder),
-        // The Menu tab is a nested GRAPH (ADR-042): its root subscreens (Reports, Sync
-        // status) stay inside it so hierarchy matching keeps the tab highlighted there.
-        TopLevelDestination(MENU_TAB_ROUTE, R.string.common_nav_menu, Icons.Filled.Menu),
     )
 
 /**
  * App shell (Wave-1 integration): first launch routes to onboarding (§4.0) until the
- * completion flag is set; afterwards the four-tab scaffold hosts the feature graphs with
- * the §4.5 app bar (cloud sync indicator) and offline banner.
+ * completion flag is set; afterwards the module-tab scaffold hosts the feature graphs with
+ * the §4.5 app bar (cloud sync indicator + Menu kebab, ADR-087) and offline banner.
  *
  * @param pendingBookingId booking id from a reminder-notification launch intent — routes
  *   to the Booking tab and opens that booking's card (§4.1 deep link).
@@ -152,14 +148,8 @@ fun SamarohApp(
     // Wait for the DataStore read before choosing the start destination (no flicker).
     val onboarded = onboardingComplete ?: return
     // Tab-level §3 gate: wait for the first permission recompute too — rendering all
-    // four tabs and then dropping one would flash a tab the member cannot view.
+    // tabs and then dropping one would flash a tab the member cannot view.
     val visibleTabs = visibleTabsState ?: return
-    // Bottom-bar cap (ADR-085, design D15): 4 modules + Menu; the rest go to Menu › More.
-    val barTabs = NavPermissions.barTabRoutes(visibleTabs)
-    val overflowModules =
-        NavPermissions.overflowModuleRoutes(visibleTabs).mapNotNull { route ->
-            topLevelDestinations.firstOrNull { it.route == route }?.let { MenuOverflowModule(it.route, it.labelRes, it.icon) }
-        }
     val shareContext by viewModel.shareContext.collectAsStateWithLifecycle()
     val shareIntakeHolder = remember(activityContext) { ShellEntryPoints.of(activityContext).shareIntakeHolder() }
     val invoiceShareHolder = remember(activityContext) { ShellEntryPoints.of(activityContext).invoiceShareHolder() }
@@ -169,8 +159,8 @@ fun SamarohApp(
     // Saveable so activity recreation (locale/theme change) keeps the SAME nav graph —
     // a changed startDestination breaks NavController state restoration. The completion
     // navigation (not a graph swap) moves the user on; a process restart re-reads the flag.
-    // Booking hidden (no booking.view) → fall back to the first visible tab.
-    val startDestination = rememberSaveable { if (onboarded) visibleTabs.first() else ONBOARDING_ROUTE }
+    // Booking hidden (no booking.view) → the first visible tab; no module at all → Menu.
+    val startDestination = rememberSaveable { if (onboarded) NavPermissions.startDestination(visibleTabs) else ONBOARDING_ROUTE }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -188,9 +178,12 @@ fun SamarohApp(
             ?.toList()
             .orEmpty()
     val currentTab = NavTabSelection.selectedTab(hierarchyRoutes)
+    // Re-read on every back-stack change (backStackEntry above is the State that
+    // recomposes us): whether the Menu home should offer a back arrow (ADR-087).
+    val menuHasParent = backStackEntry != null && navController.previousBackStackEntry != null
     LaunchedEffect(visibleTabs, currentTab) {
         if (currentTab != null && currentTab !in visibleTabs) {
-            navController.navigate(visibleTabs.first()) {
+            navController.navigate(NavPermissions.startDestination(visibleTabs)) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = false }
                 launchSingleTop = true
             }
@@ -212,6 +205,11 @@ fun SamarohApp(
     // Web App Link (ADR-033): switch to the target tab with the bottom-bar navigation
     // pattern; tab-only links are consumed here, sub-targets (ledger/masterlist/settings)
     // by the feature graphs below once they finished navigating.
+    // The Menu is not a tab (ADR-087): its links PUSH the Menu graph over the current
+    // tab, exactly like the kebab, so back returns to where the user was.
+    fun openMenu() {
+        navController.navigate(MENU_TAB_ROUTE) { launchSingleTop = true }
+    }
     LaunchedEffect(pendingAppLink, onboarded) {
         val link = pendingAppLink
         if (link != null && onboarded) {
@@ -221,14 +219,18 @@ fun SamarohApp(
                     is AppLink.Expenses -> EXPENSES_ROUTE
                     is AppLink.Inventory -> INVENTORY_ROUTE
                     AppLink.Files -> FILES_ROUTE
-                    is AppLink.Menu, AppLink.Reports -> MENU_TAB_ROUTE
+                    is AppLink.Menu, AppLink.Reports -> null
                 }
-            navController.navigate(tabRoute) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
+            if (tabRoute != null) {
+                navController.navigate(tabRoute) {
+                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            } else {
+                openMenu()
             }
-            // Reports sits on the root NavHost above the Menu tab (back returns to Menu).
+            // Reports sits on the root NavHost above the Menu (back returns to Menu).
             if (link == AppLink.Reports) {
                 navController.navigate(reportsRoute()) { launchSingleTop = true }
             }
@@ -315,23 +317,32 @@ fun SamarohApp(
                             // Badge > 0 → open the Sync-status pending list (§4.5).
                             onOpenSyncStatus = { navController.navigate(SYNC_STATUS_ROUTE) },
                         )
+                        // Menu kebab (ADR-087): right of the sync icon; pushes the Menu
+                        // graph over the current tab. Hidden while the Menu is open.
+                        if (NavPermissions.showsMenuKebab(hierarchyRoutes)) {
+                            ExplainableIcon(
+                                icon = Icons.Filled.MoreVert,
+                                explanationRes = R.string.common_nav_menu,
+                                onClick = ::openMenu,
+                            )
+                        }
                     },
                 )
             }
         },
         bottomBar = {
-            if (!inOnboarding) {
+            // §3 tab-level gate: only the member's visible module tabs render (hidden,
+            // not greyed); the list recomputes live when sync changes permissions. No
+            // visible module → no bar (the Menu is behind the kebab, ADR-087).
+            if (!inOnboarding && NavPermissions.showsBottomBar(visibleTabs)) {
                 NavigationBar {
-                    // §3 tab-level gate: only the member's visible tabs render (hidden,
-                    // not greyed); the list recomputes live when sync changes permissions.
-                    // An overflowed module (reached via Menu › More) keeps Menu highlighted.
-                    val selectedBarTab = if (currentTab != null && currentTab !in barTabs) MENU_TAB_ROUTE else currentTab
-                    topLevelDestinations.filter { it.route in barTabs }.forEach { destination ->
+                    topLevelDestinations.filter { it.route in visibleTabs }.forEach { destination ->
                         val label = stringResource(destination.labelRes)
                         NavigationBarItem(
                             // Hierarchy-based selection (ADR-042): the tab highlights on
-                            // every destination nested under it, not just its own route.
-                            selected = selectedBarTab == destination.route,
+                            // every destination nested under it, not just its own route;
+                            // inside the Menu graph nothing is selected.
+                            selected = currentTab == destination.route,
                             onClick = {
                                 navController.navigate(destination.route) {
                                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -410,19 +421,19 @@ fun SamarohApp(
                     saveToFilesRequested = pendingSaveToFiles && onboarded,
                     onSaveToFilesConsumed = { pendingSaveToFiles = false },
                 )
-                // Menu TAB graph (ADR-042): the Menu screens PLUS its root-level
-                // subscreens (Reports, Sync status) nest under one graph route so the
-                // bottom bar's hierarchy matching keeps the Menu tab highlighted there.
+                // Menu graph (ADR-042/087): the Menu screens PLUS its root-level
+                // subscreens (Reports, Sync status) nest under one graph route; the
+                // kebab pushes it over the current tab, back pops it.
                 navigation(route = MENU_TAB_ROUTE, startDestination = MENU_ROUTE) {
                     menuGraph(
+                        // Back arrow on the Menu home: only when a tab lies beneath it
+                        // (a member with no module starts ON the Menu — nothing to pop to).
+                        onBack = if (menuHasParent) ({ navController.popBackStack() }) else null,
                         onOpenReports = { navController.navigate(reportsRoute()) },
                         // Menu-search report result (ADR-075): deep link to the detail.
                         onOpenReportDetail = { reportArg -> navController.navigate(reportsRoute(reportArg)) },
                         openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
                         onSettingsDeepLinkConsumed = onAppLinkConsumed,
-                        // "More" section (ADR-085): modules past the bottom-bar cap.
-                        overflowModules = overflowModules,
-                        onOpenModule = ::navigateToTab,
                         // Sign-out (ADR-040): session dropped + local data wiped — land on the
                         // onboarding SIGN-IN step (language already chosen) with the whole
                         // back stack cleared so back cannot return to the signed-in UI.
@@ -439,8 +450,9 @@ fun SamarohApp(
                 onboardingGraph(
                     onOnboardingComplete = {
                         viewModel.completeOnboarding()
-                        // First visible tab (§3): Booking unless the member lacks booking.view.
-                        navController.navigate(visibleTabs.first()) {
+                        // First visible tab (§3): Booking unless the member lacks booking.view;
+                        // no module at all → the Menu (ADR-087).
+                        navController.navigate(NavPermissions.startDestination(visibleTabs)) {
                             popUpTo(ONBOARDING_ROUTE) { inclusive = true }
                         }
                     },

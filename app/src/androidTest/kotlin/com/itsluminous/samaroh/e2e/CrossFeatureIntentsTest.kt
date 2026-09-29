@@ -116,7 +116,8 @@ abstract class CrossFeatureIntentsTest(
 
     @Test
     fun menu_opensReports() {
-        waitForText(string(R.string.common_nav_menu)).performClick()
+        // The Menu sits behind the title-bar kebab (ADR-087), an ExplainableIcon.
+        waitForContentDescription(string(R.string.common_nav_menu)).performClick()
         waitForText(string(R.string.menu_section_reports)).performClick()
         waitForText(string(R.string.reports_home_title))
     }

@@ -32,8 +32,8 @@ abstract class LanguageSwitchTest(
 
     @Test
     fun languageSwitch_liveSwapsUi() {
-        // Menu tab → Settings → Language picker.
-        waitForText(string(R.string.common_nav_menu)).performClick()
+        // Title-bar Menu kebab (ADR-087) → Settings → Language picker.
+        waitForContentDescription(string(R.string.common_nav_menu)).performClick()
         waitForText(string(R.string.menu_section_settings)).performClick()
         waitForText(string(R.string.settings_language_title)).performClick()
         waitForText(string(R.string.settings_language_picker_title))
@@ -46,7 +46,7 @@ abstract class LanguageSwitchTest(
         // The activity recreates and the SAME screen re-renders localized: picker title
         // and the bottom-bar tab label both resolve under the new locale.
         waitForText(otherString(R.string.settings_language_picker_title))
-        waitForText(otherString(R.string.common_nav_menu))
+        waitForText(otherString(R.string.common_nav_booking))
     }
 }
 

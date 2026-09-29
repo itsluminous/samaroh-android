@@ -41,58 +41,32 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 import com.itsluminous.samaroh.feature.menu.ui.search.MenuScreenTarget
 import com.itsluminous.samaroh.feature.menu.ui.search.MenuSearch
-import com.itsluminous.samaroh.feature.menu.ui.search.MenuSearchEntry
 import com.itsluminous.samaroh.feature.menu.ui.search.MenuSearchIndex
 import com.itsluminous.samaroh.feature.menu.ui.search.MenuSearchTarget
 import com.itsluminous.samaroh.feature.menu.ui.search.ResolvedMenuSearchEntry
 
 /**
- * A module tab that did not fit the bottom bar (cap = 4 modules + Menu, ADR-085 nav
- * rule) and is listed in the Menu tab's "More" section instead. Provided by the app
- * shell, which owns the tab order and permissions.
- */
-data class MenuOverflowModule(
-    /** The module's route — also the search-result target id. */
-    val id: String,
-    @StringRes val labelRes: Int,
-    val icon: ImageVector,
-)
-
-/**
- * Menu tab home (§4.4): search bar over every menu destination (ADR-075), an optional
- * "More" section with overflowed module tabs (ADR-085), identity row, Settings, Reports,
- * Members (owner only), About. A non-blank query replaces the section rows with
- * live-filtered results that navigate straight to their destination.
+ * Menu home (§4.4, reached from the title-bar kebab since ADR-087): search bar over
+ * every menu destination (ADR-075), identity row, Settings, Reports, Members (owner
+ * only), About. A non-blank query replaces the section rows with live-filtered results
+ * that navigate straight to their destination.
+ *
+ * @param onBack pops the Menu back to the tab it was opened over; null hides the arrow
+ *   (the Menu is the start destination for a member with no viewable module).
  */
 @Composable
 fun MenuHomeScreen(
     onOpenMenuScreen: (MenuScreenTarget) -> Unit,
     onOpenReport: (String?) -> Unit,
+    onBack: (() -> Unit)? = null,
     onSignedOut: () -> Unit = {},
-    overflowModules: List<MenuOverflowModule> = emptyList(),
-    onOpenModule: (String) -> Unit = {},
     viewModel: MenuHomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     // Static index resolved once (both locales — ADR-075); filtering is per-keystroke.
-    // Overflowed modules join the index (their label is the destination's identity).
-    val searchEntries =
-        remember(context, overflowModules) {
-            MenuSearch.resolve(
-                context,
-                MenuSearchIndex.entries +
-                    overflowModules.map { module ->
-                        MenuSearchEntry(
-                            id = "module_${module.id}",
-                            titleRes = module.labelRes,
-                            contextRes = R.string.files_nav_more_section,
-                            target = MenuSearchTarget.Module(module.id),
-                        )
-                    },
-            )
-        }
+    val searchEntries = remember(context) { MenuSearch.resolve(context, MenuSearchIndex.entries) }
 
     // One-shot: sign-out completed (session dropped, local data wiped) — the app shell
     // routes to the onboarding sign-in step with a cleared back stack (ADR-040).
@@ -104,26 +78,9 @@ fun MenuHomeScreen(
         }
     }
 
-    MenuScreenScaffold(titleRes = R.string.menu_home_title) {
+    MenuScreenScaffold(titleRes = R.string.menu_home_title, onBack = onBack) {
         MenuSearchField(query = query, onQueryChange = { query = it })
         if (query.isBlank()) {
-            if (overflowModules.isNotEmpty()) {
-                // "More" section (ADR-085): modules past the 4th visible bottom-bar slot.
-                Text(
-                    text = stringResource(R.string.files_nav_more_section),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
-                )
-                overflowModules.forEach { module ->
-                    ListItem(
-                        headlineContent = { Text(stringResource(module.labelRes), style = MaterialTheme.typography.titleMedium) },
-                        leadingContent = { Icon(module.icon, contentDescription = null) },
-                        modifier = Modifier.clickable { onOpenModule(module.id) },
-                    )
-                }
-                HorizontalDivider()
-            }
             IdentityRow(email = state.signedInEmail, onSignOut = viewModel::onSignOutRequested)
             HorizontalDivider()
             MenuSectionRow(
@@ -179,7 +136,6 @@ fun MenuHomeScreen(
                                 is MenuSearchTarget.Screen -> onOpenMenuScreen(target.screen)
                                 is MenuSearchTarget.Report -> onOpenReport(target.reportRouteArg)
                                 MenuSearchTarget.SignOut -> viewModel.onSignOutRequested()
-                                is MenuSearchTarget.Module -> onOpenModule(target.moduleId)
                             }
                         },
                     )

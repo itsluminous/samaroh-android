@@ -3416,3 +3416,55 @@ without any of the three permissions sees a clear message instead of a dead end.
 emulator harness cannot grant MediaStore uri read permission from the shell, so the
 chooser/picker flows were verified end-to-end while the payload copy was exercised via
 the in-app picker and unit tests.
+
+## ADR-087 — Menu becomes title-bar overflow (kebab); Files takes its bottom slot; picker "New folder" (2026-09-29)
+
+**Status:** accepted (owner feedback on the 0.17 Files drop). Supersedes the ADR-085 D15
+bottom-bar OVERFLOW rule (`BAR_MODULE_CAP` + the Menu's "More" section) on Android;
+extends ADR-086's folder picker.
+
+**Context.** ADR-085 kept the Menu as the fifth bar item and overflowed Files into a
+"More" section inside it, so a full-permission owner reached the brand-new module via
+Menu › More › Files. The owner wants Files DIRECTLY in the bar and the Menu out of it.
+
+**Decision.**
+
+1. **Bottom bar = modules only.** `NavPermissions.visibleTabRoutes` returns the visible
+   modules in canonical order (Booking, Expenses, Inventory, Notes, Files) — five at
+   most, exactly Material 3's cap, so nothing overflows and `BAR_MODULE_CAP` /
+   `barTabRoutes` / `overflowModuleRoutes` / `MenuOverflowModule` /
+   `MenuSearchTarget.Module` are removed. A module without `<module>.view` is HIDDEN
+   (ADR-038) and the bar simply has one fewer item — the Menu is never re-shown in its
+   place. No visible module → no bar at all (`showsBottomBar`) and the shell starts on
+   the Menu (`startDestination`). The `files.nav.more_section` key stays in the shared
+   catalog (web-mobile still overflows; Android no longer references it).
+2. **Menu = title-bar kebab.** A `MoreVert` `ExplainableIcon` (label
+   `common.nav.menu`) sits in the shell app bar to the RIGHT of the sync cloud and
+   pushes the existing `MENU_TAB_ROUTE` graph over the current tab
+   (`navigate(MENU_TAB_ROUTE) { launchSingleTop }`); it is hidden while the Menu graph
+   is open (`showsMenuKebab`). Everything the Menu tab held — search (ADR-075),
+   identity/sign-out, Settings tree, Reports, Members (owner), About, Sync status —
+   is untouched and reachable from the kebab. The Menu home gains a back arrow
+   (`MenuScreenScaffold.onBack`) when a tab lies beneath it; system back and the
+   arrow pop to that tab; tapping a bar tab pops the Menu (`popUpTo(start)`). Inside
+   the Menu graph NO bar item is selected (`NavTabSelection` returns null — the
+   ADR-042 "Menu stays highlighted" clause is retired). App Links `/menu…` and
+   `/reports` push the Menu the same way (Reports on top); every other App Link and
+   the reminder deep link are unaffected.
+3. **Folder picker "New folder" (design D18 extension).** `FolderPickerDialog` (share
+   sheet → Save to Files) gets a `New folder` row (`files.action.new_folder`,
+   `CreateNewFolder` icon) at the end of the tree — permission-HIDDEN behind the
+   effective `files.manage_folders` (inherits `upload`, D5) and hidden when the SELECTED
+   row is at the depth cap (D13). It opens the standard `FolderNameDialog` validated
+   against the selected parent's LIVE siblings; `FilesViewModel.createFolder(name,
+   parentId)` now returns the new id synchronously (Room + outbox write in a tracked
+   `Job`) and the picker selects it as the destination. `stage()` joins that job so the
+   share never lands in a folder that has not been written yet. Move-to-folder is out of
+   scope (D14), so this is the only choose-a-folder picker; any future one must reuse
+   this dialog.
+
+**Consequences.** Zero new string keys (`common.nav.menu`, `files.action.new_folder`
+reused). `NavPermissions.visibleTabRoutes` may now be EMPTY; `MainViewModel.visibleTabs`
+callers must go through `startDestination`. e2e tests open the Menu via the kebab's
+content description. Web-mobile keeps the D15 overflow rule — this ADR is Android-only
+(the shared design doc's D15 row describes the pre-087 Android behaviour).
