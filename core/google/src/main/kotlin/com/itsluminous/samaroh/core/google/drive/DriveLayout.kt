@@ -9,7 +9,8 @@ package com.itsluminous.samaroh.core.google.drive
  *     ├── backups/backup-2026-08-25-0900.zip
  *     ├── invoices/bookings/INV-2026-0042.pdf
  *     ├── invoices/expenses/{party}/{timestamp}-{filename}
- *     └── images/inventory/{item-name}.webp
+ *     ├── images/inventory/{item-name}.webp
+ *     └── files/{Folder}/{Sub folder}/{file name}      (FILES module, ADR-085)
  * ```
  */
 sealed interface DriveTarget {
@@ -26,6 +27,15 @@ sealed interface DriveTarget {
 
     /** `images/inventory/` — master-item images (§4.3). */
     data object InventoryImages : DriveTarget
+
+    /**
+     * `files/{segments…}` — FILES module (ADR-085, design D4): a best-effort human-
+     * readable mirror of the app's folder chain (root-first folder NAMES; empty = top
+     * level). Lowercase `files` like its sibling segments.
+     */
+    data class Files(
+        val pathSegments: List<String>,
+    ) : DriveTarget
 }
 
 /** Pure mapping of the §9.1 Drive layout — no I/O, unit-tested. */
@@ -48,6 +58,7 @@ object DriveLayout {
                 DriveTarget.BookingInvoices -> listOf("invoices", "bookings")
                 is DriveTarget.ExpenseInvoices -> listOf("invoices", "expenses", sanitizeSegment(target.partyName))
                 DriveTarget.InventoryImages -> listOf("images", "inventory")
+                is DriveTarget.Files -> listOf("files") + target.pathSegments.map(::sanitizeSegment)
             }
     }
 

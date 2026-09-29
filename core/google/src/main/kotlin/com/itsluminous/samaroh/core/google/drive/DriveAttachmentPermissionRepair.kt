@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.core.google.drive
 import android.util.Log
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
+import com.itsluminous.samaroh.core.database.dao.FileDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
 import com.itsluminous.samaroh.core.google.rest.GoogleApiException
 import javax.inject.Inject
@@ -17,7 +18,8 @@ import javax.inject.Singleton
  *
  * - `expense_attachments` rows with a `drive_file_id` whose device-only
  *   `drive_permission_ensured` flag is unset;
- * - `master_items` rows with a `drive_image_id` whose device-only twin flag is unset.
+ * - `master_items` rows with a `drive_image_id` whose device-only twin flag is unset;
+ * - `files` rows (FILES module, ADR-085) with a `drive_file_id` whose twin flag is unset.
  *
  * Per sync run, at most [MAX_REPAIRS_PER_RUN] rows are attempted PER SET (same throttle
  * spirit as the ADR-058 mirror — syncs fire constantly, so the backlog drains across
@@ -36,6 +38,7 @@ class DriveAttachmentPermissionRepair
     constructor(
         private val attachmentDao: ExpenseAttachmentDao,
         private val masterItemDao: MasterItemDao,
+        private val fileDao: FileDao,
         private val driveService: DriveService,
     ) : AttachmentPermissionRepair {
         override suspend fun repairPending(): Int {
@@ -51,6 +54,14 @@ class DriveAttachmentPermissionRepair
             for (row in masterItemDao.pendingDrivePermissionRepair(MAX_REPAIRS_PER_RUN)) {
                 val fileId = row.driveImageId ?: continue
                 when (repairOne("item photo", row.id, fileId, masterItemDao::markDrivePermissionEnsured)) {
+                    RowOutcome.SETTLED -> settled++
+                    RowOutcome.STOP_PASS -> return settled
+                    RowOutcome.RETRY_LATER -> Unit
+                }
+            }
+            for (row in fileDao.pendingPermissionRepair(MAX_REPAIRS_PER_RUN)) {
+                val fileId = row.driveFileId ?: continue
+                when (repairOne("file", row.id, fileId, fileDao::markDrivePermissionEnsured)) {
                     RowOutcome.SETTLED -> settled++
                     RowOutcome.STOP_PASS -> return settled
                     RowOutcome.RETRY_LATER -> Unit

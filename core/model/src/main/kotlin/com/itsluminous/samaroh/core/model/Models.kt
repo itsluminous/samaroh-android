@@ -360,3 +360,97 @@ data class NoteTagLink(
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
 )
+
+/*
+ * FILES module (ADR-085) — mirrors of shared migration 009_files_tab.sql. A per-business
+ * METADATA INDEX over files whose bytes live in Google Drive (uploader's own Drive,
+ * shared anyone-with-link). All three rows are MUTABLE with `updated_at`, so a
+ * tombstone bumps the LWW cursor and one pull leg suffices.
+ */
+
+/**
+ * A Files-module folder (`folders`). [parentId] NULL = top level ("All files").
+ * [restricted] = only the owner + `folder_access` members see it and its subtree
+ * (owner-only flag). Live names are unique per parent, case-insensitively.
+ */
+@Serializable
+data class Folder(
+    val id: String,
+    @SerialName("business_id") val businessId: String,
+    @SerialName("parent_id") val parentId: String? = null,
+    val name: String,
+    val restricted: Boolean = false,
+    @SerialName("created_by") val createdBy: String,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+)
+
+/**
+ * A Files-module file row (`files`). [driveFileId] is THE store: the server column is
+ * NOT NULL, so the row is pushed only AFTER the Drive upload succeeded — locally it is
+ * null while the upload waits in the outbox (Android upload-before-row-push, like bills).
+ * Every URL (view/thumbnail/download) is derived from it. [folderId] NULL = top level.
+ */
+@Serializable
+data class FileItem(
+    val id: String,
+    @SerialName("business_id") val businessId: String,
+    @SerialName("folder_id") val folderId: String? = null,
+    val name: String,
+    @SerialName("mime_type") val mimeType: String,
+    @SerialName("size_bytes") val sizeBytes: Long,
+    @SerialName("drive_file_id") val driveFileId: String? = null,
+    @SerialName("created_by") val createdBy: String,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+) {
+    /** Whether the bytes are in Drive yet (a server row always is). */
+    val isUploaded: Boolean get() = !driveFileId.isNullOrBlank()
+
+    val isImage: Boolean get() = mimeType.startsWith("image/")
+
+    val isPdf: Boolean get() = mimeType.equals(MIME_PDF, ignoreCase = true)
+
+    companion object {
+        const val MIME_PDF = "application/pdf"
+
+        /** Server CHECK: `size_bytes between 0 and 26214400` (25 MiB). */
+        const val MAX_SIZE_BYTES: Long = 26_214_400L
+
+        /** Client batch cap (design D13). */
+        const val MAX_BATCH = 20
+
+        /** Client folder-depth cap (design D13). */
+        const val MAX_FOLDER_DEPTH = 10
+
+        /** Drive viewer page for a file (design D3) — also the copy-link URL. */
+        fun viewUrl(driveFileId: String): String = "https://drive.google.com/file/d/$driveFileId/view"
+
+        /** Public thumbnail (images + PDFs), width [px]. */
+        fun thumbnailUrl(
+            driveFileId: String,
+            px: Int,
+        ): String = "https://drive.google.com/thumbnail?id=$driveFileId&sz=w$px"
+
+        /** Direct download endpoint (HTML-interstitial guard applies, ADR-059). */
+        fun downloadUrl(driveFileId: String): String = "https://drive.google.com/uc?export=download&id=$driveFileId"
+    }
+}
+
+/**
+ * A restricted-folder allow-list row (`folder_access`, composite PK). SOFT link like
+ * [NoteTagLink]: revoke sets [deletedAt], re-grant clears it on the same row. Keyed by
+ * `business_members.id`, never `user_id`.
+ */
+@Serializable
+data class FolderAccess(
+    @SerialName("folder_id") val folderId: String,
+    @SerialName("member_id") val memberId: String,
+    @SerialName("business_id") val businessId: String,
+    @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
+    @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
+    @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+)

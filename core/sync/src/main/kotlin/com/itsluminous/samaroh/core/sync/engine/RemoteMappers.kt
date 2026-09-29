@@ -9,6 +9,9 @@ import com.itsluminous.samaroh.core.database.entity.DateBlockEntity
 import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
+import com.itsluminous.samaroh.core.database.entity.FileEntity
+import com.itsluminous.samaroh.core.database.entity.FolderAccessEntity
+import com.itsluminous.samaroh.core.database.entity.FolderEntity
 import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
 import com.itsluminous.samaroh.core.database.entity.InventoryTransactionEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
@@ -25,6 +28,9 @@ import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.Expense
+import com.itsluminous.samaroh.core.model.FileItem
+import com.itsluminous.samaroh.core.model.Folder
+import com.itsluminous.samaroh.core.model.FolderAccess
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import com.itsluminous.samaroh.core.model.InventoryTransaction
@@ -217,3 +223,29 @@ internal fun Note.toEntity() =
 internal fun NoteTag.toEntity() = NoteTagEntity(id, businessId, name, createdAt, updatedAt, deletedAt)
 
 internal fun NoteTagLink.toEntity() = NoteTagLinkEntity(noteId, tagId, businessId, createdAt, updatedAt, deletedAt)
+
+// FILES module (ADR-085).
+
+internal fun Folder.toEntity() = FolderEntity(id, businessId, parentId, name, restricted, createdBy, updatedBy, createdAt, updatedAt, deletedAt)
+
+/** `local_cache_path` / `drive_permission_ensured` are Room-only; the applier passes the preserved values. */
+internal fun FileItem.toEntity(
+    localCachePath: String?,
+    drivePermissionEnsured: Boolean,
+) = FileEntity(
+    id,
+    businessId,
+    folderId,
+    name,
+    mimeType,
+    sizeBytes,
+    driveFileId,
+    createdBy,
+    createdAt,
+    updatedAt,
+    deletedAt,
+    localCachePath,
+    drivePermissionEnsured,
+)
+
+internal fun FolderAccess.toEntity() = FolderAccessEntity(folderId, memberId, businessId, createdAt, updatedAt, deletedAt)

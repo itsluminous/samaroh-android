@@ -9,6 +9,9 @@ import com.itsluminous.samaroh.core.database.dao.DateBlockDao
 import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
+import com.itsluminous.samaroh.core.database.dao.FileDao
+import com.itsluminous.samaroh.core.database.dao.FolderAccessDao
+import com.itsluminous.samaroh.core.database.dao.FolderDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
@@ -26,6 +29,9 @@ import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
+import com.itsluminous.samaroh.core.model.FileItem
+import com.itsluminous.samaroh.core.model.Folder
+import com.itsluminous.samaroh.core.model.FolderAccess
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
@@ -74,6 +80,9 @@ class LocalApplier
         private val noteDao: NoteDao,
         private val noteTagDao: NoteTagDao,
         private val noteTagLinkDao: NoteTagLinkDao,
+        private val folderDao: FolderDao,
+        private val fileDao: FileDao,
+        private val folderAccessDao: FolderAccessDao,
     ) {
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -203,6 +212,34 @@ class LocalApplier
                         false
                     } else {
                         noteTagLinkDao.upsert(entity)
+                        true
+                    }
+                }
+                // FILES module (ADR-085).
+                "folders" ->
+                    upsertIfChanged(
+                        json.decodeFromJsonElement(Folder.serializer(), row).toEntity(),
+                        folderDao::byId,
+                        folderDao::upsert,
+                    ) { it.id }
+                "files" -> {
+                    val model = json.decodeFromJsonElement(FileItem.serializer(), row)
+                    // local_cache_path and drive_permission_ensured are Room-only state
+                    // (the ADR-052/059 bills shape); preserve both across pulled updates.
+                    val existing = fileDao.byId(model.id)
+                    upsertIfChanged(
+                        model.toEntity(existing?.localCachePath, existing?.drivePermissionEnsured ?: false),
+                        fileDao::byId,
+                        fileDao::upsert,
+                    ) { it.id }
+                }
+                "folder_access" -> {
+                    // Composite PK: looked up by (folder_id, member_id) directly.
+                    val entity = json.decodeFromJsonElement(FolderAccess.serializer(), row).toEntity()
+                    if (folderAccessDao.byIds(entity.folderId, entity.memberId) == entity) {
+                        false
+                    } else {
+                        folderAccessDao.upsert(entity)
                         true
                     }
                 }

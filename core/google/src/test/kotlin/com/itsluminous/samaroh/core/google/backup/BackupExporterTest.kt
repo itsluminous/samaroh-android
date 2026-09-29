@@ -7,6 +7,9 @@ import com.itsluminous.samaroh.core.database.entity.BookingEntity
 import com.itsluminous.samaroh.core.database.entity.BusinessEntity
 import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
+import com.itsluminous.samaroh.core.database.entity.FileEntity
+import com.itsluminous.samaroh.core.database.entity.FolderAccessEntity
+import com.itsluminous.samaroh.core.database.entity.FolderEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
 import com.itsluminous.samaroh.core.database.entity.NoteEntity
 import com.itsluminous.samaroh.core.database.entity.NoteTagEntity
@@ -140,6 +143,9 @@ class BackupExporterTest {
                     "notes",
                     "note_tags",
                     "note_tag_links",
+                    "folders",
+                    "files",
+                    "folder_access",
                 ).inOrder()
         }
 
@@ -179,6 +185,64 @@ class BackupExporterTest {
                 assertThat(rowId).isEqualTo("att-1")
                 assertThat(driveFileId).isEqualTo("drive-file-9")
                 assertThat(fileName).isEqualTo("bill.pdf")
+                assertThat(mimeType).isEqualTo("application/pdf")
+            }
+        }
+
+    /**
+     * FILES module (ADR-085, design D20): folders/files/folder_access rows export, and
+     * every UPLOADED file's `drive_file_id` joins the attachment manifest with its
+     * original name + MIME; a staged (not yet uploaded) row contributes no ref.
+     */
+    @Test
+    fun `files module exports rows and manifests uploaded drive files`() =
+        runTest {
+            seed()
+            db.folderDao().upsert(
+                FolderEntity(id = "f-1", businessId = businessId, name = "Contracts", createdBy = "user-1", createdAt = now, updatedAt = now),
+            )
+            db.fileDao().upsert(
+                FileEntity(
+                    id = "file-1",
+                    businessId = businessId,
+                    folderId = "f-1",
+                    name = "lease.pdf",
+                    mimeType = "application/pdf",
+                    sizeBytes = 1234,
+                    driveFileId = "drive-file-42",
+                    createdBy = "user-1",
+                    createdAt = now,
+                    updatedAt = now,
+                    localCachePath = "/data/user/0/app/files/files-cache/file-1",
+                ),
+            )
+            db.fileDao().upsert(
+                FileEntity(
+                    id = "file-staged",
+                    businessId = businessId,
+                    name = "pending.jpg",
+                    mimeType = "image/jpeg",
+                    sizeBytes = 10,
+                    createdBy = "user-1",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            db.folderAccessDao().upsert(
+                FolderAccessEntity(folderId = "f-1", memberId = "m-1", businessId = businessId, createdAt = now, updatedAt = now),
+            )
+
+            val content = exporter.export(businessId)
+            val byName = content.tables.associateBy { it.table }
+            assertThat(byName.getValue("folders").rowCount).isEqualTo(1)
+            assertThat(byName.getValue("files").rowCount).isEqualTo(2)
+            assertThat(byName.getValue("folder_access").rowCount).isEqualTo(1)
+            val fileRefs = content.attachments.filter { it.table == "files" }
+            assertThat(fileRefs).hasSize(1)
+            with(fileRefs.single()) {
+                assertThat(rowId).isEqualTo("file-1")
+                assertThat(driveFileId).isEqualTo("drive-file-42")
+                assertThat(fileName).isEqualTo("lease.pdf")
                 assertThat(mimeType).isEqualTo("application/pdf")
             }
         }
@@ -329,6 +393,9 @@ class BackupExporterTest {
                     "tables/notes.json",
                     "tables/note_tags.json",
                     "tables/note_tag_links.json",
+                    "tables/folders.json",
+                    "tables/files.json",
+                    "tables/folder_access.json",
                     "logo.webp",
                 ).inOrder()
 

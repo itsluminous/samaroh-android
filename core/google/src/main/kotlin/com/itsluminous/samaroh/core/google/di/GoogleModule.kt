@@ -4,6 +4,8 @@ import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
 import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.FilesDriveDeleter
+import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
@@ -19,6 +21,8 @@ import com.itsluminous.samaroh.core.google.calendar.RemoteBookingCalendarTrigger
 import com.itsluminous.samaroh.core.google.calendar.RestCalendarService
 import com.itsluminous.samaroh.core.google.drive.DriveAttachmentPermissionRepair
 import com.itsluminous.samaroh.core.google.drive.DriveAttachmentUploader
+import com.itsluminous.samaroh.core.google.drive.DriveFilesDeleter
+import com.itsluminous.samaroh.core.google.drive.DriveFilesUploader
 import com.itsluminous.samaroh.core.google.drive.DriveBackedAttachmentUploadQueue
 import com.itsluminous.samaroh.core.google.drive.DriveItemImageMirror
 import com.itsluminous.samaroh.core.google.drive.DriveService
@@ -46,6 +50,11 @@ abstract class GoogleModule {
 
     /** Satisfies `core:sync`'s optional uploader — attachments upload during the outbox drain (ADR-018). */
     @Binds abstract fun bindAttachmentUploader(impl: DriveAttachmentUploader): AttachmentUploader
+
+    /** FILES module upload-before-row-push + best-effort Drive delete (ADR-085). */
+    @Binds abstract fun bindFilesUploader(impl: DriveFilesUploader): FilesUploader
+
+    @Binds abstract fun bindFilesDriveDeleter(impl: DriveFilesDeleter): FilesDriveDeleter
 
     /** Supersedes `core:data`'s local-only placeholder queue (ADR-018). */
     @Binds abstract fun bindAttachmentUploadQueue(impl: DriveBackedAttachmentUploadQueue): AttachmentUploadQueue

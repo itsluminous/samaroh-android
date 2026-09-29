@@ -93,6 +93,7 @@ private fun moduleLabel(moduleKey: String): String =
         "expenses" -> stringResource(R.string.auth_permissions_group_expenses)
         "inventory" -> stringResource(R.string.auth_permissions_group_inventory)
         "notes" -> stringResource(R.string.notes_permission_group)
+        "files" -> stringResource(R.string.files_permission_group)
         "reports" -> stringResource(R.string.auth_permissions_group_reports)
         "settings" -> stringResource(R.string.auth_permissions_group_settings)
         // Unknown future schema module: show the raw key rather than crash.
@@ -114,6 +115,16 @@ private fun actionLabel(
             "edit" -> return stringResource(R.string.notes_permission_action_edit)
             "toggle_checklist" -> return stringResource(R.string.notes_permission_action_toggle_checklist)
             "delete" -> return stringResource(R.string.notes_permission_action_delete)
+        }
+    }
+    // Files rows carry their own labels too (shared `files.permission.action_*` keys):
+    // "upload"/"manage_folders" have no generic twin (ADR-085).
+    if (moduleKey == "files") {
+        when (actionKey) {
+            "view" -> return stringResource(R.string.files_permission_action_view)
+            "upload" -> return stringResource(R.string.files_permission_action_upload)
+            "manage_folders" -> return stringResource(R.string.files_permission_action_manage_folders)
+            "delete" -> return stringResource(R.string.files_permission_action_delete)
         }
     }
     return when (actionKey) {

@@ -6,6 +6,7 @@ import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.FifoInventoryRepository
+import com.itsluminous.samaroh.core.data.repository.FilesRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryOverviewRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
@@ -13,6 +14,7 @@ import com.itsluminous.samaroh.core.data.repository.NotesRepository
 import com.itsluminous.samaroh.core.data.repository.RoomBookingRepository
 import com.itsluminous.samaroh.core.data.repository.RoomBusinessRepository
 import com.itsluminous.samaroh.core.data.repository.RoomExpensesRepository
+import com.itsluminous.samaroh.core.data.repository.RoomFilesRepository
 import com.itsluminous.samaroh.core.data.repository.RoomMemberRepository
 import com.itsluminous.samaroh.core.data.repository.RoomNotesRepository
 import com.itsluminous.samaroh.core.data.session.DefaultSignOutCleaner
@@ -45,6 +47,9 @@ abstract class DataModule {
 
     /** NOTES module repository (ADR-077, additive contract extension). */
     @Binds abstract fun bindNotesRepository(impl: RoomNotesRepository): NotesRepository
+
+    /** FILES module repository (ADR-085, additive contract extension). */
+    @Binds abstract fun bindFilesRepository(impl: RoomFilesRepository): FilesRepository
 
     /** Item-photo display resolution — Drive-first ladder, pure file checks (ADR-063). */
     @Binds abstract fun bindItemImageResolver(impl: LocalFirstItemImageResolver): ItemImageResolver

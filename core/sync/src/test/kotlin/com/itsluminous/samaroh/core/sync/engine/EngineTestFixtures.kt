@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
@@ -187,12 +188,24 @@ class FakeAttachmentUploader(
     }
 }
 
+class FakeFilesUploader(
+    private val result: FilesUploader.UploadResult,
+) : FilesUploader {
+    val uploaded = mutableListOf<String>()
+
+    override suspend fun upload(fileId: String): FilesUploader.UploadResult {
+        uploaded += fileId
+        return result
+    }
+}
+
 fun syncEngine(
     db: SamarohDatabase,
     remote: RemoteStore?,
     notifier: RecordingConflictNotifier = RecordingConflictNotifier(),
     metaStore: SyncMetaStore = InMemorySyncMetaStore(),
     uploader: AttachmentUploader? = null,
+    filesUploader: FilesUploader? = null,
     driveMirror: ItemPhotoDriveMirror? = null,
     permissionRepair: AttachmentPermissionRepair? = null,
     postSyncHooks: Set<PostSyncHook> = emptySet(),
@@ -224,9 +237,13 @@ fun syncEngine(
                 noteDao = db.noteDao(),
                 noteTagDao = db.noteTagDao(),
                 noteTagLinkDao = db.noteTagLinkDao(),
+                folderDao = db.folderDao(),
+                fileDao = db.fileDao(),
+                folderAccessDao = db.folderAccessDao(),
             ),
         remoteStoreProvider = RemoteStoreProvider { remote },
         attachmentUploader = Optional.ofNullable(uploader),
+        filesUploader = Optional.ofNullable(filesUploader),
         itemPhotoDriveMirror = Optional.ofNullable(driveMirror),
         attachmentPermissionRepair = Optional.ofNullable(permissionRepair),
         conflictNotifier = notifier,

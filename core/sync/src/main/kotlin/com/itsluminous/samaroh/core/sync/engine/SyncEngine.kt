@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.sync.engine
 
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
@@ -74,6 +75,8 @@ class SyncEngine
         private val applier: LocalApplier,
         private val remoteStoreProvider: RemoteStoreProvider,
         private val attachmentUploader: Optional<AttachmentUploader>,
+        /** Files-module upload-before-row-push (ADR-085) — bound by `core:google`. */
+        private val filesUploader: Optional<FilesUploader>,
         /** Drive-first item-photo upload (ADR-055/063) — bound by `core:google`. */
         private val itemPhotoDriveMirror: Optional<ItemPhotoDriveMirror>,
         /** Link-shares Drive bills so members can view them (ADR-059) — bound by `core:google`. */
@@ -216,6 +219,11 @@ class SyncEngine
             if (entry.entityType == ATTACHMENTS_TABLE && entry.operation == OutboxOperation.UPSERT.wire) {
                 payloadJson = ensureAttachmentUploaded(entry, payloadJson)
             }
+            if (entry.entityType == FILES_TABLE && entry.operation == OutboxOperation.UPSERT.wire) {
+                // Null = the staged row never reached Drive and never will (tombstoned
+                // before upload): nothing exists server-side to push — drop the op.
+                payloadJson = ensureFileUploaded(entry, payloadJson) ?: return
+            }
             // master_items payloads never carry image_path (ADR-065: @Transient — the
             // photo path is device-local; other devices serve from `drive_image_id`).
             // WireConverter additionally strips it from legacy payloads (localOnlyKeys).
@@ -259,6 +267,43 @@ class SyncEngine
                 }
                 AttachmentUploader.UploadResult.NotLinked -> throw AttachmentPendingException(ERROR_STORAGE_NOT_LINKED)
                 is AttachmentUploader.UploadResult.Failed ->
+                    if (result.retriable) {
+                        throw AttachmentPendingException(result.message)
+                    } else {
+                        throw RemoteRejectedException(result.message)
+                    }
+            }
+        }
+
+        /**
+         * Files-module rows push only AFTER the Drive upload (ADR-085, design D19): the
+         * server's `drive_file_id` is NOT NULL. Same shape as [ensureAttachmentUploaded]
+         * plus one extra outcome — a staged file tombstoned before it ever uploaded has
+         * no server row to tombstone, so its op is dropped (returns null).
+         */
+        private suspend fun ensureFileUploaded(
+            entry: OutboxEntity,
+            payloadJson: String,
+        ): String? {
+            val payload = json.parseToJsonElement(payloadJson).jsonObject
+            val driveFileId = payload["drive_file_id"]
+            if (driveFileId != null && driveFileId !is JsonNull) return payloadJson
+            val tombstoned = payload["deleted_at"]?.let { it !is JsonNull } ?: false
+            if (tombstoned) return null
+            val uploader =
+                filesUploader.orElse(null)
+                    ?: throw AttachmentPendingException(ERROR_STORAGE_NOT_LINKED)
+            return when (val result = uploader.upload(entry.entityId)) {
+                is FilesUploader.UploadResult.Uploaded -> {
+                    val patched = JsonObject(payload + ("drive_file_id" to JsonPrimitive(result.driveFileId)))
+                    val patchedJson = patched.toString()
+                    outboxDao.rewritePayload(entry.id, patchedJson)
+                    applier.apply(FILES_TABLE, patched)
+                    patchedJson
+                }
+                FilesUploader.UploadResult.NotLinked -> throw AttachmentPendingException(ERROR_STORAGE_NOT_LINKED)
+                FilesUploader.UploadResult.Obsolete -> null
+                is FilesUploader.UploadResult.Failed ->
                     if (result.retriable) {
                         throw AttachmentPendingException(result.message)
                     } else {
@@ -583,6 +628,9 @@ class SyncEngine
             /** Re-enumeration bound: pass 1 covers known businesses, later passes catch mid-run arrivals. */
             private const val MAX_PULL_PASSES = 3
             private const val ATTACHMENTS_TABLE = "expense_attachments"
+
+            /** Files-module rows: upload-before-row-push (ADR-085). */
+            private const val FILES_TABLE = "files"
 
             /** Machine-readable error code; the Settings sync-status UI maps it to a localized string. */
             const val ERROR_STORAGE_NOT_LINKED = "attachment-pending-storage-link"

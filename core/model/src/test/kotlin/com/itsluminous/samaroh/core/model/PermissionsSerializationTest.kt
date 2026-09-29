@@ -98,6 +98,40 @@ class PermissionsSerializationTest {
         assertThat(manager.settings.manageBusiness).isFalse()
     }
 
+    // ---- FILES module: manage_folders inherits upload (schema/migration 009, ADR-085) ----
+
+    @Test
+    fun `absent manage_folders inherits upload exactly like the DB coalesce`() {
+        val uploader = json.decodeFromString<MemberPermissions>("""{ "files": { "view": true, "upload": true } }""")
+        assertThat(uploader.files.manageFolders).isNull()
+        assertThat(uploader.files.manageFoldersEffective).isTrue()
+
+        val viewer = json.decodeFromString<MemberPermissions>("""{ "files": { "view": true } }""")
+        assertThat(viewer.files.manageFoldersEffective).isFalse()
+
+        // Pre-009 permissions object: no files key at all → module hidden (absent = false).
+        val legacy = json.decodeFromString<MemberPermissions>("{}")
+        assertThat(legacy.files.view).isFalse()
+        assertThat(legacy.files.upload).isFalse()
+        assertThat(legacy.files.manageFoldersEffective).isFalse()
+        assertThat(legacy.files.delete).isFalse()
+    }
+
+    @Test
+    fun `explicit false manage_folders never falls through to upload`() {
+        val locked = json.decodeFromString<MemberPermissions>("""{ "files": { "upload": true, "manage_folders": false } }""")
+        assertThat(locked.files.manageFolders).isFalse()
+        assertThat(locked.files.manageFoldersEffective).isFalse()
+    }
+
+    @Test
+    fun `files presets match the design table and materialize the inherited value`() {
+        assertThat(MemberPermissions.viewer().files).isEqualTo(FilesPermissions(view = true))
+        assertThat(MemberPermissions.staff().files).isEqualTo(FilesPermissions(view = true, upload = true, manageFolders = true))
+        assertThat(MemberPermissions.manager().files)
+            .isEqualTo(FilesPermissions(view = true, upload = true, manageFolders = true, delete = true))
+    }
+
     // ---- inheriting checklist keys (schema/migration 007, ADR-082) ----
 
     @Test

@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.core.auth.permissions
 
 import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.ExpensesPermissions
+import com.itsluminous.samaroh.core.model.FilesPermissions
 import com.itsluminous.samaroh.core.model.InventoryPermissions
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.NotesPermissions
@@ -55,7 +56,13 @@ object PermissionMatrix {
      * displays and toggles from its parent action's value — the exact
      * `coalesce(child, parent, false)` normalization the DB applies.
      */
-    private val inheritsFrom = mapOf("view_checklists" to "view", "toggle_checklist" to "edit")
+    private val inheritsFrom =
+        mapOf(
+            "view_checklists" to "view",
+            "toggle_checklist" to "edit",
+            // FILES module (ADR-085, migration 009): coalesce(manage_folders, upload, false).
+            "manage_folders" to "upload",
+        )
 
     private fun effective(
         module: JsonObject,
@@ -126,6 +133,7 @@ object PermissionMatrix {
                 ),
             expenses =
                 ExpensesPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageParties = true),
+            files = FilesPermissions(view = true, upload = true, manageFolders = true, delete = true),
             inventory =
                 InventoryPermissions(view = true, viewAmounts = true, create = true, edit = true, delete = true, manageMasterItems = true),
             notes = NotesPermissions(view = true, viewChecklists = true, create = true, edit = true, toggleChecklist = true, delete = true),

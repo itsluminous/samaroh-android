@@ -14,6 +14,8 @@ import kotlinx.serialization.Serializable
 data class MemberPermissions(
     val booking: BookingPermissions = BookingPermissions(),
     val expenses: ExpensesPermissions = ExpensesPermissions(),
+    /** Files module (ADR-085, shared migration 009). */
+    val files: FilesPermissions = FilesPermissions(),
     val inventory: InventoryPermissions = InventoryPermissions(),
     /** Notes module (ADR-077, shared schema between inventory and reports). */
     val notes: NotesPermissions = NotesPermissions(),
@@ -26,6 +28,7 @@ data class MemberPermissions(
             MemberPermissions(
                 booking = BookingPermissions(view = true),
                 expenses = ExpensesPermissions(view = true),
+                files = FilesPermissions(view = true),
                 inventory = InventoryPermissions(view = true),
                 notes = NotesPermissions(view = true),
                 reports = ReportsPermissions(view = true),
@@ -36,6 +39,8 @@ data class MemberPermissions(
             MemberPermissions(
                 booking = BookingPermissions(view = true, create = true, recordPayment = true),
                 expenses = ExpensesPermissions(view = true, create = true),
+                // manage_folders MATERIALIZED to its inherited value so preset round-trips stay exact (design D7).
+                files = FilesPermissions(view = true, upload = true, manageFolders = true),
                 inventory = InventoryPermissions(view = true, create = true),
                 notes = NotesPermissions(view = true, create = true),
             )
@@ -53,6 +58,7 @@ data class MemberPermissions(
                         generateInvoice = true,
                     ),
                 expenses = ExpensesPermissions(view = true, create = true, edit = true, delete = true, manageParties = true),
+                files = FilesPermissions(view = true, upload = true, manageFolders = true, delete = true),
                 inventory = InventoryPermissions(view = true, create = true, edit = true, delete = true, manageMasterItems = true),
                 notes = NotesPermissions(view = true, create = true, edit = true, delete = true),
                 reports = ReportsPermissions(view = true),
@@ -82,6 +88,26 @@ data class ExpensesPermissions(
     val delete: Boolean = false,
     @SerialName("manage_parties") val manageParties: Boolean = false,
 )
+
+/**
+ * Files module actions (ADR-085, shared migration 009). No `view_amounts` (no money).
+ * Every action is absent = false EXCEPT `manage_folders`, which ABSENT inherits
+ * `upload` — nullable so absent stays distinguishable from an explicit false; clients
+ * MUST normalize exactly like the DB (`coalesce(manage_folders, upload, false)`,
+ * `has_files_perm()`). Gate on [manageFoldersEffective], never the raw key. Restricting
+ * a folder / editing its allow-list is OWNER-only regardless of these keys.
+ */
+@Serializable
+data class FilesPermissions(
+    val view: Boolean = false,
+    val upload: Boolean = false,
+    /** ABSENT = inherits [upload]: create and rename folders. */
+    @SerialName("manage_folders") val manageFolders: Boolean? = null,
+    val delete: Boolean = false,
+) {
+    /** Normalized folder management: `coalesce(manage_folders, upload, false)`. */
+    val manageFoldersEffective: Boolean get() = manageFolders ?: upload
+}
 
 @Serializable
 data class InventoryPermissions(

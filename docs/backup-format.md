@@ -43,15 +43,18 @@ backup-2026-08-25-0900.zip
     ├── inventory_transactions.json
     ├── notes.json
     ├── note_tags.json
-    └── note_tag_links.json
+    ├── note_tag_links.json
+    ├── folders.json
+    ├── files.json
+    └── folder_access.json
 ```
 
 **Content contract (references-only).** The archive contains table data + *references*
 to images — never the image bytes themselves:
 
-- **Bills / expense attachments and inventory item photos are NOT packed.** They are
-  already mirrored to Drive (`expense_attachments.drive_file_id`,
-  `master_items.drive_image_id`, ADR-055/§9.1), so re-packing them daily would bloat
+- **Bills / expense attachments, inventory item photos and Files-module files are NOT
+  packed.** They are already in Drive (`expense_attachments.drive_file_id`,
+  `master_items.drive_image_id`, `files.drive_file_id` — ADR-055/§9.1, ADR-085), so re-packing them daily would bloat
   every archive with bytes Drive already holds. The manifest records the Drive ids a
   restore needs; device-only columns (`local_cache_path`, `image_path`) appear in the
   row JSON as plain strings but are meaningless off-device (they never sync — the
@@ -77,9 +80,11 @@ one of these lists):
 - `outbox`, `sync_cursors`, `sync_conflicts` — device-local sync machinery (§8),
   meaningless off-device.
 
-The notes domain (`notes`, `note_tags`, `note_tag_links`) and `event_types` carry **no
-file assets** — a checklist is a JSON text column, not a file — so they add nothing to
-the attachment manifest.
+The notes domain (`notes`, `note_tags`, `note_tag_links`), `event_types` and the Files
+module's `folders`/`folder_access` carry **no file assets** — a checklist is a JSON text
+column, not a file — so they add nothing to the attachment manifest. `files` rows DO:
+each live row's `drive_file_id` (the file's only store, ADR-085) joins the manifest with
+its `name` and `mime_type`; a staged row without a Drive id yet is skipped.
 
 ## `manifest.json`
 

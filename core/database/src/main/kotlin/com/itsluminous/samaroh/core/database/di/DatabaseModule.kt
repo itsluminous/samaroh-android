@@ -12,6 +12,9 @@ import com.itsluminous.samaroh.core.database.dao.DateBlockDao
 import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
+import com.itsluminous.samaroh.core.database.dao.FileDao
+import com.itsluminous.samaroh.core.database.dao.FolderAccessDao
+import com.itsluminous.samaroh.core.database.dao.FolderDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
@@ -53,6 +56,7 @@ object DatabaseModule {
                 SamarohDatabase.MIGRATION_9_10,
                 SamarohDatabase.MIGRATION_10_11,
                 SamarohDatabase.MIGRATION_11_12,
+                SamarohDatabase.MIGRATION_12_13,
             ).build()
 
     @Provides fun provideBusinessDao(db: SamarohDatabase): BusinessDao = db.businessDao()
@@ -88,6 +92,12 @@ object DatabaseModule {
     @Provides fun provideNoteTagDao(db: SamarohDatabase): NoteTagDao = db.noteTagDao()
 
     @Provides fun provideNoteTagLinkDao(db: SamarohDatabase): NoteTagLinkDao = db.noteTagLinkDao()
+
+    @Provides fun provideFolderDao(db: SamarohDatabase): FolderDao = db.folderDao()
+
+    @Provides fun provideFileDao(db: SamarohDatabase): FileDao = db.fileDao()
+
+    @Provides fun provideFolderAccessDao(db: SamarohDatabase): FolderAccessDao = db.folderAccessDao()
 
     @Provides fun provideOutboxDao(db: SamarohDatabase): OutboxDao = db.outboxDao()
 

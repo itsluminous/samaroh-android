@@ -154,6 +154,15 @@ object SyncTables {
             // the "noteId|tagId" entity id. Soft links only — the app never enqueues a
             // DELETE op for this table (untag is an UPSERT with deleted_at set).
             SyncTableSpec("note_tag_links", businessScoped = true, idColumn = "note_id", idColumn2 = "tag_id"),
+            // FILES module (ADR-085, shared migration 009). All three are MUTABLE rows
+            // with updated_at: a tombstone bumps the cursor, so one pull leg suffices
+            // (deliberately not the expense_attachments two-leg shape). `files` carries
+            // two device-only columns (the bills shape) that must never reach the wire.
+            SyncTableSpec("folders", businessScoped = true),
+            SyncTableSpec("files", businessScoped = true, localOnlyKeys = setOf("local_cache_path", "drive_permission_ensured")),
+            // Composite PK (folder_id, member_id): soft links only (revoke = UPSERT with
+            // deleted_at) — the app never enqueues a DELETE op for this table.
+            SyncTableSpec("folder_access", businessScoped = true, idColumn = "folder_id", idColumn2 = "member_id"),
         )
 
     private val byName = ALL.associateBy { it.name }

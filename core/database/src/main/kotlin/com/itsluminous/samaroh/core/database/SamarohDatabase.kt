@@ -14,6 +14,9 @@ import com.itsluminous.samaroh.core.database.dao.DateBlockDao
 import com.itsluminous.samaroh.core.database.dao.EventTypeDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseAttachmentDao
 import com.itsluminous.samaroh.core.database.dao.ExpenseDao
+import com.itsluminous.samaroh.core.database.dao.FileDao
+import com.itsluminous.samaroh.core.database.dao.FolderAccessDao
+import com.itsluminous.samaroh.core.database.dao.FolderDao
 import com.itsluminous.samaroh.core.database.dao.GoogleAccountLinkDao
 import com.itsluminous.samaroh.core.database.dao.InventoryTransactionDao
 import com.itsluminous.samaroh.core.database.dao.MasterItemDao
@@ -35,6 +38,9 @@ import com.itsluminous.samaroh.core.database.entity.DateBlockEntity
 import com.itsluminous.samaroh.core.database.entity.EventTypeEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseAttachmentEntity
 import com.itsluminous.samaroh.core.database.entity.ExpenseEntity
+import com.itsluminous.samaroh.core.database.entity.FileEntity
+import com.itsluminous.samaroh.core.database.entity.FolderAccessEntity
+import com.itsluminous.samaroh.core.database.entity.FolderEntity
 import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
 import com.itsluminous.samaroh.core.database.entity.InventoryTransactionEntity
 import com.itsluminous.samaroh.core.database.entity.MasterItemEntity
@@ -71,11 +77,14 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         NoteEntity::class,
         NoteTagEntity::class,
         NoteTagLinkEntity::class,
+        FolderEntity::class,
+        FileEntity::class,
+        FolderAccessEntity::class,
         OutboxEntity::class,
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -113,6 +122,12 @@ abstract class SamarohDatabase : RoomDatabase() {
     abstract fun noteTagDao(): NoteTagDao
 
     abstract fun noteTagLinkDao(): NoteTagLinkDao
+
+    abstract fun folderDao(): FolderDao
+
+    abstract fun fileDao(): FileDao
+
+    abstract fun folderAccessDao(): FolderAccessDao
 
     abstract fun outboxDao(): OutboxDao
 
@@ -343,6 +358,68 @@ abstract class SamarohDatabase : RoomDatabase() {
                     )
                     db.execSQL(
                         "CREATE INDEX IF NOT EXISTS index_note_tag_links_tag_id ON note_tag_links (tag_id)",
+                    )
+                }
+            }
+        /**
+         * v12 → v13 (ADR-085): FILES module tables mirroring shared migration
+         * 009_files_tab.sql — `folders`, `files` (plus the two DEVICE-ONLY columns
+         * `local_cache_path` / `drive_permission_ensured`, the bills shape) and the
+         * composite-PK soft-link `folder_access`. Instants are epoch-millis INTEGER.
+         */
+        val MIGRATION_12_13: Migration =
+            object : Migration(12, 13) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS folders (" +
+                            "id TEXT NOT NULL PRIMARY KEY, " +
+                            "business_id TEXT NOT NULL, " +
+                            "parent_id TEXT, " +
+                            "name TEXT NOT NULL, " +
+                            "restricted INTEGER NOT NULL DEFAULT 0, " +
+                            "created_by TEXT NOT NULL, " +
+                            "updated_by TEXT, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_folders_business_id_parent_id ON folders (business_id, parent_id)",
+                    )
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS files (" +
+                            "id TEXT NOT NULL PRIMARY KEY, " +
+                            "business_id TEXT NOT NULL, " +
+                            "folder_id TEXT, " +
+                            "name TEXT NOT NULL, " +
+                            "mime_type TEXT NOT NULL, " +
+                            "size_bytes INTEGER NOT NULL, " +
+                            "drive_file_id TEXT, " +
+                            "created_by TEXT NOT NULL, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER, " +
+                            "local_cache_path TEXT, " +
+                            "drive_permission_ensured INTEGER NOT NULL DEFAULT 0)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_files_business_id_folder_id ON files (business_id, folder_id)",
+                    )
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS folder_access (" +
+                            "folder_id TEXT NOT NULL, " +
+                            "member_id TEXT NOT NULL, " +
+                            "business_id TEXT NOT NULL, " +
+                            "created_at INTEGER NOT NULL, " +
+                            "updated_at INTEGER NOT NULL, " +
+                            "deleted_at INTEGER, " +
+                            "PRIMARY KEY (folder_id, member_id))",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_folder_access_business_id ON folder_access (business_id)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_folder_access_member_id ON folder_access (member_id)",
                     )
                 }
             }

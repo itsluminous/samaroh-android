@@ -76,9 +76,9 @@ class BackupExporter
 
         /**
          * Attachment manifest: Drive file ids referenced by exported rows (§4.4, §9.1).
-         * Only `expense_attachments` and `master_items` carry file references — notes,
-         * tags, links and event types are pure row data (a checklist is a JSON text
-         * column, not a file), so they contribute nothing here.
+         * `expense_attachments`, `master_items` and the FILES module's `files` rows carry
+         * file references — notes, tags, links, folders and event types are pure row
+         * data (a checklist is a JSON text column, not a file), so they contribute nothing here.
          */
         private fun collectAttachmentRefs(tables: List<BackupTableExport>): List<BackupAttachmentRef> {
             val refs = mutableListOf<BackupAttachmentRef>()
@@ -93,6 +93,19 @@ class BackupExporter
                             rowId = row.stringOrNull("id").orEmpty(),
                             driveFileId = driveId,
                             fileName = row.stringOrNull("file_name").orEmpty(),
+                            mimeType = row.stringOrNull("mime_type"),
+                        )
+                }
+            }
+            byName["files"]?.let { export ->
+                for (row in parseRows(export.rowsJson)) {
+                    val driveId = row.stringOrNull("drive_file_id") ?: continue
+                    refs +=
+                        BackupAttachmentRef(
+                            table = "files",
+                            rowId = row.stringOrNull("id").orEmpty(),
+                            driveFileId = driveId,
+                            fileName = row.stringOrNull("name").orEmpty(),
                             mimeType = row.stringOrNull("mime_type"),
                         )
                 }
@@ -141,6 +154,10 @@ class BackupExporter
                     "notes",
                     "note_tags",
                     "note_tag_links",
+                    // FILES module (ADR-085): metadata index rows; bytes stay in Drive.
+                    "folders",
+                    "files",
+                    "folder_access",
                 )
 
             /** The complete archive table list: the business row + every business-scoped table. */

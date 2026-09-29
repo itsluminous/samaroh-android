@@ -38,7 +38,7 @@ class DriveAttachmentPermissionRepairTest {
         context = ApplicationProvider.getApplicationContext()
         db = inMemoryDatabase(context)
         driveService = ScriptedDriveService()
-        repair = DriveAttachmentPermissionRepair(db.expenseAttachmentDao(), db.masterItemDao(), driveService)
+        repair = DriveAttachmentPermissionRepair(db.expenseAttachmentDao(), db.masterItemDao(), db.fileDao(), driveService)
     }
 
     @After
