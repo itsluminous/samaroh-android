@@ -194,7 +194,12 @@ class SyncEngineFilesTest {
                     entityType = "folders",
                     entityId = folder.id,
                     operation = "upsert",
-                    payloadJson = testJson.encodeToString(com.itsluminous.samaroh.core.model.Folder.serializer(), folder),
+                    payloadJson =
+                        testJson.encodeToString(
+                            com.itsluminous.samaroh.core.model.Folder
+                                .serializer(),
+                            folder,
+                        ),
                     createdAt = FIXED_NOW,
                 ),
             )
