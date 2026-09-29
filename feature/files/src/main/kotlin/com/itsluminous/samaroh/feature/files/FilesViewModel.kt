@@ -27,6 +27,7 @@ import com.itsluminous.samaroh.feature.files.open.FileOpenResult
 import com.itsluminous.samaroh.feature.files.upload.FileUploadIntake
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -351,37 +352,60 @@ class FilesViewModel
 
         // ------------------------------------------------------------ folders
 
-        /** Validation for the create/rename dialog against LIVE siblings (design D12). */
+        /**
+         * Validation for the create/rename dialog against LIVE siblings under [parentId]
+         * (design D12) — the current folder by default; the share-sheet folder picker
+         * passes its own selection (ADR-087).
+         */
         fun validateFolderName(
             name: String,
             excludeFolderId: String? = null,
-        ): FolderNameError? = FilesTree.validateFolderName(name, folderId.value, uiState.value.allFolders, excludeFolderId)
+            parentId: String? = folderId.value,
+        ): FolderNameError? = FilesTree.validateFolderName(name, parentId, uiState.value.allFolders, excludeFolderId)
 
         /** Whether another level may be created here (design D13, depth ≤ 10). */
-        fun canCreateSubfolderHere(): Boolean = FilesTree.depth(folderId.value, uiState.value.allFolders) < FileItem.MAX_FOLDER_DEPTH
+        fun canCreateSubfolderHere(): Boolean = canCreateSubfolderIn(folderId.value)
 
-        fun createFolder(name: String) {
-            viewModelScope.launch {
-                val businessId = session.businessId() ?: return@launch
-                val userId = session.userId() ?: return@launch
-                val trimmed = name.trim()
-                if (validateFolderName(trimmed) != null || !canCreateSubfolderHere()) return@launch
-                val now = clock.instant()
-                repository.saveFolder(
-                    Folder(
-                        id = UUID.randomUUID().toString(),
-                        businessId = businessId,
-                        parentId = folderId.value,
-                        name = trimmed,
-                        restricted = false,
-                        createdBy = userId,
-                        updatedBy = userId,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
-                )
-                _events.tryEmit(FilesEvent.FolderCreated(trimmed))
-            }
+        /** Whether a subfolder may be created under [parentId] (design D13, depth ≤ 10). */
+        fun canCreateSubfolderIn(parentId: String?): Boolean = FilesTree.canCreateSubfolder(parentId, uiState.value.allFolders)
+
+        /** The in-flight folder save, awaited by [stage] so a share lands in a folder that exists. */
+        private var folderCreateJob: Job? = null
+
+        /**
+         * Creates a LIVE folder named [name] under [parentId] (the current folder by
+         * default). Returns the new folder's id synchronously — the picker selects it as
+         * the destination right away — or null when the name is invalid / the depth cap
+         * is hit; the Room + outbox write completes in the background.
+         */
+        fun createFolder(
+            name: String,
+            parentId: String? = folderId.value,
+        ): String? {
+            val trimmed = name.trim()
+            if (validateFolderName(trimmed, parentId = parentId) != null || !canCreateSubfolderIn(parentId)) return null
+            val id = UUID.randomUUID().toString()
+            folderCreateJob =
+                viewModelScope.launch {
+                    val businessId = session.businessId() ?: return@launch
+                    val userId = session.userId() ?: return@launch
+                    val now = clock.instant()
+                    repository.saveFolder(
+                        Folder(
+                            id = id,
+                            businessId = businessId,
+                            parentId = parentId,
+                            name = trimmed,
+                            restricted = false,
+                            createdBy = userId,
+                            updatedBy = userId,
+                            createdAt = now,
+                            updatedAt = now,
+                        ),
+                    )
+                    _events.tryEmit(FilesEvent.FolderCreated(trimmed))
+                }
+            return id
         }
 
         fun renameFolder(
@@ -525,6 +549,8 @@ class FilesViewModel
             viewModelScope.launch {
                 val businessId = session.businessId() ?: return@launch
                 val userId = session.userId() ?: return@launch
+                // A folder created from the picker moments ago must be persisted first.
+                folderCreateJob?.join()
                 uploadsInFlight.value += 1
                 try {
                     val result = uploadIntake.stage(businessId, userId, targetFolderId, files)

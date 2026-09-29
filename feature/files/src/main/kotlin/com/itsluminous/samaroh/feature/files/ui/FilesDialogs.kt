@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -34,6 +35,7 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.FileItem
 import com.itsluminous.samaroh.core.model.Folder
 import com.itsluminous.samaroh.feature.files.AccessEditorState
+import com.itsluminous.samaroh.feature.files.domain.FilesTree
 import com.itsluminous.samaroh.feature.files.domain.FolderNameError
 
 /** New-folder / rename dialog: one text field, live validation against LIVE siblings (design §6). */
@@ -252,16 +254,31 @@ private fun AccessRadioRow(
  * Destination folder picker (share sheet → Save to Files, design D18): the whole
  * accessible tree indented by depth, top level preselected. Restricted folders the
  * member cannot open never reached this device (RLS), so everything listed is valid.
+ *
+ * "New folder" (ADR-087): a row at the bottom — permission-HIDDEN behind the effective
+ * `files.manage_folders` ([canCreateFolder]) and the depth cap under the CURRENT
+ * selection — opens the standard name dialog; the created folder becomes the selected
+ * destination. Any other choose-a-folder picker must reuse this dialog for parity.
+ *
+ * @param validateNewFolderName live sibling validation under the given parent.
+ * @param onCreateFolder creates the folder under the given parent and returns its id
+ *   (null when refused) — the picker selects it.
  */
 @Composable
 fun FolderPickerDialog(
     folders: List<Folder>,
     onPick: (folderId: String?) -> Unit,
     onDismiss: () -> Unit,
+    canCreateFolder: Boolean = false,
+    validateNewFolderName: (name: String, parentId: String?) -> FolderNameError? = { _, _ -> null },
+    onCreateFolder: (name: String, parentId: String?) -> String? = { _, _ -> null },
 ) {
-    var selected by remember { mutableStateOf<String?>(null) }
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var creating by rememberSaveable { mutableStateOf(false) }
     val rootLabel = stringResource(R.string.files_home_root_label)
     val ordered = remember(folders) { flattenTree(folders) }
+    // Permission-hidden (ADR-038) + depth cap (design D13) — evaluated for the selection.
+    val showNewFolder = canCreateFolder && FilesTree.canCreateSubfolder(selected, folders)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.files_share_target_pick_folder_title)) },
@@ -271,6 +288,9 @@ fun FolderPickerDialog(
                 ordered.forEach { (folder, depth) ->
                     PickerRow(label = folder.name, depth = depth, selected = selected == folder.id, onClick = { selected = folder.id })
                 }
+                if (showNewFolder) {
+                    NewFolderRow(onClick = { creating = true })
+                }
             }
         },
         confirmButton = {
@@ -279,6 +299,31 @@ fun FolderPickerDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_action_cancel)) }
         },
+    )
+    if (creating) {
+        val parentId = selected
+        FolderNameDialog(
+            titleRes = R.string.files_action_new_folder,
+            initialName = "",
+            validate = { validateNewFolderName(it, parentId) },
+            onConfirm = { name ->
+                creating = false
+                onCreateFolder(name, parentId)?.let { selected = it }
+            },
+            onDismiss = { creating = false },
+        )
+    }
+}
+
+/** The picker's "New folder" affordance: creates a subfolder under the selected row. */
+@Composable
+private fun NewFolderRow(onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.files_action_new_folder), color = MaterialTheme.colorScheme.primary) },
+        leadingContent = {
+            Icon(Icons.Filled.CreateNewFolder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        },
+        modifier = Modifier.clickable(onClick = onClick),
     )
 }
 

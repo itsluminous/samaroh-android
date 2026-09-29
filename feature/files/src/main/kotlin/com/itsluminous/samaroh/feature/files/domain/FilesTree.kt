@@ -58,6 +58,12 @@ object FilesTree {
         folders: List<Folder>,
     ): Int = breadcrumbs(folderId, folders).size
 
+    /** Whether a subfolder may be created under [parentId] (design D13, depth ≤ [FileItem.MAX_FOLDER_DEPTH]). */
+    fun canCreateSubfolder(
+        parentId: String?,
+        folders: List<Folder>,
+    ): Boolean = depth(parentId, folders) < FileItem.MAX_FOLDER_DEPTH
+
     /** Direct live children (subfolders + files) of [folderId]. */
     fun directChildCount(
         folderId: String,

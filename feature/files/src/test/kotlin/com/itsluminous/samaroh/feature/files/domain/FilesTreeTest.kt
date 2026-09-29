@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.files.domain
 
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.model.FileItem
 import com.itsluminous.samaroh.feature.files.fileFixture
 import com.itsluminous.samaroh.feature.files.folderFixture
 import org.junit.Test
@@ -40,6 +41,19 @@ class FilesTreeTest {
         assertThat(FilesTree.breadcrumbs(null, folders)).isEmpty()
         assertThat(FilesTree.depth("gc", folders)).isEqualTo(3)
         assertThat(FilesTree.depth(null, folders)).isEqualTo(0)
+    }
+
+    @Test
+    fun `a subfolder may be created until the depth cap (design D13)`() {
+        assertThat(FilesTree.canCreateSubfolder(null, folders)).isTrue()
+        assertThat(FilesTree.canCreateSubfolder("gc", folders)).isTrue()
+        var parent: String? = null
+        val chain =
+            (1..FileItem.MAX_FOLDER_DEPTH).map { level ->
+                folderFixture("d$level", name = "L$level", parentId = parent).also { parent = it.id }
+            }
+        assertThat(FilesTree.canCreateSubfolder(chain[chain.size - 2].id, chain)).isTrue()
+        assertThat(FilesTree.canCreateSubfolder(chain.last().id, chain)).isFalse()
     }
 
     @Test

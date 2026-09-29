@@ -458,6 +458,10 @@ fun FilesScreen(
             folders = state.allFolders,
             onPick = { folderId -> viewModel.saveSharedFiles(folderId) },
             onDismiss = { viewModel.discardSharedFiles() },
+            // "New folder" inside the picker (ADR-087): effective manage_folders gate.
+            canCreateFolder = state.canManageFolders,
+            validateNewFolderName = { name, parentId -> viewModel.validateFolderName(name, parentId = parentId) },
+            onCreateFolder = { name, parentId -> viewModel.createFolder(name, parentId) },
         )
     }
     viewerImage?.let { (file, row) ->

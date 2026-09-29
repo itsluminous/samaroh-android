@@ -240,6 +240,74 @@ class FilesViewModelTest {
             assertThat(created.restricted).isFalse()
         }
 
+    // ---- share picker "New folder" (ADR-087) ----
+
+    @Test
+    fun `picker new folder creates under the picked parent and returns its id right away`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            // The picker validates against the SELECTED parent's siblings, not the current folder.
+            assertThat(vm.validateFolderName("2026", parentId = "root")).isEqualTo(FolderNameError.DUPLICATE)
+            assertThat(vm.validateFolderName("2026", parentId = null)).isNull()
+            assertThat(vm.createFolder("2026", parentId = "root")).isNull()
+            val id = vm.createFolder("Receipts", parentId = "root")
+            assertThat(id).isNotNull()
+            val created = repository.foldersFlow.value.single { it.name == "Receipts" }
+            assertThat(created.id).isEqualTo(id)
+            assertThat(created.parentId).isEqualTo("root")
+            assertThat(created.createdBy).isEqualTo(Fixtures.USER_ID)
+            // The tab's own current folder (top level) is untouched.
+            assertThat(vm.uiState.first { it.folders.any { it.folder.name == "Contracts" } }.folderId).isNull()
+        }
+
+    @Test
+    fun `share payload saves into a folder created from the picker`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            val a = File(context.cacheDir, "picker-a.pdf").apply { writeBytes(ByteArray(5)) }
+            shareHolder.set(listOf(SharedFile(Uri.fromFile(a), "application/pdf", "picker-a.pdf", 5)))
+            var newId: String? = null
+            vm.events.test {
+                newId = vm.createFolder("Tenders", parentId = null)
+                assertThat(newId).isNotNull()
+                vm.saveSharedFiles(newId)
+                // Folder create event first (its save is awaited), then the share confirmation.
+                assertThat(awaitItem()).isEqualTo(FilesEvent.FolderCreated("Tenders"))
+                assertThat(awaitItem()).isEqualTo(FilesEvent.SharedSaved(1))
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(
+                repository.foldersFlow.value
+                    .single { it.id == newId }
+                    .name,
+            ).isEqualTo("Tenders")
+            val staged = repository.filesFlow.value.single { it.file.folderId == newId }
+            assertThat(staged.file.name).isEqualTo("picker-a.pdf")
+            assertThat(shareHolder.peek()).isEmpty()
+        }
+
+    @Test
+    fun `picker new folder respects the depth cap under the picked parent`() =
+        runTest {
+            // Chain of MAX_FOLDER_DEPTH folders: the deepest one cannot take a child.
+            var parent: String? = null
+            val chain =
+                (1..com.itsluminous.samaroh.core.model.FileItem.MAX_FOLDER_DEPTH).map { level ->
+                    folderFixture("d$level", name = "L$level", parentId = parent).also { parent = it.id }
+                }
+            repository.foldersFlow.value = chain
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            assertThat(vm.canCreateSubfolderIn(null)).isTrue()
+            assertThat(vm.canCreateSubfolderIn(chain[chain.size - 2].id)).isTrue()
+            assertThat(vm.canCreateSubfolderIn(chain.last().id)).isFalse()
+            assertThat(vm.createFolder("Too deep", parentId = chain.last().id)).isNull()
+        }
+
     @Test
     fun `deleting a folder tombstones its subtree, best-effort deletes drive copies and returns to the parent`() =
         runTest {
