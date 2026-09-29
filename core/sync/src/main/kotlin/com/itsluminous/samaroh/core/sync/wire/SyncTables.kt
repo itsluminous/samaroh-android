@@ -52,6 +52,16 @@ data class SyncTableSpec(
     val cursorColumn: String = "updated_at",
     val tombstoneCursorColumn: String? = null,
     val localOnlyKeys: Set<String> = emptySet(),
+    /**
+     * Payload keys stripped from PUSHED upserts because the SERVER owns them (ADR-085):
+     * `created_at` on tables whose guard trigger pins it with an exact `<>` compare.
+     * Room stores instants at millisecond precision while Postgres keeps microseconds
+     * (ADR-051 truncation on pull), so a whole-row upsert re-sending the truncated value
+     * would fail the guard on every later edit. Omitted on INSERT the column takes the
+     * server default (exactly what the web client does); omitted on the ON CONFLICT
+     * UPDATE it stays untouched. Unlike [localOnlyKeys] the column DOES exist server-side.
+     */
+    val serverOwnedKeys: Set<String> = emptySet(),
 ) {
     /** Whether the server table carries `updated_at` (LWW bump + tombstone touch are valid). */
     val hasUpdatedAt: Boolean get() = cursorColumn == "updated_at"
@@ -158,8 +168,13 @@ object SyncTables {
             // with updated_at: a tombstone bumps the cursor, so one pull leg suffices
             // (deliberately not the expense_attachments two-leg shape). `files` carries
             // two device-only columns (the bills shape) that must never reach the wire.
-            SyncTableSpec("folders", businessScoped = true),
-            SyncTableSpec("files", businessScoped = true, localOnlyKeys = setOf("local_cache_path", "drive_permission_ensured")),
+            SyncTableSpec("folders", businessScoped = true, serverOwnedKeys = setOf("created_at")),
+            SyncTableSpec(
+                "files",
+                businessScoped = true,
+                localOnlyKeys = setOf("local_cache_path", "drive_permission_ensured"),
+                serverOwnedKeys = setOf("created_at"),
+            ),
             // Composite PK (folder_id, member_id): soft links only (revoke = UPSERT with
             // deleted_at) — the app never enqueues a DELETE op for this table.
             SyncTableSpec("folder_access", businessScoped = true, idColumn = "folder_id", idColumn2 = "member_id"),

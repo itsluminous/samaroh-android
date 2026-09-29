@@ -3268,3 +3268,151 @@ no server migration, no wire-shape change.
 directions. Anything else that ever becomes an immutable, tombstone-only table gets
 convergence by setting one field. The redundant `created_at` cursor doc in
 `SyncTables` now points here.
+
+## ADR-085 — FILES module: Drive-indexed file storage, restricted folders, nav overflow rule (shared migration 009) (2026-09-29)
+
+**Status:** accepted. Implements `samaroh-shared/docs/files-tab-design.md` (decisions
+D1–D22) — the cross-platform contract the web track implements in parallel. Additive:
+new `feature:files` module, Room 12→13, new `FilesRepository` interface, new
+`SyncTableSpec` field, new `core:data` seams, permission model extension.
+
+**Context.** Owner requirement: a Files tab behaving like file storage proxying to the
+business's Google Drive folder — folders, uploads of any type, search, view/upload/
+delete permissions, folder-level access, and a share-sheet entry (ADR-086). The design
+stage fixed the contract: three Supabase tables `folders`/`files`/`folder_access` as a
+METADATA INDEX; bytes live in the UPLOADER's own Drive (`drive.file`, ADR-065 posture),
+shared anyone-with-link inline; all three rows MUTABLE with `updated_at` (one pull leg).
+
+**Decision (Android).**
+
+1. **Model/Room.** `Folder`, `FileItem`, `FolderAccess` in `core:model`;
+   `FilesPermissions(view, upload, manage_folders?, delete)` with
+   `manageFoldersEffective = manage_folders ?? upload` (byte-for-byte the DB
+   `has_files_perm` coalesce; explicit false never falls through). Presets per D7 (Staff
+   materializes `manage_folders=true`). Room `MIGRATION_12_13` adds the three tables;
+   `files` carries the DEVICE-ONLY `local_cache_path` / `drive_permission_ensured`
+   columns (the bills shape) which `LocalApplier` preserves across pulls. `FileItem.
+   driveFileId` is nullable locally ONLY while the upload waits in the outbox.
+2. **Repository (`RoomFilesRepository`).** Room + outbox in one step. Tombstones are
+   whole-row UPSERTs carrying `deleted_at` (mutable-row contract, D10); folder delete
+   cascades CLIENT-SIDE children-first, files before folders, one op per row
+   (ADR-028 style). `folder_access` rows are soft links with the composite
+   `"folderId|memberId"` entity id (ADR-077 shape) — never a DELETE op.
+3. **Sync.** `SyncTables` += `folders`, `files` (`localOnlyKeys` = the two device
+   columns), `folder_access` (`idColumn=folder_id`, `idColumn2=member_id`). `files`
+   UPSERTs go through the new `FilesUploader` seam (`core:data`, bound by `core:google`
+   `DriveFilesUploader`): upload to `Samaroh/{Business}/files/{Folder}/{Sub}/{name}`
+   (`DriveTarget.Files`, find-or-create, original bytes + original name) → inline
+   anyone-with-link permission (repair pass `DriveAttachmentPermissionRepair` extended to
+   `files`, 10 rows/run) → payload patched with `drive_file_id` → row push. A staged row
+   tombstoned before it ever uploaded yields `UploadResult.Obsolete` / a tombstone
+   payload with a null id, and the engine DROPS the op (nothing exists server-side).
+   Unlinked → op held with the existing `attachment-pending-storage-link` marker.
+4. **`created_at` is SERVER-OWNED for `folders`/`files` (`SyncTableSpec.serverOwnedKeys`,
+   stripped by `WireConverter.toWire`).** Live verification found the 009 guard triggers
+   compare `new.created_at <> old.created_at` EXACTLY, while Room persists instants at
+   millisecond precision (ADR-051) and Postgres keeps microseconds: the first whole-row
+   upsert after any pull (rename, restrict, tombstone) was rejected with
+   `folders: id, business_id, parent_id, created_by and created_at are immutable`. The
+   web never trips it because it omits `created_at` on insert (server default) and
+   PATCHes on update. Android now omits `created_at` on every push of these two tables:
+   INSERT takes the server default (identical to web), ON CONFLICT UPDATE leaves it
+   untouched. Consequence: an offline-created row's `created_at` becomes its first-sync
+   time (as on web). **Contract note for the release stage:** any future guard-pinned
+   `timestamptz` column needs the same treatment (or a `date_trunc('milliseconds', …)`
+   compare server-side); `folder_access` has no guard and is unchanged.
+5. **UI (`feature:files`).** Single destination with in-memory folder navigation
+   (breadcrumbs `All files › …`, Up, system back = up one level), GLOBAL search over
+   the accessible index with `files.search.result_path` subtitles (D11), grid/list
+   toggle persisted per device (`FilesViewPreferences`), folders A–Z then files newest
+   first, `Restricted` chip, thumbnails (staged/cached image file or the public Drive
+   thumbnail for images/PDFs, type icon otherwise), `Uploading…` / pending-unlinked
+   badges. Long-press sheets: file → Open / Open in Google Drive / Download / Copy link /
+   Delete; folder → Rename / Manage access (owner only) / Delete. Open: images → the
+   shared `ImageViewerDialog` over `FileContentResolver` (staged original → `files-cache/`
+   via the ADR-059 `DriveFileFetcher` ladder); others → `drive.google.com/file/d/{id}/view`
+   in a Chrome Custom Tab (`androidx.browser` 1.8.0 added). Download → `MediaStoreImageSaver`
+   (any MIME; it is a byte copy). Every affordance is permission-HIDDEN (ADR-038):
+   `upload` → FAB; `manage_folders` (effective) → New folder / Rename; `delete` →
+   delete actions; owner → Manage access. Rows under a tombstoned ancestor are hidden
+   client-side (no server cascade, D2); a stale folder id shows `files.access.no_access`.
+6. **Upload (D8/D13).** System `OpenMultipleDocuments` picker (`*/*`); `FileUploadIntake`
+   copies ORIGINAL bytes into `files-staging/{id}` (bounded copy: >25 MiB rejected
+   before/while copying → `files.upload.too_large`; >20 → `files.upload.too_many`;
+   unreadable stream → `files.upload.failed`), writes the row + outbox op, nudges sync.
+   Configured-but-unlinked users get the `Connect Google Drive` prompt first (Connect =
+   ADR-049 link flow incl. consent intent, then the picker; Not now = picker anyway,
+   staged with `files.upload.pending_unlinked`). Unconfigured Google skips the prompt.
+   Depth cap 10 enforced at folder creation. *Deviation from the doc's wording:* Android
+   surfaces `files.upload.queued` at staging time and the row's `Uploading…` badge
+   disappears when the background drain finishes; `files.upload.done` /
+   `files.upload.in_progress` are NOT shown on Android (the upload happens in the sync
+   worker, not in the screen's lifetime). Those two keys stay web-consumed.
+7. **Access editor (D6).** Owner-only dialog: Everyone / Only selected members +
+   checklist of non-owner, non-revoked members (display names). Save writes
+   `folders.restricted` and the `folder_access` diff as soft-link upserts (re-grant reuses
+   the PK row). Members see exactly what RLS returned; no client re-derivation.
+8. **Navigation (D15).** `FILES_ROUTE` is a top-level module in canonical order
+   Booking, Expenses, Inventory, Notes, Files, Menu. `NavPermissions.barTabRoutes` caps
+   the bottom bar at `BAR_MODULE_CAP = 4` visible modules + Menu; `overflowModuleRoutes`
+   feed a **"More" section at the top of the Menu tab** (`MenuOverflowModule` rows,
+   `files.nav.more_section`) and the menu search index (`MenuSearchTarget.Module`).
+   While an overflowed module is the current destination the Menu bar item stays
+   highlighted. App Link `/{locale}/files` → Files (`AppLink.Files`).
+9. **Permissions UI.** `PermissionMatrix.inheritsFrom += manage_folders → upload`;
+   the editor renders the `files` group with the shared `files.permission.*` labels;
+   `fullAccess()` includes files.
+10. **Backup (D20).** `BackupExporter.BUSINESS_SCOPED_TABLES` += `folders`, `files`,
+    `folder_access`; uploaded `files` rows join the attachment manifest
+    (`drive_file_id`, `name`, `mime_type`); `docs/backup-format.md` updated; the schema
+    guard test covers the three tables.
+
+**Verification.** Full gate green (1268 unit tests incl. new sync/repo/DAO/migration/
+ViewModel/tree/routing tests). Emulator (Android_16_AOSP_Medium, owner test business,
+migration 009 already applied live): Menu › More › Files, folder create → pushed,
+restrict → pushed (after item 4), rename → pushed, share-sheet chooser + folder picker,
+in-app picker staging (badge, viewer, search path, sheet), cascade delete → server
+tombstone, staged-file op dropped; Hindi strings. NOT verified live: the Drive upload
+itself and Open in Drive / Copy link / Download of an uploaded file (the AOSP emulator
+has no Google account — the op stayed queued with the storage-link marker, exactly the
+unlinked contract); covered by the fake-Drive unit tests.
+
+## ADR-086 — Unified share target: "Save to Samaroh" chooser (invoice / item photo / Files) (2026-09-29)
+
+**Status:** accepted (design D18). Replaces the ADR-078 `.CreateInvoiceShareTarget`
+alias; the ADR-078 party-picker flow itself is unchanged.
+
+**Decision.**
+
+1. **Manifest.** ONE `activity-alias` `.ShareTarget` → `MainActivity`, label
+   `files.share_target.label`, filters `ACTION_SEND` + `ACTION_SEND_MULTIPLE` for `*/*`.
+2. **Intake.** `ShareIntents.parse` (app) turns either action into `List<SharedFile>`
+   (uri, MIME from the ContentResolver — a wildcard declaration is never trusted — name,
+   size) parked in the `core:data` `ShareIntakeHolder` singleton (uris do not survive
+   nav args). `MainActivity` raises `pendingShare`; the shell shows `ShareChooserDialog`.
+3. **Routing (`ShareRouting.availableActions`, pure, unit-tested).** Create invoice:
+   single image/PDF ∧ `expenses.create`; Set as item photo: single image ∧
+   `inventory.manage_master_items`; Save to Files: ≤ 20 files of any MIME ∧
+   `files.upload`. Owners pass every gate; rows are permission-HIDDEN; nothing left →
+   `files.share_target.no_options`; no business/session → `files.share_target.signed_out`;
+   no usable stream → `files.share_target.unsupported`.
+4. **Hand-offs.** Invoice → the existing expenses `ShareTargetHolder`/`SharedInvoiceFile`
+   + party picker (ADR-078, unchanged). Item photo → Inventory tab, Masterlist,
+   `SharedPhotoItemPickerDialog` (type-ahead over master items,
+   `files.share_target.pick_item_title`) → the existing edit-item dialog with the picture
+   pre-staged into the cropper (`MasterItemEditorDialog.initialPhotoUri`; the
+   crop → ≤320px WebP → Drive-mirror pipeline is untouched); the pending uri lives in
+   `MasterlistViewModel` so a shell recomposition cannot drop it. Save to Files → Files
+   tab, `FolderPickerDialog` (whole accessible tree, top level preselected,
+   `files.share_target.pick_folder_title`) → the same `FileUploadIntake` staging as the
+   in-app picker → `files.share_target.saved`. The picker's visibility lives in
+   `FilesViewModel.folderPickerVisible` for the same reason (a `remember`-only flag was
+   lost when the shell recomposed the graph on the flag flip — found on the emulator).
+5. **Removed.** `ShareTargetIntents` (expenses) and its test — the activity no longer
+   parses invoice shares itself.
+
+**Consequences.** Sharing anything to Samaroh always lands in one chooser; a member
+without any of the three permissions sees a clear message instead of a dead end. The
+emulator harness cannot grant MediaStore uri read permission from the shell, so the
+chooser/picker flows were verified end-to-end while the payload copy was exercised via
+the in-app picker and unit tests.

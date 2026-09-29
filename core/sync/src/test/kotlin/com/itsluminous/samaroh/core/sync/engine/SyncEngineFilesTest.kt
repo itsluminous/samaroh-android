@@ -176,6 +176,37 @@ class SyncEngineFilesTest {
         }
 
     @Test
+    fun `folder upserts never send created_at so the immutable-column guard accepts later edits`() =
+        runTest {
+            seedBusiness()
+            val folder =
+                com.itsluminous.samaroh.core.model.Folder(
+                    id = "f-1",
+                    businessId = Fixtures.BUSINESS_ID,
+                    name = "Contracts",
+                    restricted = true,
+                    createdBy = Fixtures.USER_ID,
+                    createdAt = Fixtures.NOW,
+                    updatedAt = Fixtures.NOW,
+                )
+            db.outboxDao().enqueue(
+                OutboxEntity(
+                    entityType = "folders",
+                    entityId = folder.id,
+                    operation = "upsert",
+                    payloadJson = testJson.encodeToString(com.itsluminous.samaroh.core.model.Folder.serializer(), folder),
+                    createdAt = FIXED_NOW,
+                ),
+            )
+
+            syncEngine(db, remote, notifier).runSync()
+
+            val pushed = remote.upserts.single { it.first == "folders" }.second
+            assertThat(pushed.keys).doesNotContain("created_at")
+            assertThat(pushed.keys).containsAtLeast("id", "business_id", "name", "restricted", "created_by", "updated_at")
+        }
+
+    @Test
     fun `remote tombstones propagate through the single updated_at leg and preserve device-only columns`() =
         runTest {
             seedBusiness()
@@ -277,6 +308,8 @@ class SyncEngineFilesTest {
             assertThat(pushed.getValue("drive_file_id").jsonPrimitive.content).isEqualTo("drive-abc")
             // Device-only keys never reach the wire; the Room row now carries the id.
             assertThat(pushed.keys).containsNoneOf("local_cache_path", "drive_permission_ensured")
+            // created_at is server-owned (guard trigger pins it exactly; Room is ms-precision).
+            assertThat(pushed.keys).doesNotContain("created_at")
             assertThat(db.fileDao().byId("file-1")!!.driveFileId).isEqualTo("drive-abc")
             assertThat(db.fileDao().byId("file-1")!!.localCachePath).isEqualTo("/staging/file-1")
             assertThat(db.outboxDao().pendingForEntity("files", "file-1")).isEmpty()

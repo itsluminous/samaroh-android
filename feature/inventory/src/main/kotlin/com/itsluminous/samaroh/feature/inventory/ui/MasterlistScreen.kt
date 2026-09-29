@@ -156,26 +156,18 @@ fun MasterlistScreen(
 
     // Share-sheet item photo (ADR-086): pick the item, then open its editor with the
     // picture pre-staged through the existing crop → WebP → Drive-mirror pipeline.
-    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var showItemPicker by remember { mutableStateOf(false) }
+    val pendingPhotoUri by viewModel.sharedPhoto.collectAsState()
     LaunchedEffect(sharedPhotoUri) {
         if (sharedPhotoUri != null) {
-            pendingPhotoUri = sharedPhotoUri
-            showItemPicker = true
+            viewModel.startSharedPhoto(sharedPhotoUri)
             onSharedPhotoConsumed()
         }
     }
-    if (showItemPicker) {
+    if (pendingPhotoUri != null && editor == null) {
         SharedPhotoItemPickerDialog(
             items = items,
-            onPick = { item ->
-                showItemPicker = false
-                viewModel.openEditor(item)
-            },
-            onDismiss = {
-                showItemPicker = false
-                pendingPhotoUri = null
-            },
+            onPick = { item -> viewModel.pickItemForSharedPhoto(item) },
+            onDismiss = { viewModel.clearSharedPhoto() },
         )
     }
 
@@ -184,9 +176,8 @@ fun MasterlistScreen(
             state = state,
             viewModel = viewModel,
             initialPhotoUri = pendingPhotoUri?.takeIf { state.editingItem != null },
+            onInitialPhotoConsumed = viewModel::clearSharedPhoto,
         )
-        // The staged picture is consumed by the first editor that opens for it.
-        LaunchedEffect(state.editingItem?.id) { if (state.editingItem != null) pendingPhotoUri = null }
     }
 
     deleteRequest?.let { request ->

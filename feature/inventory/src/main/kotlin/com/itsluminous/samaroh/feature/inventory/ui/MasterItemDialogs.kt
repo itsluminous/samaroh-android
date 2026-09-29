@@ -70,13 +70,17 @@ internal fun MasterItemEditorDialog(
     viewModel: MasterlistViewModel,
     /** Share-sheet "Set as item photo" (ADR-086): a picture to pre-stage into the cropper on open. */
     initialPhotoUri: Uri? = null,
+    onInitialPhotoConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Picker result → decoded source bitmap → interactive square cropper → ViewModel.
     var cropSource by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(initialPhotoUri) {
-        if (initialPhotoUri != null) cropSource = loadCropSourceBitmap(context, initialPhotoUri)
+        if (initialPhotoUri != null) {
+            cropSource = loadCropSourceBitmap(context, initialPhotoUri)
+            onInitialPhotoConsumed()
+        }
     }
     val pickImage =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->

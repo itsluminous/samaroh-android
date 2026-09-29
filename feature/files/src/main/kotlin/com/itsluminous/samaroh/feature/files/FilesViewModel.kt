@@ -214,6 +214,11 @@ class FilesViewModel
         private val _accessEditor = MutableStateFlow<AccessEditorState?>(null)
         val accessEditor: StateFlow<AccessEditorState?> = _accessEditor.asStateFlow()
 
+        private val _folderPickerVisible = MutableStateFlow(false)
+
+        /** Share sheet → Save to Files: the destination picker is showing (state lives here, not in composition). */
+        val folderPickerVisible: StateFlow<Boolean> = _folderPickerVisible.asStateFlow()
+
         private val linkState: Flow<GoogleLinkState> = googleAccountLinker.linkState
 
         private data class Perms(
@@ -494,16 +499,23 @@ class FilesViewModel
             stage(uploadIntake.describe(uris), folderId.value, fromShare = false)
         }
 
+        /** The chooser picked Save to Files: show the folder picker if a payload is parked. */
+        fun requestSaveToFiles() {
+            _folderPickerVisible.value = shareIntakeHolder.peek().isNotEmpty()
+        }
+
         /** Share sheet → Save to Files: stage the parked payload into [targetFolderId] (design D18). */
         fun saveSharedFiles(targetFolderId: String?) {
+            _folderPickerVisible.value = false
             val files = shareIntakeHolder.consume()
             if (files.isEmpty()) return
             stage(files, targetFolderId, fromShare = true)
         }
 
-        fun peekSharedFiles(): List<SharedFile> = shareIntakeHolder.peek()
-
-        fun discardSharedFiles() = shareIntakeHolder.clear()
+        fun discardSharedFiles() {
+            _folderPickerVisible.value = false
+            shareIntakeHolder.clear()
+        }
 
         private fun stage(
             files: List<SharedFile>,

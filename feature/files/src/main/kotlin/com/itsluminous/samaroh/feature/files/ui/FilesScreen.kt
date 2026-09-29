@@ -126,6 +126,7 @@ fun FilesScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val accessEditor by viewModel.accessEditor.collectAsStateWithLifecycle()
+    val showFolderPicker by viewModel.folderPickerVisible.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -137,7 +138,6 @@ fun FilesScreen(
     var deleteFileTarget by remember { mutableStateOf<FileRow?>(null) }
     var showLinkPrompt by remember { mutableStateOf(false) }
     var viewerImage by remember { mutableStateOf<Pair<File, FileRow>?>(null) }
-    var showFolderPicker by remember { mutableStateOf(false) }
     var pendingDownload by remember { mutableStateOf<Pair<File, FileRow>?>(null) }
 
     val pickFiles =
@@ -174,7 +174,7 @@ fun FilesScreen(
     // Share sheet → Save to Files (design D18): the folder picker is the flow's door.
     LaunchedEffect(saveToFilesRequested) {
         if (saveToFilesRequested) {
-            showFolderPicker = viewModel.peekSharedFiles().isNotEmpty()
+            viewModel.requestSaveToFiles()
             onSaveToFilesConsumed()
         }
     }
@@ -456,14 +456,8 @@ fun FilesScreen(
     if (showFolderPicker) {
         FolderPickerDialog(
             folders = state.allFolders,
-            onPick = { folderId ->
-                showFolderPicker = false
-                viewModel.saveSharedFiles(folderId)
-            },
-            onDismiss = {
-                showFolderPicker = false
-                viewModel.discardSharedFiles()
-            },
+            onPick = { folderId -> viewModel.saveSharedFiles(folderId) },
+            onDismiss = { viewModel.discardSharedFiles() },
         )
     }
     viewerImage?.let { (file, row) ->

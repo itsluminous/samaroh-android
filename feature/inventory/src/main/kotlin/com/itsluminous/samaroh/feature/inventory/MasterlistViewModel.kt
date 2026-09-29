@@ -140,6 +140,27 @@ class MasterlistViewModel
         private val deleteRequestState = MutableStateFlow<DeleteRequestState?>(null)
         val deleteRequest: StateFlow<DeleteRequestState?> = deleteRequestState.asStateFlow()
 
+        /**
+         * Share-sheet "Set as item photo" (ADR-086): the shared picture awaiting an item
+         * pick, then pre-staged into the editor's cropper. Lives here (not in composition)
+         * so a shell recomposition cannot drop the pending share.
+         */
+        private val sharedPhotoState = MutableStateFlow<android.net.Uri?>(null)
+        val sharedPhoto: StateFlow<android.net.Uri?> = sharedPhotoState.asStateFlow()
+
+        fun startSharedPhoto(uri: android.net.Uri) {
+            sharedPhotoState.value = uri
+        }
+
+        /** The picker chose [item]: open its editor; the photo is handed to the cropper by the dialog. */
+        fun pickItemForSharedPhoto(item: MasterItem) {
+            openEditor(item)
+        }
+
+        fun clearSharedPhoto() {
+            sharedPhotoState.value = null
+        }
+
         fun openEditor(item: MasterItem? = null) {
             editorState.value =
                 if (item == null) {
