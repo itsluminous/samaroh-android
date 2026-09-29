@@ -52,6 +52,8 @@ app for bookings, expenses and inventory.
   PDF export via the share sheet.
 
 ### ☰ Menu
+Opens from the **⋮ kebab in the title bar, right of the sync cloud** (the bottom bar holds
+only the module tabs — Booking, Expenses, Inventory, Notes, Files; ADR-087).
 - **Settings**: in-app **language** switcher (English/हिन्दी), **theme**
   (light/dark/system + dynamic color), **reminder style**, calendar **icon-crossfade
   opacity slider**, and **booking-form field** preferences (choose which optional fields
