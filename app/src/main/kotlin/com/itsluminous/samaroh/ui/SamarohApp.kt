@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Sync
@@ -38,7 +39,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -56,6 +60,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.applink.AppLink
+import com.itsluminous.samaroh.core.data.share.ShareAction
+import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
+import com.itsluminous.samaroh.core.data.share.ShareRouting
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.OfflineBanner
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
@@ -65,12 +72,17 @@ import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.booking.bookingGraph
 import com.itsluminous.samaroh.feature.expenses.EXPENSES_ROUTE
 import com.itsluminous.samaroh.feature.expenses.expensesGraph
+import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
+import com.itsluminous.samaroh.feature.expenses.sharetarget.SharedInvoiceFile
+import com.itsluminous.samaroh.feature.files.FILES_ROUTE
+import com.itsluminous.samaroh.feature.files.filesGraph
 import com.itsluminous.samaroh.feature.inventory.INVENTORY_ROUTE
 import com.itsluminous.samaroh.feature.inventory.inventoryGraph
 import com.itsluminous.samaroh.feature.menu.MENU_ROUTE
 import com.itsluminous.samaroh.feature.menu.SYNC_STATUS_ROUTE
 import com.itsluminous.samaroh.feature.menu.menuGraph
 import com.itsluminous.samaroh.feature.menu.syncStatusGraph
+import com.itsluminous.samaroh.feature.menu.ui.home.MenuOverflowModule
 import com.itsluminous.samaroh.feature.notes.NOTES_ROUTE
 import com.itsluminous.samaroh.feature.notes.notesGraph
 import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_ROUTE
@@ -78,8 +90,11 @@ import com.itsluminous.samaroh.feature.onboarding.ONBOARDING_SIGN_IN_ROUTE
 import com.itsluminous.samaroh.feature.onboarding.onboardingGraph
 import com.itsluminous.samaroh.feature.reports.reportsGraph
 import com.itsluminous.samaroh.feature.reports.reportsRoute
+import com.itsluminous.samaroh.share.ShareBlocked
+import com.itsluminous.samaroh.share.ShareChooserDialog
+import dagger.hilt.android.EntryPointAccessors
 
-/** The four bottom tabs (§0). Labels are catalog keys; icons are decorative duplicates of the label. */
+/** The module tabs + Menu (§0, ADR-085). Labels are catalog keys; icons are decorative duplicates of the label. */
 private data class TopLevelDestination(
     val route: String,
     @StringRes val labelRes: Int,
@@ -93,6 +108,9 @@ private val topLevelDestinations =
         TopLevelDestination(INVENTORY_ROUTE, R.string.common_nav_inventory, Icons.Filled.Inventory2),
         // NOTES tab (ADR-077): hidden without notes.view like every module tab.
         TopLevelDestination(NOTES_ROUTE, R.string.notes_nav_tab, Icons.AutoMirrored.Filled.StickyNote2),
+        // FILES tab (ADR-085): fifth module — overflows into the Menu's "More" section
+        // when four modules already fill the bar (NavPermissions.barTabRoutes).
+        TopLevelDestination(FILES_ROUTE, R.string.files_nav_tab, Icons.Filled.Folder),
         // The Menu tab is a nested GRAPH (ADR-042): its root subscreens (Reports, Sync
         // status) stay inside it so hierarchy matching keeps the tab highlighted there.
         TopLevelDestination(MENU_TAB_ROUTE, R.string.common_nav_menu, Icons.Filled.Menu),
@@ -110,6 +128,8 @@ private val topLevelDestinations =
  *   intent (ADR-033) — routes to the matching tab; ledger/masterlist/settings sub-targets
  *   are handed to the feature graphs, which consume them via [onAppLinkConsumed].
  * @param onAppLinkConsumed clears the pending App Link once routed.
+ * @param pendingShare files arrived via the Save to Samaroh share target (ADR-086): the
+ *   shell shows the chooser and routes the pick; cleared via [onShareConsumed].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,8 +138,8 @@ fun SamarohApp(
     onBookingDeepLinkConsumed: () -> Unit,
     pendingAppLink: AppLink? = null,
     onAppLinkConsumed: () -> Unit = {},
-    pendingShareInvoice: Boolean = false,
-    onShareInvoiceConsumed: () -> Unit = {},
+    pendingShare: Boolean = false,
+    onShareConsumed: () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -134,6 +154,18 @@ fun SamarohApp(
     // Tab-level §3 gate: wait for the first permission recompute too — rendering all
     // four tabs and then dropping one would flash a tab the member cannot view.
     val visibleTabs = visibleTabsState ?: return
+    // Bottom-bar cap (ADR-085, design D15): 4 modules + Menu; the rest go to Menu › More.
+    val barTabs = NavPermissions.barTabRoutes(visibleTabs)
+    val overflowModules =
+        NavPermissions.overflowModuleRoutes(visibleTabs).mapNotNull { route ->
+            topLevelDestinations.firstOrNull { it.route == route }?.let { MenuOverflowModule(it.route, it.labelRes, it.icon) }
+        }
+    val shareContext by viewModel.shareContext.collectAsStateWithLifecycle()
+    val shareIntakeHolder = remember(activityContext) { ShellEntryPoints.of(activityContext).shareIntakeHolder() }
+    val invoiceShareHolder = remember(activityContext) { ShellEntryPoints.of(activityContext).invoiceShareHolder() }
+    var pendingShareInvoice by remember { mutableStateOf(false) }
+    var pendingItemPhoto by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingSaveToFiles by remember { mutableStateOf(false) }
     // Saveable so activity recreation (locale/theme change) keeps the SAME nav graph —
     // a changed startDestination breaks NavController state restoration. The completion
     // navigation (not a graph swap) moves the user on; a process restart re-reads the flag.
@@ -188,6 +220,7 @@ fun SamarohApp(
                     AppLink.Booking -> BOOKING_ROUTE
                     is AppLink.Expenses -> EXPENSES_ROUTE
                     is AppLink.Inventory -> INVENTORY_ROUTE
+                    AppLink.Files -> FILES_ROUTE
                     is AppLink.Menu, AppLink.Reports -> MENU_TAB_ROUTE
                 }
             navController.navigate(tabRoute) {
@@ -210,16 +243,63 @@ fun SamarohApp(
         }
     }
 
-    // Create-invoice share target (ADR-078): land on the Expenses tab; the feature
-    // graph opens the party picker and clears the flag via [onShareInvoiceConsumed].
-    LaunchedEffect(pendingShareInvoice, onboarded) {
-        if (pendingShareInvoice && onboarded) {
-            navController.navigate(EXPENSES_ROUTE) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
+    // Share-chooser routing (ADR-086): each pick lands on its tab; the feature graph
+    // consumes the flag once it took over the parked payload.
+    fun navigateToTab(route: String) {
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
         }
+    }
+    // Create-invoice (ADR-078, unchanged): the expenses graph opens the party picker.
+    LaunchedEffect(pendingShareInvoice, onboarded) {
+        if (pendingShareInvoice && onboarded) navigateToTab(EXPENSES_ROUTE)
+    }
+    LaunchedEffect(pendingItemPhoto, onboarded) {
+        if (pendingItemPhoto != null && onboarded) navigateToTab(INVENTORY_ROUTE)
+    }
+    LaunchedEffect(pendingSaveToFiles, onboarded) {
+        if (pendingSaveToFiles && onboarded) navigateToTab(FILES_ROUTE)
+    }
+    // The chooser itself (ADR-086): rows per payload + permissions, permission-hidden.
+    if (pendingShare && onboarded) {
+        val files = shareIntakeHolder.peek()
+        val context = shareContext
+        val blocked =
+            when {
+                files.isEmpty() -> ShareBlocked.UNSUPPORTED
+                context == null || !context.hasBusiness -> ShareBlocked.SIGNED_OUT
+                else -> null
+            }
+        val actions =
+            if (blocked == null &&
+                context != null
+            ) {
+                ShareRouting.availableActions(files, context.isOwner, context.permissions)
+            } else {
+                emptyList()
+            }
+        ShareChooserDialog(
+            actions = actions,
+            blocked = blocked ?: if (actions.isEmpty()) ShareBlocked.NO_OPTIONS else null,
+            onPick = { action ->
+                onShareConsumed()
+                when (action) {
+                    ShareAction.CREATE_INVOICE -> {
+                        val single = shareIntakeHolder.consume().single()
+                        invoiceShareHolder.set(SharedInvoiceFile(single.uri, single.mimeType, single.displayName))
+                        pendingShareInvoice = true
+                    }
+                    ShareAction.SET_ITEM_PHOTO -> pendingItemPhoto = shareIntakeHolder.consume().single().uri
+                    ShareAction.SAVE_TO_FILES -> pendingSaveToFiles = true
+                }
+            },
+            onDismiss = {
+                shareIntakeHolder.clear()
+                onShareConsumed()
+            },
+        )
     }
 
     Scaffold(
@@ -244,12 +324,14 @@ fun SamarohApp(
                 NavigationBar {
                     // §3 tab-level gate: only the member's visible tabs render (hidden,
                     // not greyed); the list recomputes live when sync changes permissions.
-                    topLevelDestinations.filter { it.route in visibleTabs }.forEach { destination ->
+                    // An overflowed module (reached via Menu › More) keeps Menu highlighted.
+                    val selectedBarTab = if (currentTab != null && currentTab !in barTabs) MENU_TAB_ROUTE else currentTab
+                    topLevelDestinations.filter { it.route in barTabs }.forEach { destination ->
                         val label = stringResource(destination.labelRes)
                         NavigationBarItem(
                             // Hierarchy-based selection (ADR-042): the tab highlights on
                             // every destination nested under it, not just its own route.
-                            selected = currentTab == destination.route,
+                            selected = selectedBarTab == destination.route,
                             onClick = {
                                 navController.navigate(destination.route) {
                                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -314,13 +396,20 @@ fun SamarohApp(
                     partyIdToOpen = (pendingAppLink as? AppLink.Expenses)?.partyId,
                     onPartyDeepLinkConsumed = onAppLinkConsumed,
                     shareTargetRequested = pendingShareInvoice && onboarded,
-                    onShareTargetConsumed = onShareInvoiceConsumed,
+                    onShareTargetConsumed = { pendingShareInvoice = false },
                 )
                 inventoryGraph(
                     openMasterlist = (pendingAppLink as? AppLink.Inventory)?.masterlist == true,
                     onMasterlistDeepLinkConsumed = onAppLinkConsumed,
+                    sharedPhotoUri = pendingItemPhoto,
+                    onSharedPhotoConsumed = { pendingItemPhoto = null },
                 )
                 notesGraph()
+                // FILES tab (ADR-085); the share chooser's Save to Files lands here (ADR-086).
+                filesGraph(
+                    saveToFilesRequested = pendingSaveToFiles && onboarded,
+                    onSaveToFilesConsumed = { pendingSaveToFiles = false },
+                )
                 // Menu TAB graph (ADR-042): the Menu screens PLUS its root-level
                 // subscreens (Reports, Sync status) nest under one graph route so the
                 // bottom bar's hierarchy matching keeps the Menu tab highlighted there.
@@ -331,6 +420,9 @@ fun SamarohApp(
                         onOpenReportDetail = { reportArg -> navController.navigate(reportsRoute(reportArg)) },
                         openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
                         onSettingsDeepLinkConsumed = onAppLinkConsumed,
+                        // "More" section (ADR-085): modules past the bottom-bar cap.
+                        overflowModules = overflowModules,
+                        onOpenModule = ::navigateToTab,
                         // Sign-out (ADR-040): session dropped + local data wiped — land on the
                         // onboarding SIGN-IN step (language already chosen) with the whole
                         // back stack cleared so back cannot return to the signed-in UI.
@@ -470,4 +562,21 @@ private fun AppBarTitle(text: String) {
         overflow = TextOverflow.Ellipsis,
         autoSize = autoSize,
     )
+}
+
+/**
+ * Hilt entry point for the two share holders the shell hands payloads to (ADR-086):
+ * the unified intake (any files) and the expenses Create-invoice holder (ADR-078).
+ */
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+interface ShellEntryPoints {
+    fun shareIntakeHolder(): ShareIntakeHolder
+
+    fun invoiceShareHolder(): ShareTargetHolder
+
+    companion object {
+        fun of(context: android.content.Context): ShellEntryPoints =
+            EntryPointAccessors.fromApplication(context.applicationContext, ShellEntryPoints::class.java)
+    }
 }

@@ -5,7 +5,7 @@ package com.itsluminous.samaroh.applink
  *
  * Web paths are `/{locale}/section…` with locale `en|hi` — the locale segment is
  * stripped (the app keeps its own language preference) and the section maps onto the
- * four bottom tabs plus the two shell-registered extras (Settings, Reports). Unknown or
+ * module tabs plus the two shell-registered extras (Settings, Reports). Unknown or
  * root paths fall back to the Booking tab, mirroring the web app's home.
  */
 sealed interface AppLink {
@@ -33,6 +33,9 @@ sealed interface AppLink {
     /** Reports home (web `/menu/reports`), reached through the Menu tab. */
     data object Reports : AppLink
 
+    /** Files tab (web `/files`, ADR-085). */
+    data object Files : AppLink
+
     companion object {
         private val LOCALES = setOf("en", "hi")
 
@@ -56,6 +59,7 @@ sealed interface AppLink {
                 "booking" -> Booking
                 "expenses" -> Expenses(partyId = rest.firstOrNull())
                 "inventory" -> Inventory(masterlist = rest.firstOrNull()?.lowercase() == "masterlist")
+                "files" -> Files
                 "menu" ->
                     when (rest.firstOrNull()?.lowercase()) {
                         "reports" -> Reports

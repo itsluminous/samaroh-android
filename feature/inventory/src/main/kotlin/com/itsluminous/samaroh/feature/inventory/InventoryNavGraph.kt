@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.feature.inventory
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,15 +44,22 @@ private enum class InventoryScreen {
  * @param openMasterlist switches the toggle to the Masterlist screen (web App Link,
  *   ADR-033); consumed via [onMasterlistDeepLinkConsumed].
  * @param onMasterlistDeepLinkConsumed clears the pending masterlist target once handled.
+ * @param sharedPhotoUri share-sheet "Set as item photo" (ADR-086): opens the Masterlist,
+ *   asks which item, then the editor with the picture pre-staged; consumed via
+ *   [onSharedPhotoConsumed].
  */
 fun NavGraphBuilder.inventoryGraph(
     openMasterlist: Boolean = false,
     onMasterlistDeepLinkConsumed: () -> Unit = {},
+    sharedPhotoUri: Uri? = null,
+    onSharedPhotoConsumed: () -> Unit = {},
 ) {
     composable(INVENTORY_ROUTE) {
         InventoryHost(
-            openMasterlist = openMasterlist,
+            openMasterlist = openMasterlist || sharedPhotoUri != null,
             onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
+            sharedPhotoUri = sharedPhotoUri,
+            onSharedPhotoConsumed = onSharedPhotoConsumed,
         )
     }
 }
@@ -60,6 +68,8 @@ fun NavGraphBuilder.inventoryGraph(
 private fun InventoryHost(
     openMasterlist: Boolean,
     onMasterlistDeepLinkConsumed: () -> Unit,
+    sharedPhotoUri: Uri?,
+    onSharedPhotoConsumed: () -> Unit,
 ) {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = INVENTORY_HOME_ROUTE) {
@@ -68,6 +78,8 @@ private fun InventoryHost(
                 onOpenItem = { itemId -> navController.navigate(itemDetailRoute(itemId)) },
                 openMasterlist = openMasterlist,
                 onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
+                sharedPhotoUri = sharedPhotoUri,
+                onSharedPhotoConsumed = onSharedPhotoConsumed,
             )
         }
         composable(
@@ -84,6 +96,8 @@ private fun InventoryRoute(
     onOpenItem: (String) -> Unit,
     openMasterlist: Boolean,
     onMasterlistDeepLinkConsumed: () -> Unit,
+    sharedPhotoUri: Uri? = null,
+    onSharedPhotoConsumed: () -> Unit = {},
 ) {
     var screen by rememberSaveable { mutableStateOf(InventoryScreen.STOCK) }
     // App-Link masterlist target (ADR-033): flip the toggle once, then consume.
@@ -102,7 +116,11 @@ private fun InventoryRoute(
         InventoryScreen.MASTERLIST -> {
             // System back returns to the stock screen instead of leaving the tab.
             BackHandler { screen = InventoryScreen.STOCK }
-            MasterlistScreen(onOpenStock = { screen = InventoryScreen.STOCK })
+            MasterlistScreen(
+                onOpenStock = { screen = InventoryScreen.STOCK },
+                sharedPhotoUri = sharedPhotoUri,
+                onSharedPhotoConsumed = onSharedPhotoConsumed,
+            )
         }
     }
 }

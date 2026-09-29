@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
+import com.itsluminous.samaroh.core.model.MemberPermissions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +39,13 @@ data class ThemePrefs(
         const val THEME_DARK = "dark"
     }
 }
+
+/** What the share chooser needs to decide its rows (ADR-086). */
+data class ShareContext(
+    val hasBusiness: Boolean,
+    val isOwner: Boolean,
+    val permissions: MemberPermissions,
+)
 
 /** App-bar cloud icon state (§4.5): ✅ synced / 🔄 pending / ☁️⚠️ + count on errors. */
 data class SyncIndicator(
@@ -91,6 +99,29 @@ class MainViewModel
                             ) { permissions, isOwner ->
                                 NavPermissions.visibleTabRoutes(isOwner, permissions)
                             }
+                    }
+                }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        /**
+         * Share-chooser inputs (ADR-086): whether a business + session exist, the owner
+         * flag and the raw permissions — [com.itsluminous.samaroh.core.data.share.ShareRouting]
+         * turns them into rows. Signed-out/offline owner mode passes every gate.
+         */
+        @OptIn(ExperimentalCoroutinesApi::class)
+        val shareContext: StateFlow<ShareContext?> =
+            combine(
+                currentUserProvider.currentUserId,
+                activeBusinessProvider.activeBusiness,
+            ) { userId, business -> userId to business }
+                .flatMapLatest { (userId, business) ->
+                    when {
+                        business == null -> flowOf(ShareContext(hasBusiness = false, isOwner = true, permissions = MemberPermissions()))
+                        userId == null -> flowOf(ShareContext(hasBusiness = true, isOwner = true, permissions = MemberPermissions()))
+                        else ->
+                            combine(
+                                permissionGuard.permissions(business.id),
+                                permissionGuard.isOwner(business.id),
+                            ) { permissions, isOwner -> ShareContext(hasBusiness = true, isOwner = isOwner, permissions = permissions) }
                     }
                 }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 

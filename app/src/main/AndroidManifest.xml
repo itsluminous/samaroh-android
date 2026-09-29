@@ -49,21 +49,21 @@
             </intent-filter>
         </activity>
 
-        <!-- Create-invoice share target (ADR-078): sharing an image or PDF (a bill
-             photo, a downloaded invoice) to Samaroh starts an expense entry with the
-             file pre-attached. An alias so the share sheet shows its own localized
-             label while the singleTask MainActivity keeps handling warm deliveries
-             via onNewIntent. -->
+        <!-- Unified share target (ADR-086, replaces the ADR-078 Create-invoice alias):
+             sharing ANY file(s) to "Save to Samaroh" opens a chooser — Create invoice /
+             Set as item photo / Save to Files — rows permission-hidden. An alias so the
+             share sheet shows its own localized label while the singleTask MainActivity
+             keeps handling warm deliveries via onNewIntent. -->
         <activity-alias
-            android:name=".CreateInvoiceShareTarget"
+            android:name=".ShareTarget"
             android:exported="true"
-            android:label="@string/expenses_share_target_label"
+            android:label="@string/files_share_target_label"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="application/pdf" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity-alias>
 

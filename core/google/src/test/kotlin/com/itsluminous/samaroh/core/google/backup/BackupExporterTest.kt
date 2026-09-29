@@ -199,7 +199,14 @@ class BackupExporterTest {
         runTest {
             seed()
             db.folderDao().upsert(
-                FolderEntity(id = "f-1", businessId = businessId, name = "Contracts", createdBy = "user-1", createdAt = now, updatedAt = now),
+                FolderEntity(
+                    id = "f-1",
+                    businessId = businessId,
+                    name = "Contracts",
+                    createdBy = "user-1",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
             )
             db.fileDao().upsert(
                 FileEntity(

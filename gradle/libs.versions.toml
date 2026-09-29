@@ -17,6 +17,7 @@ work = "2.10.0"
 datastore = "1.1.1"
 coil = "2.7.0"
 material = "1.12.0"
+browser = "1.8.0"
 coreKtx = "1.15.0"
 splashscreen = "1.0.1"
 exifinterface = "1.4.1"
@@ -38,6 +39,7 @@ googleid = "1.1.1"
 playServicesAuth = "21.3.0"
 
 [libraries]
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }

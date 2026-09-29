@@ -361,6 +361,7 @@ abstract class SamarohDatabase : RoomDatabase() {
                     )
                 }
             }
+
         /**
          * v12 → v13 (ADR-085): FILES module tables mirroring shared migration
          * 009_files_tab.sql — `folders`, `files` (plus the two DEVICE-ONLY columns

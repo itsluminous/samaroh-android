@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,11 +68,16 @@ import kotlinx.coroutines.launch
 internal fun MasterItemEditorDialog(
     state: MasterItemEditorState,
     viewModel: MasterlistViewModel,
+    /** Share-sheet "Set as item photo" (ADR-086): a picture to pre-stage into the cropper on open. */
+    initialPhotoUri: Uri? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Picker result → decoded source bitmap → interactive square cropper → ViewModel.
     var cropSource by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(initialPhotoUri) {
+        if (initialPhotoUri != null) cropSource = loadCropSourceBitmap(context, initialPhotoUri)
+    }
     val pickImage =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
             if (uri != null) scope.launch { cropSource = loadCropSourceBitmap(context, uri) }

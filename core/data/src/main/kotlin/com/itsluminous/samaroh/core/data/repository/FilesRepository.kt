@@ -157,6 +157,7 @@ class RoomFilesRepository
             // Depth-first, CHILDREN FIRST (ADR-028 cascade order): a device that pulls
             // mid-cascade never sees a live child under a dead parent for long.
             val ordered = mutableListOf<FolderEntity>()
+
             fun visit(folder: FolderEntity) {
                 childrenOf[folder.id].orEmpty().forEach(::visit)
                 ordered += folder
@@ -230,7 +231,8 @@ fun FolderEntity.toModel() = Folder(id, businessId, parentId, name, restricted, 
 
 fun Folder.toEntity() = FolderEntity(id, businessId, parentId, name, restricted, createdBy, updatedBy, createdAt, updatedAt, deletedAt)
 
-fun FileEntity.toModel() = FileItem(id, businessId, folderId, name, mimeType, sizeBytes, driveFileId, createdBy, createdAt, updatedAt, deletedAt)
+fun FileEntity.toModel() =
+    FileItem(id, businessId, folderId, name, mimeType, sizeBytes, driveFileId, createdBy, createdAt, updatedAt, deletedAt)
 
 fun FileEntity.toLocalState() = FileWithLocalState(toModel(), localCachePath, drivePermissionEnsured)
 

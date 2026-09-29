@@ -34,6 +34,14 @@ sealed interface MenuSearchTarget {
 
     /** The sign-out flow (confirmation dialog on the Menu home). */
     data object SignOut : MenuSearchTarget
+
+    /**
+     * A module tab that overflowed the bottom bar into the Menu's "More" section
+     * (ADR-085 nav rule); [moduleId] is the module's route the app shell navigates to.
+     */
+    data class Module(
+        val moduleId: String,
+    ) : MenuSearchTarget
 }
 
 /**

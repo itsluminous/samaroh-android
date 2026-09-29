@@ -13,10 +13,10 @@ import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.applink.AppLink
+import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.feature.booking.reminders.EXTRA_BOOKING_ID
-import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
-import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetIntents
+import com.itsluminous.samaroh.share.ShareIntents
 import com.itsluminous.samaroh.ui.MainViewModel
 import com.itsluminous.samaroh.ui.SamarohApp
 import com.itsluminous.samaroh.ui.ThemePrefs
@@ -38,8 +38,8 @@ import javax.inject.Inject
 class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
 
-    /** Hands the Create-invoice shared file to the expenses flow (ADR-078). */
-    @Inject lateinit var shareTargetHolder: ShareTargetHolder
+    /** Parks the share-sheet payload for the unified chooser (ADR-086). */
+    @Inject lateinit var shareIntakeHolder: ShareIntakeHolder
 
     /** Booking id from the latest launch/new intent, cleared once the feature opened it. */
     private var pendingBookingId by mutableStateOf<String?>(null)
@@ -47,8 +47,8 @@ class MainActivity : AppCompatActivity() {
     /** Web App-Link destination from the latest VIEW intent, cleared once routed. */
     private var pendingAppLink by mutableStateOf<AppLink?>(null)
 
-    /** A file arrived via the Create-invoice share target (ADR-078), cleared once routed. */
-    private var pendingShareInvoice by mutableStateOf(false)
+    /** Files arrived via the Save to Samaroh share target (ADR-086), cleared once the chooser routed them. */
+    private var pendingShare by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // AndroidX splash (Theme.Samaroh.Splash): must be installed before
@@ -75,8 +75,8 @@ class MainActivity : AppCompatActivity() {
                     onBookingDeepLinkConsumed = { pendingBookingId = null },
                     pendingAppLink = pendingAppLink,
                     onAppLinkConsumed = { pendingAppLink = null },
-                    pendingShareInvoice = pendingShareInvoice,
-                    onShareInvoiceConsumed = { pendingShareInvoice = false },
+                    pendingShare = pendingShare,
+                    onShareConsumed = { pendingShare = false },
                 )
             }
         }
@@ -94,13 +94,14 @@ class MainActivity : AppCompatActivity() {
         intent?.data?.takeIf { intent.action == Intent.ACTION_VIEW }?.let { AppLink.parse(it.path) }
 
     /**
-     * Create-invoice share target (ADR-078): an `ACTION_SEND` image/PDF (cold start via
-     * [onCreate], warm via [onNewIntent] — `singleTask`) parks the file in the holder
-     * and raises the routing flag; the expenses graph shows the party picker.
+     * Save to Samaroh share target (ADR-086): `ACTION_SEND`/`ACTION_SEND_MULTIPLE` of any
+     * MIME (cold start via [onCreate], warm via [onNewIntent] — `singleTask`) parks the
+     * files in the holder and raises the flag; the shell shows the chooser.
      */
     private fun consumeShareTarget(intent: Intent?) {
-        val shared = ShareTargetIntents.parse(this, intent) ?: return
-        shareTargetHolder.set(shared)
-        pendingShareInvoice = true
+        val shared = ShareIntents.parse(this, intent)
+        if (shared.isEmpty()) return
+        shareIntakeHolder.set(shared)
+        pendingShare = true
     }
 }

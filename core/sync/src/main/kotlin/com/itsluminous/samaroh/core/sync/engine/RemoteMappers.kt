@@ -28,10 +28,10 @@ import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.Expense
+import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.FileItem
 import com.itsluminous.samaroh.core.model.Folder
 import com.itsluminous.samaroh.core.model.FolderAccess
-import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.MasterItem
@@ -226,7 +226,8 @@ internal fun NoteTagLink.toEntity() = NoteTagLinkEntity(noteId, tagId, businessI
 
 // FILES module (ADR-085).
 
-internal fun Folder.toEntity() = FolderEntity(id, businessId, parentId, name, restricted, createdBy, updatedBy, createdAt, updatedAt, deletedAt)
+internal fun Folder.toEntity() =
+    FolderEntity(id, businessId, parentId, name, restricted, createdBy, updatedBy, createdAt, updatedAt, deletedAt)
 
 /** `local_cache_path` / `drive_permission_ensured` are Room-only; the applier passes the preserved values. */
 internal fun FileItem.toEntity(

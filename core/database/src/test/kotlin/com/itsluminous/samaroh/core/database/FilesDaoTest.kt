@@ -66,7 +66,13 @@ class FilesDaoTest {
             assertThat(db.folderDao().liveSiblingNamed("biz", "f-2", "Contracts")).isNull()
             // A tombstoned twin never blocks re-creation (ADR-083 lesson).
             assertThat(db.folderDao().liveSiblingNamed("biz", null, "photos")).isNull()
-            assertThat(db.folderDao().foldersForBusiness("biz").first().map { it.id }).containsExactly("f-1", "f-2")
+            assertThat(
+                db
+                    .folderDao()
+                    .foldersForBusiness("biz")
+                    .first()
+                    .map { it.id },
+            ).containsExactly("f-1", "f-2")
         }
 
     @Test
@@ -80,6 +86,12 @@ class FilesDaoTest {
             assertThat(db.fileDao().pendingPermissionRepair(10).map { it.id }).containsExactly("pending")
             db.fileDao().markDrivePermissionEnsured("pending")
             assertThat(db.fileDao().pendingPermissionRepair(10)).isEmpty()
-            assertThat(db.fileDao().filesForBusiness("biz").first().map { it.id }).containsExactly("staged", "pending", "done")
+            assertThat(
+                db
+                    .fileDao()
+                    .filesForBusiness("biz")
+                    .first()
+                    .map { it.id },
+            ).containsExactly("staged", "pending", "done")
         }
 }

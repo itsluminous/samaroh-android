@@ -88,6 +88,12 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     lint {
         lintConfig = rootProject.file("lint.xml")
         abortOnError = true
@@ -130,6 +136,7 @@ dependencies {
     implementation(project(":core:invoice"))
     implementation(project(":feature:booking"))
     implementation(project(":feature:expenses"))
+    implementation(project(":feature:files"))
     implementation(project(":feature:inventory"))
     implementation(project(":feature:menu"))
     implementation(project(":feature:notes"))
@@ -164,6 +171,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
+    // Share-intent parsing needs a ContentResolver (ADR-086) — Robolectric like the feature modules.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core.ktx)
 
     // End-to-end instrumented suite (spec §11 W2-B): Compose UI tests + Hilt + intents.
     androidTestImplementation(platform(libs.compose.bom))

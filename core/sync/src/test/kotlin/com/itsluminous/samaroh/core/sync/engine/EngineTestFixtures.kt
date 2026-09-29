@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
-import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
+import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener

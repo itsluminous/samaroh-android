@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.feature.menu.ui.about.AboutScreen
 import com.itsluminous.samaroh.feature.menu.ui.home.MenuHomeScreen
+import com.itsluminous.samaroh.feature.menu.ui.home.MenuOverflowModule
 import com.itsluminous.samaroh.feature.menu.ui.members.MembersScreen
 import com.itsluminous.samaroh.feature.menu.ui.search.MenuScreenTarget
 import com.itsluminous.samaroh.feature.menu.ui.settings.BusinessProfileScreen
@@ -48,6 +49,8 @@ fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
  * @param onOpenReportDetail a Menu-search result picked a specific report (ADR-075):
  *   the argument is `feature:reports`' `ReportType.routeArg` wire value, which the app
  *   shell turns into a reports deep link (feature modules never depend on each other).
+ * @param overflowModules module tabs past the bottom bar's 4-module cap (ADR-085), listed
+ *   in a "More" section at the top of the Menu home; [onOpenModule] receives the route.
  */
 fun NavGraphBuilder.menuGraph(
     onOpenReports: () -> Unit = {},
@@ -55,6 +58,8 @@ fun NavGraphBuilder.menuGraph(
     onSettingsDeepLinkConsumed: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onOpenReportDetail: (String) -> Unit = {},
+    overflowModules: List<MenuOverflowModule> = emptyList(),
+    onOpenModule: (String) -> Unit = {},
 ) {
     composable(MENU_ROUTE) {
         MenuTabHost(
@@ -63,6 +68,8 @@ fun NavGraphBuilder.menuGraph(
             onSettingsDeepLinkConsumed = onSettingsDeepLinkConsumed,
             onSignedOut = onSignedOut,
             onOpenReportDetail = onOpenReportDetail,
+            overflowModules = overflowModules,
+            onOpenModule = onOpenModule,
         )
     }
 }
@@ -103,6 +110,8 @@ private fun MenuTabHost(
     onSettingsDeepLinkConsumed: () -> Unit,
     onSignedOut: () -> Unit,
     onOpenReportDetail: (String) -> Unit,
+    overflowModules: List<MenuOverflowModule>,
+    onOpenModule: (String) -> Unit,
 ) {
     val navController = rememberNavController()
     // App-Link settings target (ADR-033): push Settings over Home once, then consume.
@@ -122,6 +131,8 @@ private fun MenuTabHost(
                     if (reportArg == null) onOpenReports() else onOpenReportDetail(reportArg)
                 },
                 onSignedOut = onSignedOut,
+                overflowModules = overflowModules,
+                onOpenModule = onOpenModule,
             )
         }
         composable(MenuRoutes.SETTINGS) {
