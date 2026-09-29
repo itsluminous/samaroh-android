@@ -6,7 +6,9 @@ Instructions for AI agents (and humans) working in this repo. Read fully before 
 
 Samaroh is an offline-first, multilingual (en + hi) Material You Android app for small
 venue businesses: calendar-first **Booking**, party-ledger **Expenses**, photo-per-item
-**Inventory**, and a **Menu** tab (Settings/Reports/Members/About). Room is the source of
+**Inventory**, **Notes**, Drive-indexed **Files** (ADR-085), and a **Menu** tab
+(Settings/Reports/Members/About; modules past the 4-module bottom-bar cap overflow into
+its "More" section). Room is the source of
 truth; Supabase is the sync target (never read directly by UI); Google is used for
 Sign-In, Drive backups and Calendar sync.
 
@@ -27,6 +29,7 @@ Sign-In, Drive backups and Calendar sync.
 | `core:invoice` | PDF renderer + invoice numbering (layout per `shared/invoice/layout-spec.md`) | done |
 | `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done |
 | `feature:booking` | month calendar (crossfade cells), **events-view agenda** (windowed loading, ADR-029), booking card sheet, add/edit form, reminders/follow-ups, invoicing | done |
+| `feature:files` | Drive-indexed file storage (ADR-085): folder tree + breadcrumbs, global search, grid/list, upload staging via system picker (`FileUploadIntake`), viewer/Custom Tab open, owner access editor, `FilesSession` perm gate; share-chooser "Save to Files" landing (ADR-086) | done |
 | `feature:expenses` | party ledger, business/personal party flag (ADR-027), party edit/cascade delete (ADR-028), attachments, `ExpensesSession` perm gate | done |
 | `feature:inventory` | stock + masterlist, FIFO (ADR-012), item detail w/ txn history, `ui/MasterItemDialogs.kt` (shared add/edit/delete dialogs), `InventorySession` perm gate | done |
 | `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate) | done |
