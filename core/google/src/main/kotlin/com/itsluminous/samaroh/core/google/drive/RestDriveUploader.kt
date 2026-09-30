@@ -25,7 +25,8 @@ class RestDriveUploader
         private val linkDao: GoogleAccountLinkDao,
         private val sessionHolder: SessionHolder,
         private val clock: Clock,
-    ) : DriveUploader {
+    ) : DriveUploader,
+        DriveFolderResolver {
         private val mutex = Mutex()
 
         /** Folder-path → folder-id memo (cleared only with the process; ids are stable). */
@@ -41,14 +42,39 @@ class RestDriveUploader
             runCatching {
                 if (!GoogleServicesConfig.isConfigured) throw DriveNotAvailableException("google is not configured")
                 mutex.withLock {
-                    val rootId = ensureRootFolder()
-                    val parentId =
-                        DriveLayout.folderPathBelowRoot(businessName, target).fold(rootId) { parent, segment ->
-                            ensureFolder(segment, parent)
-                        }
+                    val parentId = resolveLocked(businessName, target, create = true)!!
                     driveService.uploadFile(fileName, mimeType, parentId, sourceFile)
                 }
             }
+
+        override suspend fun resolveFolderId(
+            businessName: String,
+            target: DriveTarget,
+            create: Boolean,
+        ): String? {
+            if (!GoogleServicesConfig.isConfigured) throw DriveNotAvailableException("google is not configured")
+            return mutex.withLock { resolveLocked(businessName, target, create) }
+        }
+
+        /** Walks the §9.1 chain below the root; find-or-create, or find-only (null on the first miss). */
+        private suspend fun resolveLocked(
+            businessName: String,
+            target: DriveTarget,
+            create: Boolean,
+        ): String? {
+            val rootId = ensureRootFolder()
+            var parent = rootId
+            for (segment in DriveLayout.folderPathBelowRoot(businessName, target)) {
+                parent = (if (create) ensureFolder(segment, parent) else findFolder(segment, parent)) ?: return null
+            }
+            return parent
+        }
+
+        private suspend fun findFolder(
+            name: String,
+            parentId: String,
+        ): String? =
+            folderIdCache["$parentId/$name"] ?: driveService.findFolder(name, parentId)?.also { folderIdCache["$parentId/$name"] = it }
 
         /** Finds/creates the `Samaroh` root and caches its id in `google_accounts` (§9.1). */
         private suspend fun ensureRootFolder(): String {

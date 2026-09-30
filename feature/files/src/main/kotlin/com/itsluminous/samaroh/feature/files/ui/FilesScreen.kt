@@ -1,13 +1,16 @@
 package com.itsluminous.samaroh.feature.files.ui
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
@@ -75,6 +79,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -91,8 +96,10 @@ import com.itsluminous.samaroh.feature.files.FilesEvent
 import com.itsluminous.samaroh.feature.files.FilesUiState
 import com.itsluminous.samaroh.feature.files.FilesViewModel
 import com.itsluminous.samaroh.feature.files.FolderRow
+import com.itsluminous.samaroh.feature.files.MoveTarget
 import com.itsluminous.samaroh.feature.files.SearchHit
 import com.itsluminous.samaroh.feature.files.domain.FilesTree
+import com.itsluminous.samaroh.feature.files.domain.MoveError
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.NumberFormat
@@ -134,6 +141,8 @@ fun FilesScreen(
     var sheetTarget by remember { mutableStateOf<SheetTarget?>(null) }
     var showNewFolder by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<Folder?>(null) }
+    var renameFileTarget by remember { mutableStateOf<FileRow?>(null) }
+    var moveTarget by remember { mutableStateOf<MoveTarget?>(null) }
     var deleteFolderTarget by remember { mutableStateOf<Folder?>(null) }
     var deleteFileTarget by remember { mutableStateOf<FileRow?>(null) }
     var showLinkPrompt by remember { mutableStateOf(false) }
@@ -184,6 +193,8 @@ fun FilesScreen(
             when (event) {
                 is FilesEvent.FolderCreated -> snackbarHostState.showSnackbar(texts.folderCreated)
                 FilesEvent.FolderRenamed -> snackbarHostState.showSnackbar(texts.folderRenamed)
+                FilesEvent.FileRenamed -> snackbarHostState.showSnackbar(texts.fileRenamed)
+                is FilesEvent.Moved -> snackbarHostState.showSnackbar(texts.moved(event.destinationName ?: texts.rootLabel))
                 FilesEvent.FolderDeleted -> snackbarHostState.showSnackbar(texts.folderDeleted)
                 FilesEvent.FileDeleted -> snackbarHostState.showSnackbar(texts.fileDeleted)
                 is FilesEvent.UploadStaged ->
@@ -198,6 +209,8 @@ fun FilesScreen(
                 is FilesEvent.UploadFailed -> snackbarHostState.showSnackbar(texts.uploadFailed(event.name))
                 is FilesEvent.OpenImage -> viewerImage = event.file to FileRow(event.row, null)
                 is FilesEvent.OpenUrl -> openCustomTab(context, event.url)
+                is FilesEvent.OpenWithApp ->
+                    if (!openWithExternalApp(context, event.file, event.mimeType)) snackbarHostState.showSnackbar(texts.noViewerApp)
                 is FilesEvent.CopyLink -> {
                     copyToClipboard(context, event.url)
                     snackbarHostState.showSnackbar(texts.linkCopied)
@@ -336,6 +349,10 @@ fun FilesScreen(
                             sheetTarget = null
                             renameTarget = folder
                         }
+                        SheetAction(Icons.Filled.DriveFileMove, R.string.files_action_move) {
+                            sheetTarget = null
+                            moveTarget = MoveTarget.ForFolder(folder)
+                        }
                     }
                     if (state.isOwner) {
                         SheetAction(Icons.Filled.ManageAccounts, R.string.files_action_manage_access) {
@@ -375,6 +392,17 @@ fun FilesScreen(
                         sheetTarget = null
                         viewModel.download(row)
                     }
+                    // Rename / Move: files.delete, or own upload with files.upload (ADR-090) — hidden otherwise.
+                    if (row.canRenameOrMove) {
+                        SheetAction(Icons.Filled.Edit, R.string.files_action_rename_file) {
+                            sheetTarget = null
+                            renameFileTarget = row
+                        }
+                        SheetAction(Icons.Filled.DriveFileMove, R.string.files_action_move) {
+                            sheetTarget = null
+                            moveTarget = MoveTarget.ForFile(row.row)
+                        }
+                    }
                     if (state.canDelete) {
                         SheetAction(Icons.Filled.Delete, R.string.files_action_delete_file) {
                             sheetTarget = null
@@ -410,6 +438,34 @@ fun FilesScreen(
                 viewModel.renameFolder(folder, it)
             },
             onDismiss = { renameTarget = null },
+        )
+    }
+    renameFileTarget?.let { row ->
+        FileNameDialog(
+            initialName = row.file.name,
+            validate = viewModel::validateFileName,
+            onConfirm = {
+                renameFileTarget = null
+                viewModel.renameFile(row.row, it)
+            },
+            onDismiss = { renameFileTarget = null },
+        )
+    }
+    moveTarget?.let { target ->
+        FolderPickerDialog(
+            folders = state.allFolders,
+            onPick = { destination ->
+                moveTarget = null
+                viewModel.move(target, destination)
+            },
+            onDismiss = { moveTarget = null },
+            titleRes = R.string.files_move_title,
+            confirmRes = R.string.files_move_confirm,
+            initialSelection = target.currentParentId,
+            selectionError = { destination -> viewModel.validateMove(target, destination)?.let { moveErrorText(it) } },
+            canCreateFolder = state.canManageFolders,
+            validateNewFolderName = { name, parentId -> viewModel.validateFolderName(name, parentId = parentId) },
+            onCreateFolder = { name, parentId -> viewModel.createFolder(name, parentId) },
         )
     }
     deleteFolderTarget?.let { folder ->
@@ -803,6 +859,9 @@ internal fun sizeLabel(sizeBytes: Long): String {
 private class FilesTexts(
     val folderCreated: String,
     val folderRenamed: String,
+    val fileRenamed: String,
+    val rootLabel: String,
+    val noViewerApp: String,
     val folderDeleted: String,
     val fileDeleted: String,
     val pendingUnlinked: String,
@@ -816,6 +875,7 @@ private class FilesTexts(
     val tooMany: (Int) -> String,
     val uploadFailed: (String) -> String,
     val sharedSaved: (Int) -> String,
+    val moved: (String) -> String,
 )
 
 @Composable
@@ -824,6 +884,9 @@ private fun rememberFilesTexts(): FilesTexts {
     return FilesTexts(
         folderCreated = stringResource(R.string.files_folder_created),
         folderRenamed = stringResource(R.string.files_folder_renamed),
+        fileRenamed = stringResource(R.string.files_file_renamed),
+        rootLabel = stringResource(R.string.files_home_root_label),
+        noViewerApp = stringResource(R.string.files_file_no_viewer_app),
         folderDeleted = stringResource(R.string.files_folder_deleted),
         fileDeleted = stringResource(R.string.files_file_deleted),
         pendingUnlinked = stringResource(R.string.files_upload_pending_unlinked),
@@ -837,14 +900,81 @@ private fun rememberFilesTexts(): FilesTexts {
         tooMany = { max -> resources.getString(R.string.files_upload_too_many, max.toString()) },
         uploadFailed = { name -> resources.getString(R.string.files_upload_failed, name) },
         sharedSaved = { n -> resources.getQuantityString(R.plurals.files_share_target_saved, n, n) },
+        moved = { folder -> resources.getString(R.string.files_move_done, folder) },
     )
 }
 
-private fun openCustomTab(
+@Composable
+private fun moveErrorText(error: MoveError): String =
+    stringResource(
+        when (error) {
+            MoveError.SAME_LOCATION -> R.string.files_move_same_folder
+            MoveError.INTO_SELF -> R.string.files_move_into_self
+            MoveError.TOO_DEEP -> R.string.files_move_too_deep
+            MoveError.DUPLICATE -> R.string.files_folder_duplicate
+        },
+    )
+
+/**
+ * Opens [url] in a Custom Tab PINNED to a browser package (ADR-090). An unpinned
+ * `CustomTabsIntent` is an implicit `VIEW` that Android hands to the verified App Link
+ * owner of `drive.google.com` — the Google Drive app — which then demands an account on
+ * every open. `CustomTabsClient.getPackageName` needs the `<queries>` entry in this
+ * module's manifest on API 30+.
+ */
+internal fun openCustomTab(
     context: Context,
     url: String,
 ) {
-    runCatching { CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url)) }
+    runCatching {
+        val tab = CustomTabsIntent.Builder().build()
+        browserPackage(context)?.let { tab.intent.setPackage(it) }
+        tab.launchUrl(context, Uri.parse(url))
+    }
+}
+
+/** A Custom-Tabs-capable browser, else the default browser for a generic http URL; null when neither resolves. */
+internal fun browserPackage(context: Context): String? {
+    CustomTabsClient.getPackageName(context, null)?.let { return it }
+    val probe = Intent(Intent.ACTION_VIEW, Uri.parse(GENERIC_HTTP_URL)).addCategory(Intent.CATEGORY_BROWSABLE)
+    return probe.resolveActivity(context.packageManager)?.packageName
+}
+
+/**
+ * Hands a NON-image file's LOCAL bytes to the system via this module's `FileProvider` +
+ * `ACTION_VIEW` chooser with the row's MIME — the expense-bill mechanism (ADR-052),
+ * design D16 revised. Returns false when no installed app can display the type.
+ */
+internal fun openWithExternalApp(
+    context: Context,
+    file: File,
+    mimeType: String,
+): Boolean {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}$FILE_PROVIDER_SUFFIX", file)
+    return launchViewer(context, viewIntent(uri, mimeType))
+}
+
+/** `ACTION_VIEW` on a content uri with an explicit MIME and a read grant (never a bare URL). */
+internal fun viewIntent(
+    uri: Uri,
+    mimeType: String,
+): Intent =
+    Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, mimeType)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+/** Fires [intent] through the system chooser; false when nothing resolves (the manifest `<queries>` makes the check honest on API 30+). */
+internal fun launchViewer(
+    context: Context,
+    intent: Intent,
+): Boolean {
+    if (intent.resolveActivity(context.packageManager) == null) return false
+    return try {
+        context.startActivity(Intent.createChooser(intent, null))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
 }
 
 private fun copyToClipboard(
@@ -858,3 +988,5 @@ private fun copyToClipboard(
 private const val ANY_MIME = "*/*"
 private const val THUMB_PX = 320
 private const val CLIP_LABEL = "samaroh-file-link"
+private const val FILE_PROVIDER_SUFFIX = ".files.fileprovider"
+private const val GENERIC_HTTP_URL = "https://example.com"

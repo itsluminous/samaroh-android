@@ -3581,3 +3581,123 @@ web `outbox-signed-out.test.ts`, `session-lost-banner.test.tsx`. The owner only 
 sign in again on the phone (0.18.1) — no data was lost: every change is still in the
 local outbox and pushes on sign-in. Recommended owner check: Supabase Dashboard → Auth →
 Sessions ("single session per user", time-box/inactivity settings); nothing to rotate.
+
+## ADR-090 — Files feedback batch: rename & move (shared migration 010), lazy folder picker, wide chooser dialogs, open-file routing fix (2026-09-30)
+
+**Status:** accepted (owner feedback on the 0.18 Files drop; web track implements the same
+items in parallel from the revised design doc). Additive extensions of the FROZEN
+contracts: `FilesRepository.updateFile`, `core:data` `FilesDriveMirror` seam,
+`DriveService.fileParents`/`updateFile`, `core:google` `DriveFolderResolver`;
+cross-feature component `WideDialog` in `core:designsystem`. Shared:
+`supabase/migrations/010_files_rename_move.sql`, design doc D14/D16/D17/§6/§7 revised,
+15 new `files.*` keys (en + hi).
+
+**Context.** Six owner items: (1) rename files and folders; (2) folder pickers showed the
+whole tree flat instead of a lazy root-first tree; (3)/(4) the folder picker and the
+share-sheet chooser were too narrow with title-sized text; (5) opening an uploaded
+non-image file asked for a Google account EVERY time; (6) move files/folders to another
+folder. Design D14 had pinned `folder_id`/`parent_id` immutable server-side and left file
+rename out of v1, so (1) and (6) needed a contract revision, not just UI.
+
+**Root cause of (5).** ADR-085 opened non-image files with
+`CustomTabsIntent.launchUrl(context, "https://drive.google.com/file/d/{id}/view")`. An
+unpinned `CustomTabsIntent` is an implicit `ACTION_VIEW` on that URL; Android hands it to
+the VERIFIED App Link owner of `drive.google.com` — the Google Drive app — instead of a
+browser. Drive then runs its own account picker because the file is anyone-with-link in
+ANOTHER account's Drive (or the phone's Drive app is signed into a different account than
+the one Samaroh linked via Credential Manager), so every tap produced the chooser.
+Expense bills never had the problem because they resolve the BYTES (`AttachmentContentResolver`
+ladder) and fire `ACTION_VIEW` on a `FileProvider` content uri with the MIME (ADR-052).
+
+**Decision.**
+
+1. **Gating (mirrors the server, byte-for-byte).**
+   - **File rename / move**: `files.delete` OR (`files.upload` ∧ `created_by = me`) —
+     exactly the 009 `files_update` policy, so nothing the UI offers can be rejected by
+     RLS later (a looser "any `files.upload`" gate would have let Staff rename another
+     member's file locally and then 403 forever in the outbox). Owners pass via
+     `canDelete`; the signed-out/offline default (every gate true) passes. Pure
+     `FileActionGates.canRenameOrMoveFile`, evaluated per row (`FileRow.canRenameOrMove`,
+     needs `FilesSession.userIdFlow`).
+   - **Folder rename / move**: effective `files.manage_folders` (inherits `upload`, D5) —
+     moving is restructuring the hierarchy, the same permission as create/rename.
+   - Every action is permission-HIDDEN in the long-press sheet (ADR-038).
+2. **Server (shared 010).** `guard_folders_update` / `guard_files_update` replaced:
+   `parent_id` and `folder_id` are mutable via UPDATE. Folders: cycle guard for EVERYONE
+   (destination = self or a live descendant → exception), non-owners additionally need
+   `manage_folders` and `can_access_folder(destination)` (RLS `WITH CHECK` cannot see the
+   not-yet-written row's new chain, so the guard checks it explicitly). Files: `name` and
+   `folder_id` may change for whoever passed `files_update`; the policy's `WITH CHECK`
+   already requires access to the destination folder. Identity columns and
+   `drive_file_id`/`mime_type`/`size_bytes` stay immutable. Validated on scratch
+   Postgres 15: 001→010 + seed replay, 18 RLS probes (owner/staff/viewer × rename, move,
+   cycle, restricted destination, `manage_folders=false`, inherited `manage_folders`,
+   23505 duplicate on move). **Owner must apply 010** (idempotent `create or replace`);
+   until then a pushed MOVE is rejected with the 009 immutability error and stays in the
+   outbox as a per-item error — renames already work on 009.
+3. **Metadata via the outbox.** Folder rename/move = `saveFolder(copy(name/parentId,
+   updatedBy, updatedAt))` (whole-row upsert, `created_at` stripped per ADR-085 §4). File
+   rename/move = new `FilesRepository.updateFile` (whole-row upsert preserving the
+   device-only columns + one outbox op; no-op for an unknown row).
+4. **Client validation (`FilesTree`, unit-tested).** File name 1–255 chars, no `/`,
+   duplicates allowed (D12). Move: `SAME_LOCATION`, `INTO_SELF` (self or descendant),
+   `TOO_DEEP` (destination depth + moved subtree height > 10), `DUPLICATE` (live
+   case-insensitive sibling folder name). The move picker shows the error inline and
+   disables Move; `FilesViewModel.move` refuses silently as a second guard.
+5. **Drive mirror, best-effort (D14).** `FilesDriveMirror` (`core:data`) bound to
+   `DriveFilesMirror` (`core:google`): linked account only, never throws, 403/404 logged
+   at info and swallowed — the ADR-053/084/D10 delete posture. File rename → `files.update
+   name`; file move → destination chain find-or-create (`DriveFolderResolver`, the
+   `RestDriveUploader` memo) + `addParents`/`removeParents` from `files.get?fields=parents`;
+   folder rename/move locate the mirror folder FIND-ONLY by its OLD name chain (a folder
+   nobody uploaded into has no mirror → no-op). Paths are root-first folder NAMES below
+   `files/`, computed from the in-memory index BEFORE the metadata write. The index stays
+   authoritative; hand edits in Drive are never reconciled.
+6. **Lazy folder picker (one component for share destination AND move).**
+   `FolderPickerDialog` renders `FilesTree.pickerRows(folders, expanded)`: `All files`
+   (selectable) + ROOT folders only; rows with children carry an expand/collapse chevron
+   (`ExplainableIcon`, labels `files.picker.expand`/`collapse` with the folder name);
+   children indent one level per depth, A–Z per level; the preselected destination's
+   ancestors start expanded (`FilesTree.ancestorIds`); New folder (ADR-087) auto-expands
+   the parent and selects the child. Parameters `titleRes`/`confirmRes`/`initialSelection`/
+   `selectionError` make the move variant (`files.move.title`/`confirm`, current location
+   preselected, inline error) the same dialog.
+7. **Wide dialogs.** New `core:designsystem` `WideDialog`: `Dialog(usePlatformDefaultWidth
+   = false)` + Material surface at 92 % width (≤ 560 dp), `titleLarge` heading, body capped
+   at 60 % screen height, actions row. The folder picker and the share chooser
+   (`ShareChooserDialog`) use it with compact `bodyLarge`/`bodyMedium` rows instead of
+   `ListItem` inside a platform-width `AlertDialog`. `ExplainableIcon` gains a
+   pre-resolved-`String` overload for labels with a placeholder.
+8. **Open-file routing (D16 revised).** Non-image tap → `FileContentResolver.resolve`
+   (staged original → `files-cache/` via the ADR-059 own-token→public ladder) →
+   `FilesEvent.OpenWithApp(file, mime)` → `FilesFileProvider` (`${applicationId}.files.
+   fileprovider`, paths `files-cache/` + `files-staging/`) + `ACTION_VIEW` chooser with the
+   MIME and a read grant — identical to bills. No resolvable viewer →
+   `files.file.no_viewer_app`. "Open in Google Drive" (explicit action) keeps the Drive
+   viewer URL but the Custom Tab is now PINNED to a browser (`CustomTabsClient.
+   getPackageName`, fallback the default `https` handler; `<queries>` for the Custom Tabs
+   service, `VIEW */*` and `VIEW https BROWSABLE` added to the module manifest). Images
+   are unchanged (in-app viewer).
+
+**Verification.** Gate green (1327 unit tests: new `FilesTreeMoveTest`, `FileActionGatesTest`,
+`FileOpenRoutingTest`, `DriveFilesMirrorTest`, `RoomFilesRepositoryTest.updateFile`, 8 new
+`FilesViewModelTest` cases — rename/move events + mirror paths, cycle refusal, per-row gate
+matrix Staff/Manager/Viewer/Owner, open routing image→viewer / pdf→`OpenWithApp` /
+Open-in-Drive→url). Emulator (Android_16_AOSP_Medium, debug build, offline owner mode,
+test data `TEST-AGENT…` — local only, never synced): folder tree, staged pdf/png/txt via
+the in-app picker; tapping the txt fired `ACTION_VIEW dat=content://….files.fileprovider/…
+typ=text/plain cmp=com.android.htmlviewer` (logcat) — no Drive URL; the pdf reported
+`files.file.no_viewer_app` (AOSP has no PDF viewer); rename file (prefilled dialog,
+snackbar), move file 2026 → Q4 via the lazy picker (chevrons, pre-expanded path,
+"already in this folder" inline, `Moved to Q4`), move folder with the cycle message live,
+share chooser + share picker (wide, roots only, expand → child selected), Hindi strings.
+NOT verified live: the Drive `files.update` calls (no Google account on the AOSP
+emulator) — covered by `DriveFilesMirrorTest`; the server 010 guards — covered by the
+scratch-Postgres probes.
+
+**Consequences.** Shared keys added: `files.action.rename_file`, `files.action.move`,
+`files.file.{name_label,name_required,name_invalid,renamed,no_viewer_app}`,
+`files.move.{title,confirm,done,same_folder,into_self,too_deep}`,
+`files.picker.{expand,collapse}`. Design doc D14 (rename/move in), D16 (bytes via
+FileProvider, never an implicit Drive VIEW), D17 (Rename/Move rows), §6/§7 (lazy picker)
+revised in place. Web must gate identically (D14) and add the same picker shape.

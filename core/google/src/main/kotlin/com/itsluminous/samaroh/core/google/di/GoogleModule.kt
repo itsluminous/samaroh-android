@@ -5,6 +5,7 @@ import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
 import com.itsluminous.samaroh.core.data.sync.FilesDriveDeleter
+import com.itsluminous.samaroh.core.data.sync.FilesDriveMirror
 import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.LocalMutationListener
@@ -23,7 +24,9 @@ import com.itsluminous.samaroh.core.google.drive.DriveAttachmentPermissionRepair
 import com.itsluminous.samaroh.core.google.drive.DriveAttachmentUploader
 import com.itsluminous.samaroh.core.google.drive.DriveBackedAttachmentUploadQueue
 import com.itsluminous.samaroh.core.google.drive.DriveFilesDeleter
+import com.itsluminous.samaroh.core.google.drive.DriveFilesMirror
 import com.itsluminous.samaroh.core.google.drive.DriveFilesUploader
+import com.itsluminous.samaroh.core.google.drive.DriveFolderResolver
 import com.itsluminous.samaroh.core.google.drive.DriveItemImageMirror
 import com.itsluminous.samaroh.core.google.drive.DriveService
 import com.itsluminous.samaroh.core.google.drive.DriveUploader
@@ -55,6 +58,11 @@ abstract class GoogleModule {
     @Binds abstract fun bindFilesUploader(impl: DriveFilesUploader): FilesUploader
 
     @Binds abstract fun bindFilesDriveDeleter(impl: DriveFilesDeleter): FilesDriveDeleter
+
+    /** Best-effort Drive rename/move mirror + the folder-chain resolver behind it (ADR-090). */
+    @Binds abstract fun bindFilesDriveMirror(impl: DriveFilesMirror): FilesDriveMirror
+
+    @Binds abstract fun bindDriveFolderResolver(impl: RestDriveUploader): DriveFolderResolver
 
     /** Supersedes `core:data`'s local-only placeholder queue (ADR-018). */
     @Binds abstract fun bindAttachmentUploadQueue(impl: DriveBackedAttachmentUploadQueue): AttachmentUploadQueue

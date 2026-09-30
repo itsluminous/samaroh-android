@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Files-module device copies: Drive downloads (files-cache/) and not-yet-uploaded
+     staged originals (files-staging/) — both under filesDir. -->
+<paths>
+    <files-path
+        name="files_cache"
+        path="files-cache/" />
+    <files-path
+        name="files_staging"
+        path="files-staging/" />
+</paths>

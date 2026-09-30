@@ -94,6 +94,34 @@ class RoomFilesRepositoryTest {
         }
 
     @Test
+    fun `updateFile renames or moves the row, keeps the device-only columns and enqueues one upsert`() =
+        runTest {
+            repository.stageFile(file("file-1", "folder-a").copy(driveFileId = "d-1"), "/c/file-1")
+            outbox.records.clear()
+
+            val moved = repository.file("file-1")!!.file.copy(name = "renamed.jpg", folderId = "folder-b", updatedAt = now.plusSeconds(5))
+            repository.updateFile(moved)
+
+            val stored = repository.file("file-1")!!
+            assertThat(stored.file.name).isEqualTo("renamed.jpg")
+            assertThat(stored.file.folderId).isEqualTo("folder-b")
+            assertThat(stored.file.driveFileId).isEqualTo("d-1")
+            assertThat(stored.localCachePath).isEqualTo("/c/file-1")
+            val record = outbox.records.single()
+            assertThat(record.entityType).isEqualTo("files")
+            assertThat(record.entityId).isEqualTo("file-1")
+            assertThat(record.operation).isEqualTo(OutboxOperation.UPSERT)
+            val payload = Json.parseToJsonElement(record.payloadJson).jsonObject
+            assertThat(payload.getValue("folder_id").jsonPrimitive.content).isEqualTo("folder-b")
+            assertThat(payload.getValue("name").jsonPrimitive.content).isEqualTo("renamed.jpg")
+
+            // Unknown row: nothing written, nothing enqueued.
+            outbox.records.clear()
+            repository.updateFile(moved.copy(id = "ghost"))
+            assertThat(outbox.records).isEmpty()
+        }
+
+    @Test
     fun `deleteFile tombstones as an upsert with deleted_at and bumps updated_at`() =
         runTest {
             repository.stageFile(file("file-1", null).copy(driveFileId = "d-1"), "/c/file-1")

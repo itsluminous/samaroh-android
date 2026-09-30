@@ -254,4 +254,13 @@ private class ScriptedDriveService : DriveService {
     ) = Unit
 
     override suspend fun deleteFile(fileId: String) = Unit
+
+    override suspend fun fileParents(fileId: String): List<String> = emptyList()
+
+    override suspend fun updateFile(
+        fileId: String,
+        name: String?,
+        addParentId: String?,
+        removeParentIds: List<String>,
+    ) = Unit
 }

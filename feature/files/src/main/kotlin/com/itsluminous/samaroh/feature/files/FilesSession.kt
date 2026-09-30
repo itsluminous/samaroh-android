@@ -32,6 +32,12 @@ class FilesSession
 
         suspend fun businessId(): String? = businessIdFlow.first()
 
+        /** Display name of the active business — the Drive mirror's `Samaroh/{Business}/files/…` segment. */
+        suspend fun businessName(): String? = activeBusinessProvider.activeBusiness.first()?.name
+
+        /** Signed-in user id (null while signed out) — drives the "own upload" half of the file rename/move gate (ADR-090). */
+        val userIdFlow: Flow<String?> = currentUserProvider.currentUserId
+
         /** The acting user id for `created_by`/`updated_by`; owner fallback while signed out. */
         suspend fun userId(): String? =
             currentUserProvider.currentUserId.first()

@@ -33,6 +33,20 @@ interface DriveUploader {
     ): Result<DriveFileRef>
 }
 
+/**
+ * Resolves the Drive folder id behind a [DriveTarget] (ADR-090): the `Samaroh/{business}/…`
+ * chain, find-or-create when [create] is true, find-only otherwise (null when any segment
+ * is missing). Shares the id memo with [DriveUploader]; the Files rename/move mirror
+ * uses it to locate source folders and to build destination chains.
+ */
+interface DriveFolderResolver {
+    suspend fun resolveFolderId(
+        businessName: String,
+        target: DriveTarget,
+        create: Boolean,
+    ): String?
+}
+
 /** Raised when an upload cannot even start because no usable Google account is available. */
 class DriveNotAvailableException(
     reason: String,

@@ -267,6 +267,15 @@ class FakeDriveService : com.itsluminous.samaroh.core.google.drive.DriveService 
         deletedFileIds += fileId
     }
 
+    override suspend fun fileParents(fileId: String): List<String> = emptyList()
+
+    override suspend fun updateFile(
+        fileId: String,
+        name: String?,
+        addParentId: String?,
+        removeParentIds: List<String>,
+    ) = Unit
+
     var publicDownloadBytes: ByteArray = "public-drive-bytes".toByteArray()
 
     /** When set, [downloadPublicFile] throws it (not link-shared / offline paths, ADR-059). */

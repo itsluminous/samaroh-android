@@ -12,12 +12,15 @@ import com.itsluminous.samaroh.core.data.share.SharedFile
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.google.drive.DriveFileFetcher
 import com.itsluminous.samaroh.core.model.BusinessMember
+import com.itsluminous.samaroh.core.model.FileItem
 import com.itsluminous.samaroh.core.model.FilesPermissions
 import com.itsluminous.samaroh.core.model.MemberPermissions
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
+import com.itsluminous.samaroh.feature.files.domain.FileNameError
 import com.itsluminous.samaroh.feature.files.domain.FolderNameError
+import com.itsluminous.samaroh.feature.files.domain.MoveError
 import com.itsluminous.samaroh.feature.files.open.FileContentResolver
 import com.itsluminous.samaroh.feature.files.upload.FileUploadIntake
 import kotlinx.coroutines.flow.first
@@ -48,6 +51,7 @@ class FilesViewModelTest {
     private lateinit var members: FakeMemberRepository
     private lateinit var scheduler: RecordingSyncScheduler
     private lateinit var deleter: RecordingDriveDeleter
+    private lateinit var mirror: RecordingDriveMirror
     private lateinit var linker: FakeGoogleAccountLinker
     private lateinit var shareHolder: ShareIntakeHolder
     private var dataStoreIndex = 0
@@ -59,6 +63,7 @@ class FilesViewModelTest {
         members = FakeMemberRepository()
         scheduler = RecordingSyncScheduler()
         deleter = RecordingDriveDeleter()
+        mirror = RecordingDriveMirror()
         linker = FakeGoogleAccountLinker(GoogleLinkState.Linked("o@example.com", emptyList()))
         shareHolder = ShareIntakeHolder()
     }
@@ -76,6 +81,7 @@ class FilesViewModelTest {
             uploadIntake = FileUploadIntake(context, repository, scheduler, clock),
             contentResolver = FileContentResolver(context, DriveFileFetcher(FakeDriveService(), linker), repository),
             driveDeleter = deleter,
+            driveMirror = mirror,
             googleAccountLinker = linker,
             viewPreferences = prefs,
             shareIntakeHolder = shareHolder,
@@ -476,5 +482,196 @@ class FilesViewModelTest {
             vm.onQueryChange("")
             vm.openFolder("child")
             assertThat(vm.uiState.first { it.folderId == "child" }.folderMissing).isTrue()
+        }
+
+    // ------------------------------------------------------------------ ADR-090: rename / move / open
+
+    @Test
+    fun `renaming a file updates the row through the repository, mirrors to Drive and reports`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            val row = repository.filesFlow.value.single { it.file.id == "f-root" }
+            assertThat(vm.validateFileName("a/b")).isEqualTo(FileNameError.INVALID)
+            vm.events.test {
+                vm.renameFile(row, "  lease-2026.pdf ")
+                assertThat(awaitItem()).isEqualTo(FilesEvent.FileRenamed)
+                cancelAndIgnoreRemainingEvents()
+            }
+            val renamed =
+                repository.filesFlow.value
+                    .single { it.file.id == "f-root" }
+                    .file
+            assertThat(renamed.name).isEqualTo("lease-2026.pdf")
+            assertThat(renamed.folderId).isEqualTo("root")
+            assertThat(renamed.driveFileId).isEqualTo("drive-f-root")
+            assertThat(mirror.calls).containsExactly("renameFile:drive-f-root:lease-2026.pdf")
+
+            // Invalid or unchanged names are refused without touching anything.
+            vm.renameFile(repository.filesFlow.value.single { it.file.id == "f-root" }, "lease-2026.pdf")
+            vm.renameFile(repository.filesFlow.value.single { it.file.id == "f-root" }, "")
+            assertThat(mirror.calls).hasSize(1)
+        }
+
+    @Test
+    fun `renaming a staged (not yet uploaded) file skips the Drive mirror`() =
+        runTest {
+            seedTree()
+            repository.filesFlow.value =
+                repository.filesFlow.value + fileFixture("staged", name = "draft.txt", mimeType = "text/plain", driveFileId = null)
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            vm.renameFile(repository.filesFlow.value.single { it.file.id == "staged" }, "final.txt")
+            assertThat(
+                repository.filesFlow.value
+                    .single { it.file.id == "staged" }
+                    .file.name,
+            ).isEqualTo("final.txt")
+            assertThat(mirror.calls).isEmpty()
+        }
+
+    @Test
+    fun `moving a file changes its folder, mirrors the new path and names the destination`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            val row = repository.filesFlow.value.single { it.file.id == "f-top" }
+            val target = MoveTarget.ForFile(row)
+            assertThat(target.currentParentId).isNull()
+            assertThat(vm.validateMove(target, null)).isEqualTo(MoveError.SAME_LOCATION)
+            assertThat(vm.validateMove(target, "child")).isNull()
+            vm.events.test {
+                vm.move(target, "child")
+                assertThat(awaitItem()).isEqualTo(FilesEvent.Moved("2026"))
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(
+                repository.filesFlow.value
+                    .single { it.file.id == "f-top" }
+                    .file.folderId,
+            ).isEqualTo("child")
+            assertThat(mirror.calls).containsExactly("moveFile:drive-f-top:fixture-business:Contracts/2026")
+        }
+
+    @Test
+    fun `moving a folder re-parents it, mirrors old path to new parent path, and refuses cycles`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            val root = repository.foldersFlow.value.single { it.id == "root" }
+            val child = repository.foldersFlow.value.single { it.id == "child" }
+            // Cycle: Contracts into its own child — validation says so and move() is a no-op.
+            assertThat(vm.validateMove(MoveTarget.ForFolder(root), "child")).isEqualTo(MoveError.INTO_SELF)
+            vm.move(MoveTarget.ForFolder(root), "child")
+            assertThat(
+                repository.foldersFlow.value
+                    .single { it.id == "root" }
+                    .parentId,
+            ).isNull()
+            assertThat(mirror.calls).isEmpty()
+
+            // Legit: 2026 out of Contracts into Photos.
+            assertThat(MoveTarget.ForFolder(child).currentParentId).isEqualTo("root")
+            vm.events.test {
+                vm.move(MoveTarget.ForFolder(child), "sib")
+                assertThat(awaitItem()).isEqualTo(FilesEvent.Moved("Photos"))
+                cancelAndIgnoreRemainingEvents()
+            }
+            val moved = repository.foldersFlow.value.single { it.id == "child" }
+            assertThat(moved.parentId).isEqualTo("sib")
+            assertThat(moved.updatedBy).isEqualTo(Fixtures.USER_ID)
+            assertThat(mirror.calls).containsExactly("moveFolder:fixture-business:Contracts/2026:Photos")
+
+            // To the top level: destination name is null (the screen renders the root label).
+            vm.uiState.first { it.allFolders.single { f -> f.id == "child" }.parentId == "sib" }
+            vm.events.test {
+                vm.move(MoveTarget.ForFolder(repository.foldersFlow.value.single { it.id == "child" }), null)
+                assertThat(awaitItem()).isEqualTo(FilesEvent.Moved(null))
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(mirror.calls.last()).isEqualTo("moveFolder:fixture-business:Photos/2026:")
+        }
+
+    @Test
+    fun `renaming a folder mirrors the old path and the new name to Drive`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            vm.uiState.first { !it.loading }
+            vm.events.test {
+                vm.renameFolder(repository.foldersFlow.value.single { it.id == "child" }, "2027")
+                assertThat(awaitItem()).isEqualTo(FilesEvent.FolderRenamed)
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(mirror.calls).containsExactly("renameFolder:fixture-business:Contracts/2026:2027")
+        }
+
+    @Test
+    fun `file rename-move gate is per row - delete holders any file, uploaders only their own`() =
+        runTest {
+            seedTree()
+            repository.filesFlow.value =
+                repository.filesFlow.value +
+                fileFixture("f-mine", name = "mine.pdf", mimeType = "application/pdf", createdBy = "user-staff")
+
+            fun gates(state: FilesUiState) = state.files.associate { it.file.name to it.canRenameOrMove }
+
+            val staff = fakeFilesSession(userId = "user-staff", isOwner = false, permissions = MemberPermissions.staff())
+            val staffState = viewModel(staff).uiState.first { !it.loading }
+            assertThat(staffState.userId).isEqualTo("user-staff")
+            assertThat(gates(staffState)).containsExactly("logo.png", false, "mine.pdf", true)
+
+            val manager =
+                fakeFilesSession(
+                    userId = "user-staff",
+                    isOwner = false,
+                    permissions = MemberPermissions(files = FilesPermissions(view = true, delete = true)),
+                )
+            assertThat(gates(viewModel(manager).uiState.first { !it.loading })).containsExactly("logo.png", true, "mine.pdf", true)
+
+            val viewer =
+                fakeFilesSession(
+                    userId = "user-staff",
+                    isOwner = false,
+                    permissions = MemberPermissions(files = FilesPermissions(view = true)),
+                )
+            assertThat(gates(viewModel(viewer).uiState.first { !it.loading }).values).containsExactly(false, false)
+
+            // Owner passes everything.
+            assertThat(gates(viewModel().uiState.first { !it.loading }).values).containsExactly(true, true)
+        }
+
+    @Test
+    fun `open routes images to the in-app viewer and everything else to the system via local bytes - never a Drive url`() =
+        runTest {
+            seedTree()
+            val vm = viewModel()
+            val state = vm.uiState.first { !it.loading }
+            vm.events.test {
+                vm.openFile(state.files.single { it.file.name == "logo.png" })
+                val image = awaitItem()
+                assertThat(image).isInstanceOf(FilesEvent.OpenImage::class.java)
+                assertThat((image as FilesEvent.OpenImage).file.exists()).isTrue()
+
+                vm.openFolder("root")
+                val pdf =
+                    vm.uiState
+                        .first { it.folderId == "root" }
+                        .files
+                        .single()
+                vm.openFile(pdf)
+                val opened = awaitItem()
+                assertThat(opened).isInstanceOf(FilesEvent.OpenWithApp::class.java)
+                assertThat((opened as FilesEvent.OpenWithApp).mimeType).isEqualTo("application/pdf")
+                assertThat(opened.file.exists()).isTrue()
+
+                // The explicit action still targets the Drive viewer URL.
+                vm.openInDrive(pdf)
+                assertThat(awaitItem()).isEqualTo(FilesEvent.OpenUrl(FileItem.viewUrl("drive-f-root")))
+                cancelAndIgnoreRemainingEvents()
+            }
         }
 }

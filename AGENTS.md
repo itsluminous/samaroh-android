@@ -18,7 +18,7 @@ Sign-In, Drive backups and Calendar sync.
 |---|---|---|
 | `app` | MainActivity, nav host, bottom bar (modules only) + business-name app bar (tappable sync cloud icon, Menu kebab — ADR-087), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
 | `shared/` | git submodule → `samaroh-shared` (string catalogs, codegen, schema, brand) | external |
-| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
+| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `WideDialog` (full-width list dialogs, ADR-090), `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
 | `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter`, catalog parity + usage-audit tests | done |
 | `core:model` | enums, domain models, permission types — **FROZEN CONTRACT** | done |
 | `core:database` | Room entities/DAOs/converters, `outbox`, sync cursors/conflict log, exported schemas — **FROZEN CONTRACT** | done |
@@ -29,7 +29,7 @@ Sign-In, Drive backups and Calendar sync.
 | `core:invoice` | PDF renderer + invoice numbering (layout per `shared/invoice/layout-spec.md`) | done |
 | `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done |
 | `feature:booking` | month calendar (crossfade cells), **events-view agenda** (windowed loading, ADR-029), booking card sheet, add/edit form, reminders/follow-ups, invoicing | done |
-| `feature:files` | Drive-indexed file storage (ADR-085): folder tree + breadcrumbs, global search, grid/list, upload staging via system picker (`FileUploadIntake`), viewer/Custom Tab open, owner access editor, `FilesSession` perm gate; share-chooser "Save to Files" landing (ADR-086) | done |
+| `feature:files` | Drive-indexed file storage (ADR-085): folder tree + breadcrumbs, global search, grid/list, upload staging via system picker (`FileUploadIntake`), owner access editor, `FilesSession` perm gate; share-chooser "Save to Files" landing (ADR-086); rename/move + lazy `FolderPickerDialog`, non-image open via `FilesFileProvider` `ACTION_VIEW` (ADR-090) | done |
 | `feature:expenses` | party ledger, business/personal party flag (ADR-027), party edit/cascade delete (ADR-028), attachments, `ExpensesSession` perm gate | done |
 | `feature:inventory` | stock + masterlist, FIFO (ADR-012), item detail w/ txn history, `ui/MasterItemDialogs.kt` (shared add/edit/delete dialogs), `InventorySession` perm gate | done |
 | `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate) | done |

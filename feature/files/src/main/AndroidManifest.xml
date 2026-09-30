@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Package visibility (API 30+), ADR-090:
+         * any VIEW-able MIME — lets the Files tab check for a viewer before firing
+           ACTION_VIEW on a downloaded file, so a missing app becomes a localized message;
+         * the Custom Tabs service — lets CustomTabsClient.getPackageName find a browser to
+           PIN the Drive-viewer tab to (an unpinned VIEW on drive.google.com is captured by
+           the Google Drive app, which demands an account every time). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
+    <application>
+        <!-- Grants an external viewer read access to a downloaded/staged Files-module copy
+             (files-cache/, files-staging/) for the ACTION_VIEW open path (design D16). -->
+        <provider
+            android:name=".FilesFileProvider"
+            android:authorities="${applicationId}.files.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/files_file_paths" />
+        </provider>
+    </application>
+
+</manifest>

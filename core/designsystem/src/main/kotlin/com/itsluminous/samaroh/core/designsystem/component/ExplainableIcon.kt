@@ -39,8 +39,34 @@ fun ExplainableIcon(
     iconSize: Dp = 24.dp,
     onClick: (() -> Unit)? = null,
 ) {
+    ExplainableIcon(
+        icon = icon,
+        explanation = stringResource(explanationRes),
+        modifier = modifier,
+        tint = tint,
+        targetSize = targetSize,
+        iconSize = iconSize,
+        onClick = onClick,
+    )
+}
+
+/**
+ * [ExplainableIcon] with an ALREADY-RESOLVED [explanation] — for labels carrying a
+ * placeholder (`stringResource(R.string.some_key, name)`), which the resource-id overload
+ * cannot express. Still a catalog string: callers must resolve it via `stringResource`.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun ExplainableIcon(
+    icon: ImageVector,
+    explanation: String,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    targetSize: Dp = 48.dp,
+    iconSize: Dp = 24.dp,
+    onClick: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
-    val explanation = stringResource(explanationRes)
     Box(
         modifier =
             modifier

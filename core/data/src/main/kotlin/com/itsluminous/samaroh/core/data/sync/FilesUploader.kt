@@ -46,3 +46,42 @@ interface FilesUploader {
 fun interface FilesDriveDeleter {
     suspend fun deleteBestEffort(driveFileId: String)
 }
+
+/**
+ * Best-effort Drive mirror of a Files-module RENAME / MOVE (ADR-090, design D14 revised):
+ * the metadata row (name / folder_id / parent_id) is authoritative and syncs through the
+ * outbox; this seam only keeps the human-readable `Samaroh/{Business}/files/…` tree in
+ * the actor's Drive in step. Every method is non-fatal: it runs only when Google is
+ * linked, never throws, and swallows 403/404 (bytes owned by another member's account,
+ * or a mirror folder that was never created). Paths are root-first folder NAMES below
+ * `files/` (empty = top level) — the same segments `DriveTarget.Files` takes. Bound by
+ * `core:google`.
+ */
+interface FilesDriveMirror {
+    /** `files.update` of the Drive file's `name`. */
+    suspend fun renameFile(
+        driveFileId: String,
+        newName: String,
+    )
+
+    /** `files.update` with `addParents`/`removeParents` onto the find-or-create mirror chain of [newFolderPath]. */
+    suspend fun moveFile(
+        driveFileId: String,
+        businessName: String,
+        newFolderPath: List<String>,
+    )
+
+    /** Renames the mirror folder at [folderPath] (find-only; a missing mirror is a no-op). */
+    suspend fun renameFolder(
+        businessName: String,
+        folderPath: List<String>,
+        newName: String,
+    )
+
+    /** Re-parents the mirror folder at [folderPath] under the find-or-create chain of [newParentPath]. */
+    suspend fun moveFolder(
+        businessName: String,
+        folderPath: List<String>,
+        newParentPath: List<String>,
+    )
+}

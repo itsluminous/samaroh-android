@@ -67,6 +67,21 @@ interface DriveService {
 
     /** Permanently deletes a file the app created (used by backup retention, best-effort). */
     suspend fun deleteFile(fileId: String)
+
+    /** Current parent folder ids of [fileId] (`files.get?fields=parents`); empty for an orphan. */
+    suspend fun fileParents(fileId: String): List<String>
+
+    /**
+     * `files.update` (PATCH) of a file or folder the app created: a new [name] and/or a
+     * re-parent ([addParentId] + [removeParentIds]) — the Files-module rename/move mirror
+     * (ADR-090). Only the non-null parts are sent.
+     */
+    suspend fun updateFile(
+        fileId: String,
+        name: String? = null,
+        addParentId: String? = null,
+        removeParentIds: List<String> = emptyList(),
+    )
 }
 
 private const val FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -216,5 +231,42 @@ class RestDriveService
         override suspend fun deleteFile(fileId: String) {
             val response = http.request("DELETE", "$FILES_URL/$fileId", token())
             if (!response.isSuccess && response.code != 404) throw GoogleApiException(response.code, response.body)
+        }
+
+        override suspend fun fileParents(fileId: String): List<String> {
+            val response = http.request("GET", "$filesUrl/$fileId?fields=parents", token())
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
+            return json
+                .parseToJsonElement(response.body)
+                .jsonObject["parents"]
+                ?.jsonArray
+                ?.map { it.jsonPrimitive.content }
+                .orEmpty()
+        }
+
+        override suspend fun updateFile(
+            fileId: String,
+            name: String?,
+            addParentId: String?,
+            removeParentIds: List<String>,
+        ) {
+            val query =
+                buildList {
+                    add("fields=id")
+                    addParentId?.let { add("addParents=${URLEncoder.encode(it, Charsets.UTF_8.name())}") }
+                    if (removeParentIds.isNotEmpty()) {
+                        add("removeParents=${URLEncoder.encode(removeParentIds.joinToString(","), Charsets.UTF_8.name())}")
+                    }
+                }.joinToString("&")
+            val body = buildJsonObject { name?.let { put("name", it) } }
+            val response =
+                http.request(
+                    "PATCH",
+                    "$filesUrl/$fileId?$query",
+                    token(),
+                    contentType = "application/json; charset=UTF-8",
+                    body = body.toString().toByteArray(),
+                )
+            if (!response.isSuccess) throw GoogleApiException(response.code, response.body)
         }
     }

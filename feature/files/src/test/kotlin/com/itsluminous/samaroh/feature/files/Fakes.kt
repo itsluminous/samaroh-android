@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.data.sync.FilesDriveDeleter
+import com.itsluminous.samaroh.core.data.sync.FilesDriveMirror
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
@@ -71,6 +72,10 @@ class FakeFilesRepository(
     ) {
         stagedPaths[file.id] = localPath
         filesFlow.value = filesFlow.value.filterNot { it.file.id == file.id } + FileWithLocalState(file, localPath, false)
+    }
+
+    override suspend fun updateFile(file: FileItem) {
+        filesFlow.value = filesFlow.value.map { if (it.file.id == file.id) it.copy(file = file) else it }
     }
 
     override suspend fun updateLocalCachePath(
@@ -147,6 +152,42 @@ class RecordingDriveDeleter : FilesDriveDeleter {
     }
 }
 
+/** Records every best-effort Drive rename/move mirror call (ADR-090). */
+class RecordingDriveMirror : FilesDriveMirror {
+    val calls = mutableListOf<String>()
+
+    override suspend fun renameFile(
+        driveFileId: String,
+        newName: String,
+    ) {
+        calls += "renameFile:$driveFileId:$newName"
+    }
+
+    override suspend fun moveFile(
+        driveFileId: String,
+        businessName: String,
+        newFolderPath: List<String>,
+    ) {
+        calls += "moveFile:$driveFileId:$businessName:${newFolderPath.joinToString("/")}"
+    }
+
+    override suspend fun renameFolder(
+        businessName: String,
+        folderPath: List<String>,
+        newName: String,
+    ) {
+        calls += "renameFolder:$businessName:${folderPath.joinToString("/")}:$newName"
+    }
+
+    override suspend fun moveFolder(
+        businessName: String,
+        folderPath: List<String>,
+        newParentPath: List<String>,
+    ) {
+        calls += "moveFolder:$businessName:${folderPath.joinToString("/")}:${newParentPath.joinToString("/")}"
+    }
+}
+
 class FakeGoogleAccountLinker(
     initialState: GoogleLinkState = GoogleLinkState.NotLinked,
 ) : GoogleAccountLinker {
@@ -210,6 +251,15 @@ class FakeDriveService(
     override suspend fun deleteFile(fileId: String) {
         deleted += fileId
     }
+
+    override suspend fun fileParents(fileId: String): List<String> = emptyList()
+
+    override suspend fun updateFile(
+        fileId: String,
+        name: String?,
+        addParentId: String?,
+        removeParentIds: List<String>,
+    ) = Unit
 }
 
 fun fakeFilesSession(
@@ -252,9 +302,10 @@ fun fileFixture(
     createdAt: Instant = Fixtures.NOW,
     localCachePath: String? = null,
     businessId: String = Fixtures.BUSINESS_ID,
+    createdBy: String = Fixtures.USER_ID,
 ): FileWithLocalState =
     FileWithLocalState(
-        FileItem(id, businessId, folderId, name, mimeType, 2048, driveFileId, Fixtures.USER_ID, createdAt, createdAt, null),
+        FileItem(id, businessId, folderId, name, mimeType, 2048, driveFileId, createdBy, createdAt, createdAt, null),
         localCachePath,
         drivePermissionEnsured = false,
     )

@@ -64,6 +64,14 @@ interface FilesRepository {
         localPath: String,
     )
 
+    /**
+     * Rename / move of an EXISTING file row (ADR-090, design D14): whole-row upsert with
+     * the new `name` / `folder_id` (device-only columns preserved) + outbox push. The
+     * caller owns the permission gate and the Drive best-effort mirror. No-op when the
+     * row is gone.
+     */
+    suspend fun updateFile(file: FileItem)
+
     /** Device-only cache path update (never an outbox op). */
     suspend fun updateLocalCachePath(
         fileId: String,
@@ -134,6 +142,14 @@ class RoomFilesRepository
             localPath: String,
         ) {
             fileDao.upsert(file.toEntity(localCachePath = localPath, drivePermissionEnsured = false))
+            outboxWriter.enqueue(TABLE_FILES, file.id, OutboxOperation.UPSERT, json.encodeToString(FileItem.serializer(), file))
+        }
+
+        override suspend fun updateFile(file: FileItem) {
+            val existing = fileDao.byId(file.id) ?: return
+            fileDao.upsert(
+                file.toEntity(localCachePath = existing.localCachePath, drivePermissionEnsured = existing.drivePermissionEnsured),
+            )
             outboxWriter.enqueue(TABLE_FILES, file.id, OutboxOperation.UPSERT, json.encodeToString(FileItem.serializer(), file))
         }
 

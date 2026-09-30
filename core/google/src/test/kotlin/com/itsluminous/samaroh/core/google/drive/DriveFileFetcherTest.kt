@@ -168,5 +168,14 @@ class DriveFileFetcherTest {
         override suspend fun ensureAnyoneReaderPermission(fileId: String) = throw UnsupportedOperationException()
 
         override suspend fun deleteFile(fileId: String) = throw UnsupportedOperationException()
+
+        override suspend fun fileParents(fileId: String): List<String> = emptyList()
+
+        override suspend fun updateFile(
+            fileId: String,
+            name: String?,
+            addParentId: String?,
+            removeParentIds: List<String>,
+        ) = Unit
     }
 }

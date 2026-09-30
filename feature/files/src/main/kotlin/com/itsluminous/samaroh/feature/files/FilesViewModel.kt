@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.data.share.SharedFile
 import com.itsluminous.samaroh.core.data.sync.FilesDriveDeleter
+import com.itsluminous.samaroh.core.data.sync.FilesDriveMirror
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
@@ -20,8 +21,11 @@ import com.itsluminous.samaroh.core.model.FileItem
 import com.itsluminous.samaroh.core.model.Folder
 import com.itsluminous.samaroh.core.model.FolderAccess
 import com.itsluminous.samaroh.core.model.MemberStatus
+import com.itsluminous.samaroh.feature.files.domain.FileActionGates
+import com.itsluminous.samaroh.feature.files.domain.FileNameError
 import com.itsluminous.samaroh.feature.files.domain.FilesTree
 import com.itsluminous.samaroh.feature.files.domain.FolderNameError
+import com.itsluminous.samaroh.feature.files.domain.MoveError
 import com.itsluminous.samaroh.feature.files.open.FileContentResolver
 import com.itsluminous.samaroh.feature.files.open.FileOpenResult
 import com.itsluminous.samaroh.feature.files.upload.FileUploadIntake
@@ -59,8 +63,29 @@ data class FileRow(
     val row: FileWithLocalState,
     /** Display name of the uploading member (null when unknown). */
     val addedBy: String?,
+    /** Rename / Move gate for THIS file (ADR-090): `files.delete`, or own upload with `files.upload`. */
+    val canRenameOrMove: Boolean = false,
 ) {
     val file: FileItem get() = row.file
+}
+
+/** What the move picker is relocating (ADR-090). */
+sealed interface MoveTarget {
+    data class ForFolder(
+        val folder: Folder,
+    ) : MoveTarget
+
+    data class ForFile(
+        val row: FileWithLocalState,
+    ) : MoveTarget
+
+    /** Where the item lives now — the picker preselects it. */
+    val currentParentId: String?
+        get() =
+            when (this) {
+                is ForFolder -> folder.parentId
+                is ForFile -> row.file.folderId
+            }
 }
 
 /** A global-search hit (design D11): the entry plus the folder it lives in. */
@@ -97,6 +122,8 @@ data class FilesUiState(
     val canManageFolders: Boolean = false,
     val canDelete: Boolean = false,
     val isOwner: Boolean = false,
+    /** Signed-in user id (null offline) — the own-upload half of the file rename/move gate. */
+    val userId: String? = null,
     /** The current folder was tombstoned / is no longer accessible (stale deep link). */
     val folderMissing: Boolean = false,
     /** Whether a Google account is linked (drives the pending-file hint + the link prompt). */
@@ -116,6 +143,13 @@ sealed interface FilesEvent {
     ) : FilesEvent
 
     data object FolderRenamed : FilesEvent
+
+    data object FileRenamed : FilesEvent
+
+    /** A file or folder landed in [destinationName] (null = the top level). */
+    data class Moved(
+        val destinationName: String?,
+    ) : FilesEvent
 
     data object FolderDeleted : FilesEvent
 
@@ -145,9 +179,18 @@ sealed interface FilesEvent {
         val row: FileWithLocalState,
     ) : FilesEvent
 
-    /** Open a URL (Drive viewer) in a Custom Tab. */
+    /** Open a URL (Drive viewer) in a Custom Tab pinned to a BROWSER (never the Drive app). */
     data class OpenUrl(
         val url: String,
+    ) : FilesEvent
+
+    /**
+     * Hand a NON-image file's local bytes to the system (`FileProvider` + `ACTION_VIEW`
+     * with [mimeType]) — the expense-bill mechanism (ADR-090, design D16 revised).
+     */
+    data class OpenWithApp(
+        val file: File,
+        val mimeType: String,
     ) : FilesEvent
 
     data class CopyLink(
@@ -200,6 +243,7 @@ class FilesViewModel
         private val uploadIntake: FileUploadIntake,
         private val contentResolver: FileContentResolver,
         private val driveDeleter: FilesDriveDeleter,
+        private val driveMirror: FilesDriveMirror,
         private val googleAccountLinker: GoogleAccountLinker,
         private val viewPreferences: FilesViewPreferences,
         private val shareIntakeHolder: ShareIntakeHolder,
@@ -227,10 +271,13 @@ class FilesViewModel
             val manage: Boolean,
             val delete: Boolean,
             val owner: Boolean,
+            val userId: String?,
         )
 
         private val perms: Flow<Perms> =
-            combine(session.canUpload, session.canManageFolders, session.canDelete, session.isOwner) { u, m, d, o -> Perms(u, m, d, o) }
+            combine(session.canUpload, session.canManageFolders, session.canDelete, session.isOwner, session.userIdFlow) { u, m, d, o, id ->
+                Perms(u, m, d, o, id)
+            }
 
         private data class Index(
             val businessId: String?,
@@ -279,7 +326,12 @@ class FilesViewModel
 
             fun folderRow(f: Folder) = FolderRow(f, FilesTree.directChildCount(f.id, reachableFolders, reachableFiles))
 
-            fun fileRow(f: FileWithLocalState) = FileRow(f, nameOf[f.file.createdBy])
+            fun fileRow(f: FileWithLocalState) =
+                FileRow(
+                    f,
+                    nameOf[f.file.createdBy],
+                    canRenameOrMove = FileActionGates.canRenameOrMoveFile(perms.delete, perms.upload, f.file.createdBy, perms.userId),
+                )
             val folderMissing = folderId != null && !FilesTree.isReachable(folderId, index.folders)
             val hits =
                 if (query.isBlank()) {
@@ -314,6 +366,7 @@ class FilesViewModel
                 canManageFolders = perms.manage,
                 canDelete = perms.delete,
                 isOwner = perms.owner,
+                userId = perms.userId,
                 folderMissing = folderMissing,
                 googleLinked = link is GoogleLinkState.Linked,
                 googleConfigured = link !is GoogleLinkState.NotConfigured,
@@ -419,9 +472,70 @@ class FilesViewModel
                 ) {
                     return@launch
                 }
+                val oldPath = folderPath(folder.id)
                 val now = clock.instant()
                 repository.saveFolder(folder.copy(name = trimmed, updatedBy = session.userId(), updatedAt = now))
                 _events.tryEmit(FilesEvent.FolderRenamed)
+                // Best-effort Drive mirror (design D14): the row is already the contract.
+                session.businessName()?.let { runCatching { driveMirror.renameFolder(it, oldPath, trimmed) } }
+            }
+        }
+
+        /** Root-first folder NAMES down to [folderId] — the Drive mirror path below `files/`. */
+        private fun folderPath(folderId: String?): List<String> = FilesTree.breadcrumbs(folderId, uiState.value.allFolders).map { it.name }
+
+        /** Display name of a destination for the `files.move.done` snackbar (null = top level). */
+        private fun folderName(folderId: String?): String? =
+            folderId?.let { id ->
+                uiState.value.allFolders
+                    .firstOrNull { it.id == id }
+                    ?.name
+            }
+
+        // ------------------------------------------------------------ move (ADR-090)
+
+        /** Inline validation for the move picker's current selection. */
+        fun validateMove(
+            target: MoveTarget,
+            destinationId: String?,
+        ): MoveError? =
+            when (target) {
+                is MoveTarget.ForFolder -> FilesTree.validateFolderMove(target.folder, destinationId, uiState.value.allFolders)
+                is MoveTarget.ForFile -> FilesTree.validateFileMove(target.row.file, destinationId)
+            }
+
+        /**
+         * Moves [target] under [destinationId] (null = top level): metadata via the outbox
+         * (whole-row upsert, design D14), then the best-effort Drive re-parent. Refused
+         * silently when [validateMove] fails (the picker never enables Move in that case).
+         */
+        fun move(
+            target: MoveTarget,
+            destinationId: String?,
+        ) {
+            if (validateMove(target, destinationId) != null) return
+            viewModelScope.launch {
+                val now = clock.instant()
+                val businessName = session.businessName()
+                val destinationPath = folderPath(destinationId)
+                when (target) {
+                    is MoveTarget.ForFolder -> {
+                        val oldPath = folderPath(target.folder.id)
+                        repository.saveFolder(target.folder.copy(parentId = destinationId, updatedBy = session.userId(), updatedAt = now))
+                        _events.tryEmit(FilesEvent.Moved(folderName(destinationId)))
+                        businessName?.let { runCatching { driveMirror.moveFolder(it, oldPath, destinationPath) } }
+                    }
+                    is MoveTarget.ForFile -> {
+                        repository.updateFile(target.row.file.copy(folderId = destinationId, updatedAt = now))
+                        _events.tryEmit(FilesEvent.Moved(folderName(destinationId)))
+                        val driveId = target.row.file.driveFileId
+                        if (businessName != null &&
+                            driveId != null
+                        ) {
+                            runCatching { driveMirror.moveFile(driveId, businessName, destinationPath) }
+                        }
+                    }
+                }
             }
         }
 
@@ -457,13 +571,36 @@ class FilesViewModel
             row.file.driveFileId?.let { runCatching { driveDeleter.deleteBestEffort(it) } }
         }
 
-        /** Tap: images → in-app viewer; anything else → the Drive viewer page (design D16). */
+        /** Validation for the rename-file dialog (design D12: 1–255 chars, no `/`; duplicates allowed). */
+        fun validateFileName(name: String): FileNameError? = FilesTree.validateFileName(name)
+
+        /** Renames a file: metadata via the outbox, then the best-effort Drive `files.update` (design D14). */
+        fun renameFile(
+            row: FileWithLocalState,
+            name: String,
+        ) {
+            val trimmed = name.trim()
+            if (FilesTree.validateFileName(trimmed) != null || trimmed == row.file.name) return
+            viewModelScope.launch {
+                repository.updateFile(row.file.copy(name = trimmed, updatedAt = clock.instant()))
+                _events.tryEmit(FilesEvent.FileRenamed)
+                row.file.driveFileId?.let { runCatching { driveMirror.renameFile(it, trimmed) } }
+            }
+        }
+
+        /**
+         * Tap (design D16 revised, ADR-090): images → in-app viewer; anything else →
+         * resolve the BYTES (staged original / cache / Drive download) and hand the local
+         * file to the system with its MIME — exactly how expense bills open. Never an
+         * implicit `VIEW` on a Drive URL (the Drive app captures those and demands an
+         * account every time).
+         */
         fun openFile(row: FileRow) {
             val file = row.file
             if (file.isImage) {
                 resolveThen(row.row) { _events.tryEmit(FilesEvent.OpenImage(it, row.row)) }
             } else {
-                openInDrive(row)
+                resolveThen(row.row) { _events.tryEmit(FilesEvent.OpenWithApp(it, file.mimeType)) }
             }
         }
 
