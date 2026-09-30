@@ -462,6 +462,8 @@ fun FilesScreen(
             titleRes = R.string.files_move_title,
             confirmRes = R.string.files_move_confirm,
             initialSelection = target.currentParentId,
+            excludeFolderId = (target as? MoveTarget.ForFolder)?.folder?.id,
+            selectionHintRes = R.string.files_move_selected_hint,
             selectionError = { destination -> viewModel.validateMove(target, destination)?.let { moveErrorText(it) } },
             canCreateFolder = state.canManageFolders,
             validateNewFolderName = { name, parentId -> viewModel.validateFolderName(name, parentId = parentId) },
@@ -911,7 +913,7 @@ private fun moveErrorText(error: MoveError): String =
             MoveError.SAME_LOCATION -> R.string.files_move_same_folder
             MoveError.INTO_SELF -> R.string.files_move_into_self
             MoveError.TOO_DEEP -> R.string.files_move_too_deep
-            MoveError.DUPLICATE -> R.string.files_folder_duplicate
+            MoveError.DUPLICATE -> R.string.files_move_duplicate_folder
         },
     )
 

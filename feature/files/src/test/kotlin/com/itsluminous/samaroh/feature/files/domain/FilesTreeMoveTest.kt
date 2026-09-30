@@ -89,6 +89,22 @@ class FilesTreeMoveTest {
     }
 
     @Test
+    fun `lazy picker hides the moved folder and its whole subtree (web parity)`() {
+        // Moving "Alpha": neither it nor Alpha one / a1x may be offered as a destination,
+        // even when they are expanded; the siblings stay.
+        val rows = FilesTree.pickerRows(tree, expanded = setOf("a", "a1"), excludeSubtreeOf = "a")
+        assertThat(rows.map { it.folder.id }).containsExactly("b", "c").inOrder()
+        // Moving a nested folder hides only its own subtree; the parent keeps its other children.
+        val nested = FilesTree.pickerRows(tree, expanded = setOf("a", "a1"), excludeSubtreeOf = "a1")
+        assertThat(nested.map { it.folder.id }).containsExactly("a", "b", "c").inOrder()
+        assertThat(nested.single { it.folder.id == "a" }.hasChildren).isFalse()
+        // No exclusion → unchanged.
+        assertThat(FilesTree.pickerRows(tree, expanded = emptySet(), excludeSubtreeOf = null).map { it.folder.id })
+            .containsExactly("a", "b", "c")
+            .inOrder()
+    }
+
+    @Test
     fun `ancestor ids pre-expand the path to a preselected destination`() {
         assertThat(FilesTree.ancestorIds("a1x", tree)).containsExactly("a", "a1")
         assertThat(FilesTree.ancestorIds("a", tree)).isEmpty()

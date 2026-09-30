@@ -3701,3 +3701,15 @@ scratch-Postgres probes.
 `files.picker.{expand,collapse}`. Design doc D14 (rename/move in), D16 (bytes via
 FileProvider, never an implicit Drive VIEW), D17 (Rename/Move rows), §6/§7 (lazy picker)
 revised in place. Web must gate identically (D14) and add the same picker shape.
+
+**Reconcile addendum (2026-09-30, cross-track parity).** Web shipped the same contract
+(`samaroh-web` b6deb8a); three presentation divergences were reconciled so the pickers behave
+identically: (1) the move picker now HIDES the moved folder and its whole subtree
+(`FilesTree.pickerRows(excludeSubtreeOf)`, `FolderPickerDialog(excludeFolderId)`) instead of
+listing it and steering with the cycle error — the `INTO_SELF` check stays as defence;
+(2) the duplicate-on-move error uses the move-specific `files.move.duplicate_folder`
+("…already exists in the destination") that web added in shared d6e94e8, not the
+new/rename `files.folder.duplicate`; (3) the move picker shows the `files.move.selected_hint`
+("Moving to: {path}") helper under the list. Web in turn adopted Android's LIVE validation
+(error shown for the current selection, Move disabled until valid) instead of validating on
+confirm. Gating, name rules, depth/cycle guards were already byte-identical.

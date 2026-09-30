@@ -127,12 +127,19 @@ object FilesTree {
      * Visible rows of the LAZY picker: top-level folders A–Z; a row's children (A–Z,
      * indented one level) appear only while its id is in [expanded]. Rows report
      * [PickerRow.hasChildren] so the UI can draw an expand chevron only where it matters.
+     * [excludeSubtreeOf] hides that folder AND everything under it — the folder being
+     * MOVED can never be its own destination (hidden, not greyed; web parity).
      */
     fun pickerRows(
         folders: List<Folder>,
         expanded: Set<String>,
+        excludeSubtreeOf: String? = null,
     ): List<PickerRow> {
-        val childrenOf = folders.groupBy { it.parentId }.mapValues { (_, v) -> v.sortedBy { it.name.lowercase() } }
+        val childrenOf =
+            folders
+                .filter { it.id != excludeSubtreeOf }
+                .groupBy { it.parentId }
+                .mapValues { (_, v) -> v.sortedBy { it.name.lowercase() } }
         val out = mutableListOf<PickerRow>()
 
         fun visit(

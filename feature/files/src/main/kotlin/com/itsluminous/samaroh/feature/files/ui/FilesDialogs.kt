@@ -317,6 +317,9 @@ private fun AccessRadioRow(
  * destination. Any other choose-a-folder picker must reuse this dialog for parity.
  *
  * @param initialSelection preselected destination (null = top level); its ancestors start expanded.
+ * @param excludeFolderId move flow: the folder being moved — it and its subtree are hidden.
+ * @param selectionHintRes optional helper line under the list taking the selected path
+ *   (`files.move.selected_hint` for the move flow; web parity).
  * @param selectionError inline error for the current selection (null = confirm enabled) —
  *   the move flow's same-place / cycle / depth / duplicate steering.
  * @param validateNewFolderName live sibling validation under the given parent.
@@ -331,6 +334,8 @@ fun FolderPickerDialog(
     titleRes: Int = R.string.files_share_target_pick_folder_title,
     confirmRes: Int = R.string.common_action_save,
     initialSelection: String? = null,
+    excludeFolderId: String? = null,
+    selectionHintRes: Int? = null,
     selectionError: @Composable (String?) -> String? = { null },
     canCreateFolder: Boolean = false,
     validateNewFolderName: (name: String, parentId: String?) -> FolderNameError? = { _, _ -> null },
@@ -340,7 +345,7 @@ fun FolderPickerDialog(
     var creating by rememberSaveable { mutableStateOf(false) }
     var expanded by rememberSaveable(saver = expandedSaver) { mutableStateOf(FilesTree.ancestorIds(initialSelection, folders)) }
     val rootLabel = stringResource(R.string.files_home_root_label)
-    val rows = remember(folders, expanded) { FilesTree.pickerRows(folders, expanded) }
+    val rows = remember(folders, expanded, excludeFolderId) { FilesTree.pickerRows(folders, expanded, excludeSubtreeOf = excludeFolderId) }
     val error = selectionError(selected)
     // Permission-hidden (ADR-038) + depth cap (design D13) — evaluated for the selection.
     val showNewFolder = canCreateFolder && FilesTree.canCreateSubfolder(selected, folders)
@@ -376,6 +381,19 @@ fun FolderPickerDialog(
             if (showNewFolder) {
                 NewFolderRow(onClick = { creating = true })
             }
+        }
+        if (selectionHintRes != null) {
+            Text(
+                stringResource(
+                    selectionHintRes,
+                    FilesTree.pathLabel(selected, folders, rootLabel, stringResource(R.string.files_breadcrumb_separator)),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
         if (error != null) {
             Text(
