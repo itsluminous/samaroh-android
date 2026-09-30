@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
@@ -60,6 +61,11 @@ enum class AmountTone {
  * [masked] renders ₹••• instead of the value (per-module `view_amounts` permission off,
  * ADR-039) with a localized "Amount hidden" accessibility label; the tone color is
  * dropped so the mask leaks no gave/got signal.
+ *
+ * [autoShrink] (ADR-091) keeps the amount on ONE line by shrinking the font to fit the
+ * available width ([AutoShrinkText]) instead of wrapping — for fixed-width cells such as
+ * the home summary cards. Amounts are never ellipsized: below the shrink floor the text
+ * clips rather than hiding digits behind "…".
  */
 @Composable
 fun AmountText(
@@ -68,14 +74,16 @@ fun AmountText(
     tone: AmountTone = AmountTone.NEUTRAL,
     style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
     masked: Boolean = false,
+    autoShrink: Boolean = false,
 ) {
     if (masked) {
         val hiddenLabel = stringResource(R.string.auth_permissions_amount_hidden_a11y)
-        Text(
-            text = AmountFormatter.MASKED,
-            style = style,
-            modifier = modifier.semantics { contentDescription = hiddenLabel },
-        )
+        val maskedModifier = modifier.semantics { contentDescription = hiddenLabel }
+        if (autoShrink) {
+            AutoShrinkText(text = AmountFormatter.MASKED, style = style, overflow = TextOverflow.Clip, modifier = maskedModifier)
+        } else {
+            Text(text = AmountFormatter.MASKED, style = style, modifier = maskedModifier)
+        }
         return
     }
     val color =
@@ -84,7 +92,12 @@ fun AmountText(
             AmountTone.MONEY_IN -> SamarohTheme.semanticColors.moneyIn
             AmountTone.MONEY_OUT -> SamarohTheme.semanticColors.moneyOut
         }
-    Text(text = AmountFormatter.format(amountPaise), color = color, style = style, modifier = modifier)
+    val text = AmountFormatter.format(amountPaise)
+    if (autoShrink) {
+        AutoShrinkText(text = text, color = color, style = style, overflow = TextOverflow.Clip, modifier = modifier)
+    } else {
+        Text(text = text, color = color, style = style, modifier = modifier)
+    }
 }
 
 /** Centered empty-state block with an icon, localized title and localized message. */

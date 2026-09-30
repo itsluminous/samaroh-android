@@ -3713,3 +3713,65 @@ new/rename `files.folder.duplicate`; (3) the move picker shows the `files.move.s
 ("Moving to: {path}") helper under the list. Web in turn adopted Android's LIVE validation
 (error shown for the current selection, Move disabled until valid) instead of validating on
 confirm. Gating, name rules, depth/cycle guards were already byte-identical.
+
+## ADR-091 — Expenses summary period switch (This month default) + shrink-to-fit summary text (2026-10-01)
+
+**Status:** accepted (owner feedback; shipped in parallel with the web track — same three
+periods, same default, same persisted choice).
+
+**Context.** The Expenses tab header card summed "You gave"/"You got" over EVERY live
+entry since the business started, so after a few months the numbers told the owner
+nothing about the current month, and on a 360dp phone the Hindi labels and lakh-scale
+amounts wrapped onto two lines, pushing the party list down. Reports already resolve
+"This month" on a calendar-month basis and shrink money cells to fit (`ReportCell`), but
+that logic was private to `feature:reports`.
+
+**Decision.**
+
+1. **Period switch, default THIS MONTH.** The totals card carries a single-choice
+   segmented control — *This month* / *This year* / *All time* — above the two cells.
+   The choice is persisted per device in the settings DataStore
+   (`SummaryPeriodPreferences`, key `summary_period_expenses`, values
+   `this_month|this_year|all_time`; unset/unknown → this month) — the ADR-069 sort-pref
+   shape, one key per summary card so later cards can remember their own window.
+   `SummaryPeriod` lives in `core:data/settings` next to `ListSortOrder`.
+2. **Windows by `expense_date`, on the DEVICE-local date.** `SummaryPeriodRange.bounds`
+   (pure, `feature:expenses/domain`) maps THIS_MONTH → first..last day of the month,
+   THIS_YEAR → 1 Jan..31 Dec, ALL_TIME → unbounded. "Today" is
+   `LocalDate.now(clock.withZone(ZoneId.systemDefault()))` — the SAME rule the add-entry
+   form uses for its default `expense_date` — so an entry a user dates "today" is always
+   inside that user's "This month" even when the injected app clock (UTC) is already on
+   the next day. The window is recomputed every time the period preference emits.
+3. **Additive query contract (core:database + core:data, frozen-contract exception).**
+   `ExpenseDao.totalPaiseBetweenFlow(businessId, direction, from, to)` — the existing
+   `totalPaiseFlow` plus `expense_date >= :from AND expense_date <= :to` (ISO `TEXT`
+   compares lexicographically; uses the existing `(business_id, expense_date)` index) —
+   and `ExpensesLedgerRepository.totalsBetween(businessId, from, to)`. ALL_TIME keeps the
+   unbounded `totals`; no schema change, no sync impact.
+4. **Shrink-to-fit is a design-system component.** `ReportCell`'s BasicText auto-size is
+   promoted to `core:designsystem` `AutoShrinkText` (single line, `TextAutoSize.StepBased`
+   between `style.fontSize × AUTO_SHRINK_MIN_FONT_SCALE (0.6)` and `style.fontSize`;
+   overflow per caller, default ellipsis) and `AmountText(autoShrink = true)`, which
+   CLIPS rather than ellipsizes — an amount never hides digits behind "…". Reports now
+   call the shared component (behaviour unchanged). The summary card applies it to the
+   period labels, the two cell labels and both amounts; the masked ₹••• (ADR-039) goes
+   through the same path so the mask never wraps either. Convention going forward: text
+   inside a FIXED-WIDTH cell (summary cards, table columns, segmented buttons) shrinks;
+   body copy wraps; quick-filter chip rows scroll (`ChipRow`) — three rules, no fourth.
+5. **Masking unchanged.** `view_amounts = false` still renders ₹••• for both cells in every
+   period; the switch itself is not gated (it leaks no amounts).
+
+**Verification.** Unit: `SummaryPeriodRangeTest` (month edges incl. leap/short months,
+year edges, all-time null, IST vs UTC and LA vs UTC date roll-over against a fixed UTC
+clock), `SummaryPeriodPreferencesTest` (default, round-trip, storage strings, unknown →
+default), `RoomExpensesLedgerRepositoryTest.totalsBetween` (inclusive edges, tombstones
+excluded, empty window → 0), `ExpensesHomeViewModelTest` +4 (default month totals, year/
+all switch, persistence across a fresh ViewModel, mask preserved across switches). Gate
+green; emulator screenshots of the three periods on the narrow default layout show single-
+line labels and amounts (en + hi).
+
+**Consequences.** Shared keys (added by the web track, consumed here — none added on
+Android): `expenses.summary.period_label`, `expenses.summary.period_month`,
+`expenses.summary.period_year`, `expenses.summary.period_all`. New DI-visible
+`SummaryPeriodPreferences` (`@Singleton`, settings DataStore). `ExpensesHomeViewModel`
+now takes `Clock`. `ReportDetailScreen` loses its private auto-size copy.

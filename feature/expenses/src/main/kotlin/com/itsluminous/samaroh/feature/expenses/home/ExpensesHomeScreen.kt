@@ -22,6 +22,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,13 +32,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.data.settings.ListSortOrder
+import com.itsluminous.samaroh.core.data.settings.SummaryPeriod
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
+import com.itsluminous.samaroh.core.designsystem.component.AutoShrinkText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
@@ -73,6 +81,8 @@ fun ExpensesHomeScreen(
                 gavePaise = state.totals.gavePaise,
                 gotPaise = state.totals.gotPaise,
                 masked = !state.canViewAmounts,
+                period = state.summaryPeriod,
+                onPeriodChange = viewModel::onSummaryPeriodChange,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             // ADR-069: the party list's header row — search plus the compact sort menu
@@ -124,15 +134,24 @@ fun ExpensesHomeScreen(
     }
 }
 
+/**
+ * Header summary card (ADR-091): a compact period switch (This month / This year / All
+ * time — persisted) above the "You gave"/"You got" totals for that window. Every text in
+ * the card shrinks to fit instead of wrapping so the two cells stay one line each on a
+ * 360dp phone in Hindi.
+ */
 @Composable
 private fun TotalsCard(
     gavePaise: Long,
     gotPaise: Long,
     masked: Boolean,
+    period: SummaryPeriod,
+    onPeriodChange: (SummaryPeriod) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SamarohCard(modifier = modifier) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        SummaryPeriodSwitch(selected = period, onSelect = onPeriodChange, modifier = Modifier.fillMaxWidth())
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
             TotalsCell(
                 label = stringResource(R.string.expenses_home_you_gave),
                 amountPaise = gavePaise,
@@ -151,6 +170,55 @@ private fun TotalsCard(
     }
 }
 
+/** Segment labels may shrink further than amounts — three of them share one card width. */
+private const val SEGMENT_LABEL_MIN_FONT_SCALE = 0.5f
+
+/** The three summary windows in switch order (ADR-091), with their localized labels. */
+private val summaryPeriodOrder = listOf(SummaryPeriod.THIS_MONTH, SummaryPeriod.THIS_YEAR, SummaryPeriod.ALL_TIME)
+
+@Composable
+private fun SummaryPeriod.label(): String =
+    stringResource(
+        when (this) {
+            SummaryPeriod.THIS_MONTH -> R.string.expenses_summary_period_month
+            SummaryPeriod.THIS_YEAR -> R.string.expenses_summary_period_year
+            SummaryPeriod.ALL_TIME -> R.string.expenses_summary_period_all
+        },
+    )
+
+/**
+ * Single-choice segmented control for the summary window. Labels auto-shrink (no wrap,
+ * no ellipsis) so three Hindi labels fit a narrow card; the row carries the localized
+ * `expenses.summary.period_label` as its accessible name.
+ */
+@Composable
+private fun SummaryPeriodSwitch(
+    selected: SummaryPeriod,
+    onSelect: (SummaryPeriod) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val groupLabel = stringResource(R.string.expenses_summary_period_label)
+    SingleChoiceSegmentedButtonRow(modifier = modifier.semantics { contentDescription = groupLabel }) {
+        summaryPeriodOrder.forEachIndexed { index, period ->
+            SegmentedButton(
+                selected = period == selected,
+                onClick = { onSelect(period) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = summaryPeriodOrder.size),
+                icon = {}, // No check icon: it would steal width from the shrink-to-fit label.
+                label = {
+                    AutoShrinkText(
+                        text = period.label(),
+                        style = MaterialTheme.typography.labelLarge,
+                        minFontScale = SEGMENT_LABEL_MIN_FONT_SCALE,
+                        overflow = TextOverflow.Clip,
+                        textAlign = TextAlign.Center,
+                    )
+                },
+            )
+        }
+    }
+}
+
 @Composable
 private fun TotalsCell(
     label: String,
@@ -160,8 +228,21 @@ private fun TotalsCell(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-        AmountText(amountPaise = amountPaise, tone = tone, style = MaterialTheme.typography.titleLarge, masked = masked)
+        // Label and amount both shrink to fit (ADR-091) — one line each, never wrapped.
+        AutoShrinkText(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        )
+        AmountText(
+            amountPaise = amountPaise,
+            tone = tone,
+            style = MaterialTheme.typography.titleLarge,
+            masked = masked,
+            autoShrink = true,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
     }
 }
 

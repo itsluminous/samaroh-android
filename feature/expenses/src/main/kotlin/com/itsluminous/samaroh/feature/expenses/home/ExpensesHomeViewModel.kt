@@ -7,17 +7,23 @@ import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.settings.ListSortOrder
 import com.itsluminous.samaroh.core.data.settings.ListSortPreferences
+import com.itsluminous.samaroh.core.data.settings.SummaryPeriod
+import com.itsluminous.samaroh.core.data.settings.SummaryPeriodPreferences
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.domain.FuzzyNameMatcher
+import com.itsluminous.samaroh.feature.expenses.domain.SummaryPeriodRange
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Clock
 import java.time.Instant
 import javax.inject.Inject
 
@@ -40,7 +46,10 @@ data class PartyListItem(
 }
 
 data class ExpensesHomeState(
+    /** Header totals over [summaryPeriod] (ADR-091), by `expense_date`. */
     val totals: ExpenseTotals = ExpenseTotals(gavePaise = 0, gotPaise = 0),
+    /** The persisted summary window the totals card shows; defaults to this month. */
+    val summaryPeriod: SummaryPeriod = SummaryPeriod.THIS_MONTH,
     val searchQuery: String = "",
     val parties: List<PartyListItem> = emptyList(),
     val hasAnyParty: Boolean = false,
@@ -57,11 +66,30 @@ class ExpensesHomeViewModel
     @Inject
     constructor(
         expensesRepository: ExpensesRepository,
-        ledgerRepository: ExpensesLedgerRepository,
+        private val ledgerRepository: ExpensesLedgerRepository,
         session: ExpensesSession,
         private val sortPreferences: ListSortPreferences,
+        private val summaryPeriodPreferences: SummaryPeriodPreferences,
+        private val clock: Clock,
     ) : ViewModel() {
         private val searchQuery = MutableStateFlow("")
+
+        /**
+         * Totals over the persisted summary period (ADR-091): the window is resolved on the
+         * device-local date each time the period changes; All time keeps the unbounded query.
+         */
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        private fun periodTotals(businessId: String): Flow<Pair<SummaryPeriod, ExpenseTotals>> =
+            summaryPeriodPreferences.expensesSummaryPeriod.flatMapLatest { period ->
+                val bounds = SummaryPeriodRange.bounds(period, SummaryPeriodRange.today(clock))
+                val totals =
+                    if (bounds == null) {
+                        ledgerRepository.totals(businessId)
+                    } else {
+                        ledgerRepository.totalsBetween(businessId, bounds.start, bounds.endInclusive)
+                    }
+                totals.map { period to it }
+            }
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val state: StateFlow<ExpensesHomeState> =
@@ -69,7 +97,7 @@ class ExpensesHomeViewModel
                 .flatMapLatest { businessId ->
                     combine(
                         expensesRepository.partiesWithBalance(businessId),
-                        ledgerRepository.totals(businessId),
+                        periodTotals(businessId),
                         ledgerRepository.lastEntryPerParty(businessId),
                         searchQuery,
                         // Both session gates + the sort pref as one source (keeps the combine at 5 flows).
@@ -78,7 +106,7 @@ class ExpensesHomeViewModel
                             session.canViewAmounts,
                             sortPreferences.expensesPartiesSort,
                         ) { manage, amounts, sort -> Triple(manage, amounts, sort) },
-                    ) { parties, totals, lastEntries, query, gates ->
+                    ) { parties, (summaryPeriod, totals), lastEntries, query, gates ->
                         val (canManageParties, canViewAmounts, sortOrder) = gates
                         val items =
                             parties.map {
@@ -90,6 +118,7 @@ class ExpensesHomeViewModel
                             }
                         ExpensesHomeState(
                             totals = totals,
+                            summaryPeriod = summaryPeriod,
                             searchQuery = query,
                             parties = items.filterBy(query).sortedWith(sortOrder.partyComparator()),
                             hasAnyParty = items.isNotEmpty(),
@@ -102,6 +131,11 @@ class ExpensesHomeViewModel
 
         fun onSearchQueryChange(query: String) {
             searchQuery.value = query
+        }
+
+        /** Persists the chosen summary window (per device — ADR-091); totals re-query through [state]. */
+        fun onSummaryPeriodChange(period: SummaryPeriod) {
+            viewModelScope.launch { summaryPeriodPreferences.setExpensesSummaryPeriod(period) }
         }
 
         /** Persists the chosen order (per device, party-list key — ADR-069). */

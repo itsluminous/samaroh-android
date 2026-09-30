@@ -18,6 +18,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,6 +50,17 @@ data class AttachmentWithLocalState(
 
 interface ExpensesLedgerRepository {
     fun totals(businessId: String): Flow<ExpenseTotals>
+
+    /**
+     * ADDITIVE summary-period support (ADR-091): [totals] restricted to live entries whose
+     * `expense_date` falls in [from]..[to] inclusive. Backs the home card's This month /
+     * This year windows; All time keeps using the unbounded [totals].
+     */
+    fun totalsBetween(
+        businessId: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): Flow<ExpenseTotals>
 
     /** partyId → most recent live entry time; parties without entries are absent. */
     fun lastEntryPerParty(businessId: String): Flow<Map<String, Instant>>
@@ -127,6 +139,16 @@ class RoomExpensesLedgerRepository
             combine(
                 expenseDao.totalPaiseFlow(businessId, ExpenseDirection.PAID.wire),
                 expenseDao.totalPaiseFlow(businessId, ExpenseDirection.RECEIVED.wire),
+            ) { gave, got -> ExpenseTotals(gavePaise = gave, gotPaise = got) }
+
+        override fun totalsBetween(
+            businessId: String,
+            from: LocalDate,
+            to: LocalDate,
+        ): Flow<ExpenseTotals> =
+            combine(
+                expenseDao.totalPaiseBetweenFlow(businessId, ExpenseDirection.PAID.wire, from, to),
+                expenseDao.totalPaiseBetweenFlow(businessId, ExpenseDirection.RECEIVED.wire, from, to),
             ) { gave, got -> ExpenseTotals(gavePaise = gave, gotPaise = got) }
 
         override fun lastEntryPerParty(businessId: String): Flow<Map<String, Instant>> =

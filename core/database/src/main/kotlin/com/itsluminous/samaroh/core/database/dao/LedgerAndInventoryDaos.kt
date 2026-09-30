@@ -100,6 +100,26 @@ interface ExpenseDao {
         direction: String,
     ): Flow<Long>
 
+    /**
+     * Live sum of live expenses by direction dated in [from]..[to] (inclusive, by
+     * `expense_date`) — the period-scoped variant of [totalPaiseFlow] behind the home
+     * summary card's This month / This year switch (ADR-091 additive). ISO `TEXT` dates
+     * compare lexicographically, so the range is a plain BETWEEN on the indexed column.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(amountPaise), 0) FROM expenses
+        WHERE business_id = :businessId AND direction = :direction AND deleted_at IS NULL
+          AND expense_date >= :from AND expense_date <= :to
+        """,
+    )
+    fun totalPaiseBetweenFlow(
+        businessId: String,
+        direction: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): Flow<Long>
+
     /** Most recent live entry per party (W1-B additive; ADR-007). */
     @Query(
         """

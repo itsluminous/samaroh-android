@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.Instant
+import java.time.LocalDate
 
 /** In-memory [ExpensesRepository] driving ViewModel flow tests. */
 class FakeExpensesRepository : ExpensesRepository {
@@ -79,6 +80,19 @@ class FakeExpensesLedgerRepository : ExpensesLedgerRepository {
             ExpenseTotals(
                 gavePaise = list.filter { it.direction == ExpenseDirection.PAID }.sumOf { it.amountPaise },
                 gotPaise = list.filter { it.direction == ExpenseDirection.RECEIVED }.sumOf { it.amountPaise },
+            )
+        }
+
+    override fun totalsBetween(
+        businessId: String,
+        from: LocalDate,
+        to: LocalDate,
+    ): Flow<ExpenseTotals> =
+        expenses.map { list ->
+            val inRange = list.filter { it.expenseDate >= from && it.expenseDate <= to }
+            ExpenseTotals(
+                gavePaise = inRange.filter { it.direction == ExpenseDirection.PAID }.sumOf { it.amountPaise },
+                gotPaise = inRange.filter { it.direction == ExpenseDirection.RECEIVED }.sumOf { it.amountPaise },
             )
         }
 

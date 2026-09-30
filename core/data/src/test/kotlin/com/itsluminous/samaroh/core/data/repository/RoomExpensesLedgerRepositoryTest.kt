@@ -6,6 +6,7 @@ import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
+import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.inMemoryDatabase
 import kotlinx.coroutines.flow.first
@@ -16,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.time.Clock
+import java.time.LocalDate
 import java.time.ZoneOffset
 
 /** Party-delete cascade (ADR-028): party → expenses → attachments tombstoned + outbox rows. */
@@ -231,5 +233,39 @@ class RoomExpensesLedgerRepositoryTest {
             // Everything else on the row is untouched.
             assertThat(fromFlow.attachment.driveFileId).isEqualTo(driveBacked.driveFileId)
             assertThat(fromFlow.attachment.deletedAt).isNull()
+        }
+
+    // ---- ADR-091: period-bounded totals ----
+
+    @Test
+    fun `totalsBetween sums live entries dated inside the inclusive window only`() =
+        runTest {
+            db.partyDao().upsert(party.toEntity())
+            val aug1 = Fixtures.expense(partyId = party.id, amountPaise = 100_00L, expenseDate = LocalDate.of(2026, 8, 1))
+            val aug31 = Fixtures.expense(partyId = party.id, amountPaise = 200_00L, expenseDate = LocalDate.of(2026, 8, 31))
+            val got =
+                Fixtures.expense(
+                    partyId = party.id,
+                    amountPaise = 50_00L,
+                    direction = ExpenseDirection.RECEIVED,
+                    expenseDate = LocalDate.of(2026, 8, 15),
+                )
+            val jul31 = Fixtures.expense(partyId = party.id, amountPaise = 7_00L, expenseDate = LocalDate.of(2026, 7, 31))
+            val sep1 = Fixtures.expense(partyId = party.id, amountPaise = 9_00L, expenseDate = LocalDate.of(2026, 9, 1))
+            val tombstoned = Fixtures.expense(partyId = party.id, amountPaise = 999_00L, expenseDate = LocalDate.of(2026, 8, 10))
+            listOf(aug1, aug31, got, jul31, sep1, tombstoned).forEach { db.expenseDao().upsert(it.toEntity()) }
+            db.expenseDao().tombstone(tombstoned.id, deleteInstant)
+
+            val month = repository.totalsBetween(party.businessId, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)).first()
+            assertThat(month.gavePaise).isEqualTo(300_00L)
+            assertThat(month.gotPaise).isEqualTo(50_00L)
+
+            val year = repository.totalsBetween(party.businessId, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31)).first()
+            assertThat(year.gavePaise).isEqualTo(300_00L + 7_00L + 9_00L)
+
+            val all = repository.totals(party.businessId).first()
+            assertThat(all.gavePaise).isEqualTo(year.gavePaise)
+            assertThat(repository.totalsBetween(party.businessId, LocalDate.of(2020, 1, 1), LocalDate.of(2020, 12, 31)).first())
+                .isEqualTo(ExpenseTotals(gavePaise = 0, gotPaise = 0))
         }
 }
