@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.menu.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.reminders.ReminderTestFirer
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.i18n.R
@@ -91,8 +92,16 @@ data class SyncStatusUiState(
     val errors: List<SyncErrorRow>,
     val conflicts: List<SyncConflictEntry>,
     val lastSyncAt: java.time.Instant?,
+    /** ADR-089: anything but SIGNED_IN means the queue is held — the screen says why. */
+    val authState: SyncAuthState = SyncAuthState.SIGNED_IN,
 ) {
     val pendingCount: Int get() = pending.size
+
+    /** Show the sign-in banner: a lost session always; offline mode once changes are queued. */
+    val needsSignIn: Boolean
+        get() =
+            authState == SyncAuthState.SIGNED_OUT ||
+                (authState == SyncAuthState.NO_ACCOUNT && pending.isNotEmpty())
 }
 
 /** Sync status screen (§4.4/§4.5): pending list, per-item errors, conflict log, last sync, Sync now. */
@@ -117,8 +126,10 @@ class SyncStatusViewModel
                 syncStatus.itemErrors,
                 syncStatus.conflictLog,
                 syncStatus.lastSyncTime,
-            ) { pending, errors, conflicts, lastSync ->
+                syncStatus.authState,
+            ) { pending, errors, conflicts, lastSync, authState ->
                 SyncStatusUiState(
+                    authState = authState,
                     pending =
                         pending.map { item ->
                             PendingSyncRow(

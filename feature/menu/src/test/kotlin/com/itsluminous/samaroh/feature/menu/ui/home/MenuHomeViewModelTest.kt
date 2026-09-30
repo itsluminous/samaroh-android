@@ -1,6 +1,8 @@
 package com.itsluminous.samaroh.feature.menu.ui.home
 
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.auth.AuthRepository
+import com.itsluminous.samaroh.core.auth.AuthResult
 import com.itsluminous.samaroh.core.auth.Session
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
@@ -28,12 +30,14 @@ class MenuHomeViewModelTest {
     private val sessionHolder = FakeSessionHolder()
     private val syncStatus = FakeSyncStatus()
     private val signOutCleaner = FakeSignOutCleaner()
+    private val authRepository = FakeAuthRepository()
 
     private fun viewModel(): MenuHomeViewModel =
         MenuHomeViewModel(
             activeBusinessProvider = FakeActiveBusinessProvider(businessRepository),
             permissionGuard = permissionGuard,
             sessionHolder = sessionHolder,
+            authRepository = authRepository,
             syncStatus = syncStatus,
             signOutCleaner = signOutCleaner,
         )
@@ -48,6 +52,29 @@ class MenuHomeViewModelTest {
             val job = collecting(viewModel)
 
             assertThat(viewModel.uiState.value.signedInEmail).isEqualTo("owner@example.com")
+            // Signed in → sign-out icon, no sign-in action (ADR-089).
+            assertThat(viewModel.uiState.value.canSignIn).isFalse()
+            job.cancel()
+        }
+
+    @Test
+    fun `no session with Supabase configured offers the sign-in action`() =
+        runTest {
+            val viewModel = viewModel()
+            val job = collecting(viewModel)
+
+            assertThat(viewModel.uiState.value.canSignIn).isTrue()
+            job.cancel()
+        }
+
+    @Test
+    fun `no session without Supabase never offers sign-in`() =
+        runTest {
+            authRepository.configured = false
+            val viewModel = viewModel()
+            val job = collecting(viewModel)
+
+            assertThat(viewModel.uiState.value.canSignIn).isFalse()
             job.cancel()
         }
 
@@ -150,4 +177,22 @@ class MenuHomeViewModelTest {
             assertThat(viewModel.uiState.value.pendingSyncCount).isEqualTo(0)
             job.cancel()
         }
+}
+
+/** Only [isConfigured] matters to the Menu home; every auth call is unreachable here. */
+private class FakeAuthRepository : AuthRepository {
+    var configured = true
+    override val isConfigured: Boolean get() = configured
+
+    override suspend fun signInWithEmail(
+        email: String,
+        password: String,
+    ): AuthResult = AuthResult.Success
+
+    override suspend fun signUpWithEmail(
+        email: String,
+        password: String,
+    ): AuthResult = AuthResult.Success
+
+    override suspend fun signInWithGoogleIdToken(idToken: String): AuthResult = AuthResult.Success
 }

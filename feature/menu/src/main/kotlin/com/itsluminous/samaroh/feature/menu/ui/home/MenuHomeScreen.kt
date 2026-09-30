@@ -60,6 +60,7 @@ fun MenuHomeScreen(
     onOpenReport: (String?) -> Unit,
     onBack: (() -> Unit)? = null,
     onSignedOut: () -> Unit = {},
+    onSignIn: () -> Unit = {},
     viewModel: MenuHomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -81,7 +82,12 @@ fun MenuHomeScreen(
     MenuScreenScaffold(titleRes = R.string.menu_home_title, onBack = onBack) {
         MenuSearchField(query = query, onQueryChange = { query = it })
         if (query.isBlank()) {
-            IdentityRow(email = state.signedInEmail, onSignOut = viewModel::onSignOutRequested)
+            IdentityRow(
+                email = state.signedInEmail,
+                onSignOut = viewModel::onSignOutRequested,
+                // ADR-089: the way back in after a lost session (or from offline mode).
+                onSignIn = if (state.canSignIn) onSignIn else null,
+            )
             HorizontalDivider()
             MenuSectionRow(
                 icon = Icons.Filled.Settings,
@@ -200,13 +206,15 @@ private fun MenuSearchResultRow(
 
 /**
  * Signed-in identity row (§4.4): shows the session email with a sign-out icon at the
- * right (ADR-040), or a localized "Not signed in" state — no icon — in
- * offline/no-account mode.
+ * right (ADR-040), or a localized "Not signed in" state in offline/no-account mode —
+ * with a "Sign in" action when Supabase is configured (ADR-089: a device that lost its
+ * session must be able to sign back in without wiping local data).
  */
 @Composable
 private fun IdentityRow(
     email: String?,
     onSignOut: () -> Unit,
+    onSignIn: (() -> Unit)?,
 ) {
     ListItem(
         overlineContent =
@@ -223,16 +231,24 @@ private fun IdentityRow(
         },
         leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
         trailingContent =
-            if (email != null) {
-                {
-                    ExplainableIcon(
-                        icon = Icons.AutoMirrored.Filled.Logout,
-                        explanationRes = R.string.menu_identity_sign_out,
-                        onClick = onSignOut,
-                    )
+            when {
+                email != null -> {
+                    {
+                        ExplainableIcon(
+                            icon = Icons.AutoMirrored.Filled.Logout,
+                            explanationRes = R.string.menu_identity_sign_out,
+                            onClick = onSignOut,
+                        )
+                    }
                 }
-            } else {
-                null
+                onSignIn != null -> {
+                    {
+                        TextButton(onClick = onSignIn) {
+                            Text(stringResource(R.string.menu_identity_sign_in))
+                        }
+                    }
+                }
+                else -> null
             },
     )
 }

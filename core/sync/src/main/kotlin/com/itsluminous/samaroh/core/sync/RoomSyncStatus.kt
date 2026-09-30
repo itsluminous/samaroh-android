@@ -2,7 +2,10 @@ package com.itsluminous.samaroh.core.sync
 
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.data.sync.SyncConflictEntry
+import com.itsluminous.samaroh.core.data.sync.SyncErrorCodes
 import com.itsluminous.samaroh.core.data.sync.SyncItemError
 import com.itsluminous.samaroh.core.data.sync.SyncPendingItem
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
@@ -36,11 +39,14 @@ class RoomSyncStatus
         private val syncMetaStore: SyncMetaStore,
         private val syncScheduler: SyncScheduler,
         syncRunState: SyncRunState,
+        authGate: SyncAuthGate,
     ) : SyncStatus {
         private val json = Json { ignoreUnknownKeys = true }
         override val pendingCount: Flow<Int> = outboxDao.pendingCount()
 
         override val isSyncing: Flow<Boolean> = syncRunState.isRunning
+
+        override val authState: Flow<SyncAuthState> = authGate.authState
 
         override val pendingItems: Flow<List<SyncPendingItem>> =
             outboxDao.pendingEntries().map { entries ->
@@ -58,7 +64,9 @@ class RoomSyncStatus
 
         override val itemErrors: Flow<List<SyncItemError>> =
             outboxDao.erroredEntries().map { entries ->
-                entries.map { entry ->
+                // ADR-089: a "waiting for sign-in" hold is not a server rejection — those
+                // rows stay in the pending list under the sign-in banner, never in Errors.
+                entries.filter { it.lastError != SyncErrorCodes.WAITING_FOR_SIGN_IN }.map { entry ->
                     SyncItemError(
                         outboxId = entry.id,
                         entityType = entry.entityType,

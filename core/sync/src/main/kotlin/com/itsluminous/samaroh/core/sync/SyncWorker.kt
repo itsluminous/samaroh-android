@@ -75,7 +75,7 @@ class SyncWorker(
             TAG,
             "sync run finished: configured=${outcome.configured} pushed=${outcome.pushedCount} " +
                 "pulled=${outcome.pulledCount} conflicts=${outcome.conflictCount} " +
-                "itemErrors=${outcome.itemErrorCount} networkFailed=${outcome.networkFailed}",
+                "itemErrors=${outcome.itemErrorCount} networkFailed=${outcome.networkFailed} auth=${outcome.authState}",
         )
         return if (outcome.networkFailed) Result.retry() else Result.success()
     }

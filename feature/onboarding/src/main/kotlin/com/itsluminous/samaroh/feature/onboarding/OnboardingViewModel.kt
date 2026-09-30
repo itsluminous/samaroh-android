@@ -17,6 +17,8 @@ import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
@@ -83,6 +85,12 @@ data class OnboardingUiState(
     val createFailed: Boolean = false,
     /** The business the user created or joined; set before LINK_GOOGLE. */
     val activeBusinessId: String? = null,
+    /**
+     * ADR-089: the flow was entered from the signed-out banner / identity row after the
+     * device LOST its session — the sign-in screen explains the visit and reassures that
+     * queued changes sync automatically after signing back in.
+     */
+    val signedOutNotice: Boolean = false,
 )
 
 @HiltViewModel
@@ -102,18 +110,17 @@ class OnboardingViewModel
         authConfig: AuthConfig,
         private val clock: Clock,
         savedStateHandle: SavedStateHandle,
+        syncAuthGate: SyncAuthGate,
     ) : ViewModel() {
+        /** Entered directly at sign-in (post-sign-out landing, ADR-040; re-sign-in, ADR-089). */
+        private val startedAtSignIn = savedStateHandle.get<Boolean>(ONBOARDING_ARG_START_AT_SIGN_IN) == true
+
         private val _uiState =
             MutableStateFlow(
                 OnboardingUiState(
                     // Post-sign-out re-entry (ADR-040): the device already has a chosen
                     // language, so the flow starts directly at the sign-in step.
-                    step =
-                        if (savedStateHandle.get<Boolean>(ONBOARDING_ARG_START_AT_SIGN_IN) == true) {
-                            OnboardingStep.SIGN_IN
-                        } else {
-                            OnboardingStep.LANGUAGE
-                        },
+                    step = if (startedAtSignIn) OnboardingStep.SIGN_IN else OnboardingStep.LANGUAGE,
                     supportedLocales = localeApplier.supportedLocales,
                     selectedLanguage = localeApplier.current(),
                     supabaseConfigured = authConfig.isSupabaseConfigured,
@@ -121,6 +128,18 @@ class OnboardingViewModel
                 ),
             )
         val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
+
+        init {
+            // ADR-089: a lost session (not the user's own sign-out) gets the explanatory
+            // notice on the sign-in screen. Read once — the state only changes by signing in.
+            if (startedAtSignIn) {
+                viewModelScope.launch {
+                    if (syncAuthGate.authState.first() == SyncAuthState.SIGNED_OUT) {
+                        _uiState.value = _uiState.value.copy(signedOutNotice = true)
+                    }
+                }
+            }
+        }
 
         // ---- Language (step 1: FIRST screen, before anything else) ----
 
@@ -195,7 +214,13 @@ class OnboardingViewModel
          * signed-out default). Data syncs after a later sign-in.
          */
         fun continueWithoutAccount() {
-            _uiState.value = _uiState.value.copy(isBusy = false, authError = null, step = OnboardingStep.FORK)
+            viewModelScope.launch {
+                // ADR-089: re-entering sign-in from a signed-out device that already has a
+                // business must NOT fork the data into a second business — go straight back.
+                val hasBusiness = businessRepository.businesses().first().any { it.deletedAt == null }
+                val next = if (hasBusiness) OnboardingStep.DONE else OnboardingStep.FORK
+                _uiState.value = _uiState.value.copy(isBusy = false, authError = null, step = next)
+            }
         }
 
         // ---- Fork (step 4: create vs join, pending-invite auto-detect) ----
@@ -414,11 +439,21 @@ class OnboardingViewModel
 
         // ---- Back navigation within the flow ----
 
+        /** Whether the in-flow back handler owns the back press on the current step. */
+        fun canGoBack(): Boolean =
+            when (_uiState.value.step) {
+                OnboardingStep.LANGUAGE, OnboardingStep.DONE -> false
+                // Entered at sign-in: back leaves the flow (pops to the caller) instead of
+                // replaying the welcome carousel (ADR-040/089).
+                OnboardingStep.SIGN_IN -> !startedAtSignIn
+                else -> true
+            }
+
         fun goBack(): Boolean {
             val previous =
                 when (_uiState.value.step) {
                     OnboardingStep.WELCOME -> OnboardingStep.LANGUAGE
-                    OnboardingStep.SIGN_IN -> OnboardingStep.WELCOME
+                    OnboardingStep.SIGN_IN -> if (startedAtSignIn) return false else OnboardingStep.WELCOME
                     OnboardingStep.JOIN, OnboardingStep.CREATE_BUSINESS -> OnboardingStep.FORK
                     else -> return false
                 }

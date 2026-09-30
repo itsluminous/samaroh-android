@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.database.entity.SyncConflictEntity
 import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
 import com.itsluminous.samaroh.core.sync.engine.FIXED_NOW
+import com.itsluminous.samaroh.core.sync.engine.FakeSyncAuthGate
 import com.itsluminous.samaroh.core.sync.engine.InMemorySyncMetaStore
 import com.itsluminous.samaroh.core.sync.engine.newTestDatabase
 import kotlinx.coroutines.flow.first
@@ -51,6 +52,7 @@ class RoomSyncStatusTest {
                 InMemorySyncMetaStore(),
                 scheduler,
                 syncRunState,
+                FakeSyncAuthGate(),
             )
     }
 

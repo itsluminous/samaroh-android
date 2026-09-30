@@ -9,6 +9,8 @@ import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.database.SamarohDatabase
 import com.itsluminous.samaroh.core.database.entity.OutboxEntity
 import com.itsluminous.samaroh.core.model.Booking
@@ -199,6 +201,21 @@ class FakeFilesUploader(
     }
 }
 
+/** Scriptable [SyncAuthGate]: tests flip [state] to exercise the ADR-089 pre-flight. */
+class FakeSyncAuthGate(
+    initial: SyncAuthState = SyncAuthState.SIGNED_IN,
+) : SyncAuthGate {
+    val state = MutableStateFlow(initial)
+    var awaitCalls = 0
+
+    override val authState: Flow<SyncAuthState> = state
+
+    override suspend fun awaitAuthState(): SyncAuthState {
+        awaitCalls++
+        return state.value
+    }
+}
+
 fun syncEngine(
     db: SamarohDatabase,
     remote: RemoteStore?,
@@ -212,6 +229,7 @@ fun syncEngine(
     runState: SyncRunState = SyncRunState(),
     remoteChangeListeners: Set<RemoteChangeListener> = emptySet(),
     clock: Clock = FIXED_CLOCK,
+    authGate: SyncAuthGate = FakeSyncAuthGate(),
 ): SyncEngine =
     SyncEngine(
         outboxDao = db.outboxDao(),
@@ -242,6 +260,7 @@ fun syncEngine(
                 folderAccessDao = db.folderAccessDao(),
             ),
         remoteStoreProvider = RemoteStoreProvider { remote },
+        authGate = authGate,
         attachmentUploader = Optional.ofNullable(uploader),
         filesUploader = Optional.ofNullable(filesUploader),
         itemPhotoDriveMirror = Optional.ofNullable(driveMirror),

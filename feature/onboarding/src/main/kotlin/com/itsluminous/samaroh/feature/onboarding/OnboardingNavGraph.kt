@@ -71,7 +71,7 @@ internal fun OnboardingRoute(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    BackHandler(enabled = state.step != OnboardingStep.LANGUAGE && state.step != OnboardingStep.DONE) {
+    BackHandler(enabled = viewModel.canGoBack()) {
         viewModel.goBack()
     }
 

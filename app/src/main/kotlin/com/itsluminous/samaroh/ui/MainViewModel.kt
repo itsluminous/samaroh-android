@@ -12,6 +12,7 @@ import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.model.MemberPermissions
@@ -53,7 +54,18 @@ data class SyncIndicator(
     val errorCount: Int = 0,
     /** True while a sync run is executing — the cloud icon animates (§4.5). */
     val syncing: Boolean = false,
-)
+    /** Whether sync may run at all (ADR-089): signed-out devices get the sign-in state. */
+    val authState: SyncAuthState = SyncAuthState.SIGNED_IN,
+) {
+    /**
+     * The cloud icon's "sign in to sync" state: a LOST session always (pulls are dead too),
+     * a never-signed-in device only once it has queued changes that cannot leave it.
+     */
+    val needsSignIn: Boolean
+        get() =
+            authState == SyncAuthState.SIGNED_OUT ||
+                (authState == SyncAuthState.NO_ACCOUNT && pendingCount > 0)
+}
 
 /**
  * App-shell state (Wave-1 integration seam f): first-launch onboarding routing, theme
@@ -144,9 +156,24 @@ class MainViewModel
                 }.stateIn(viewModelScope, SharingStarted.Eagerly, ThemePrefs())
 
         val syncIndicator: StateFlow<SyncIndicator> =
-            combine(syncStatus.pendingCount, syncStatus.itemErrors, syncStatus.isSyncing) { pending, errors, syncing ->
-                SyncIndicator(pendingCount = pending, errorCount = errors.size, syncing = syncing)
+            combine(
+                syncStatus.pendingCount,
+                syncStatus.itemErrors,
+                syncStatus.isSyncing,
+                syncStatus.authState,
+            ) { pending, errors, syncing, auth ->
+                SyncIndicator(pendingCount = pending, errorCount = errors.size, syncing = syncing, authState = auth)
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncIndicator())
+
+        /**
+         * ADR-089: true while this device has LOST its session (was signed in, no explicit
+         * sign-out) — the shell shows the persistent "signed out" banner with a Sign in
+         * action; nothing syncs until the user signs in again.
+         */
+        val signedOut: StateFlow<Boolean> =
+            syncStatus.authState
+                .map { it == SyncAuthState.SIGNED_OUT }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
         /** Marks first-launch onboarding as done (§4.0 step 7) — persists across restarts. */
         fun completeOnboarding() {

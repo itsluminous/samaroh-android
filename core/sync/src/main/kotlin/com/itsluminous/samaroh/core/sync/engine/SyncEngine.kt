@@ -8,6 +8,9 @@ import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxOperation
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
+import com.itsluminous.samaroh.core.data.sync.SyncErrorCodes
 import com.itsluminous.samaroh.core.database.dao.BusinessDao
 import com.itsluminous.samaroh.core.database.dao.OutboxDao
 import com.itsluminous.samaroh.core.database.dao.SyncConflictDao
@@ -50,6 +53,12 @@ data class SyncOutcome(
     val conflictCount: Int = 0,
     /** True on a transport failure — the worker retries with exponential backoff. */
     val networkFailed: Boolean = false,
+    /**
+     * The settled auth state the run saw (ADR-089). Anything but [SyncAuthState.SIGNED_IN]
+     * means the network was never touched: queued ops were held (`waiting for sign-in`)
+     * or, for [SyncAuthState.REFRESH_PENDING], left untouched for a retry.
+     */
+    val authState: SyncAuthState = SyncAuthState.SIGNED_IN,
 )
 
 /**
@@ -74,6 +83,8 @@ class SyncEngine
         private val conflictDao: SyncConflictDao,
         private val applier: LocalApplier,
         private val remoteStoreProvider: RemoteStoreProvider,
+        /** "May this run talk to the server as a user?" — never as `anon` (ADR-089). */
+        private val authGate: SyncAuthGate,
         private val attachmentUploader: Optional<AttachmentUploader>,
         /** Files-module upload-before-row-push (ADR-085) — bound by `core:google`. */
         private val filesUploader: Optional<FilesUploader>,
@@ -97,6 +108,20 @@ class SyncEngine
         suspend fun runSync(): SyncOutcome =
             runMutex.withLock {
                 val remote = remoteStoreProvider.get() ?: return@withLock SyncOutcome(configured = false)
+                // ADR-089 pre-flight: wait for the auth library to settle, then refuse to run
+                // without a user session. RLS would reject every anon push (42501) and
+                // return nothing for pulls — a silent failure mode that used to look like
+                // "synced". Queued ops are stamped so the Sync status screen can say why.
+                when (val auth = authGate.awaitAuthState()) {
+                    SyncAuthState.SIGNED_IN -> Unit
+                    SyncAuthState.REFRESH_PENDING ->
+                        return@withLock SyncOutcome(configured = true, networkFailed = true, authState = auth)
+                    SyncAuthState.NOT_CONFIGURED -> return@withLock SyncOutcome(configured = false, authState = auth)
+                    SyncAuthState.NO_ACCOUNT, SyncAuthState.SIGNED_OUT -> {
+                        outboxDao.holdAll(SyncErrorCodes.WAITING_FOR_SIGN_IN)
+                        return@withLock SyncOutcome(configured = true, authState = auth)
+                    }
+                }
                 var pushed = 0
                 var itemErrors = 0
                 var pulled = 0

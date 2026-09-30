@@ -1,15 +1,20 @@
 package com.itsluminous.samaroh.feature.menu.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -21,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
@@ -31,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.data.sync.ConflictResolution
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
@@ -49,6 +56,7 @@ import java.util.Locale
 @Composable
 fun SyncStatusScreen(
     onBack: () -> Unit,
+    onSignIn: () -> Unit = {},
     viewModel: SyncStatusViewModel = hiltViewModel(),
 ) {
     val status by viewModel.status.collectAsStateWithLifecycle()
@@ -88,7 +96,15 @@ fun SyncStatusScreen(
         val current = status ?: return@MenuScreenScaffold
         val allClear = current.pending.isEmpty() && current.conflicts.isEmpty() && current.errors.isEmpty()
 
-        if (allClear) {
+        // ADR-089: no user session — nothing is pushed or pulled. Say so first, with the
+        // way out; the pending list below is what will sync once they sign back in.
+        if (current.needsSignIn) {
+            SignedOutCard(
+                lostSession = current.authState == SyncAuthState.SIGNED_OUT,
+                onSignIn = onSignIn,
+            )
+        }
+        if (allClear && !current.needsSignIn) {
             // Friendly all-clear state instead of a bare status line.
             EmptyStateCompact(
                 icon = Icons.Filled.CloudDone,
@@ -96,9 +112,10 @@ fun SyncStatusScreen(
                 message = stringResource(R.string.settings_sync_all_synced_message),
                 modifier = Modifier.padding(top = 16.dp),
             )
-        } else {
+        } else if (!allClear) {
+            val headingRes = if (current.needsSignIn) R.plurals.sync_waiting_for_sign_in_pending else R.plurals.settings_sync_pending
             Text(
-                text = pluralStringResource(R.plurals.settings_sync_pending, current.pendingCount, current.pendingCount),
+                text = pluralStringResource(headingRes, current.pendingCount, current.pendingCount),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(16.dp).semantics { heading() },
             )
@@ -241,6 +258,44 @@ fun SyncStatusScreen(
                     },
                 )
                 HorizontalDivider()
+            }
+        }
+    }
+}
+
+/**
+ * Signed-out banner of the Sync status screen (ADR-089). [lostSession] = the device WAS
+ * signed in (the account's session was revoked/expired); otherwise offline mode with
+ * queued changes that can never leave the device until a sign-in.
+ */
+@Composable
+private fun SignedOutCard(
+    lostSession: Boolean,
+    onSignIn: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(imageVector = Icons.Filled.CloudOff, contentDescription = null)
+                Text(
+                    text =
+                        stringResource(
+                            if (lostSession) R.string.sync_signed_out_status_title else R.string.sync_no_account_status_title,
+                        ),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() },
+                )
+            }
+            Text(
+                text = stringResource(R.string.sync_signed_out_status_message),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Button(onClick = onSignIn, modifier = Modifier.padding(top = 12.dp)) {
+                Text(stringResource(R.string.sync_signed_out_action_sign_in))
             }
         }
     }

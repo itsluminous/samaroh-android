@@ -70,6 +70,8 @@ dependencies {
     implementation(project(":core:designsystem"))
 
     implementation(libs.kotlinx.coroutines.core)
+    // Persists the last-signed-in marker behind SyncAuthGate (ADR-089).
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
 
     // Supabase auth + database access (Postgrest) over the Ktor OkHttp engine.

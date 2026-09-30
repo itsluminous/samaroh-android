@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.menu.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.auth.AuthRepository
 import com.itsluminous.samaroh.core.auth.PermissionGuard
 import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
@@ -36,6 +37,8 @@ data class MenuHomeUiState(
     val showSignOutDialog: Boolean = false,
     /** True while the sign-out + local wipe runs — the dialog's buttons disable. */
     val isSigningOut: Boolean = false,
+    /** Signed out with Supabase configured (ADR-089): the identity row offers "Sign in". */
+    val canSignIn: Boolean = false,
 )
 
 /** One-shot navigation events of the Menu home screen. */
@@ -51,6 +54,7 @@ class MenuHomeViewModel
         activeBusinessProvider: ActiveBusinessProvider,
         permissionGuard: PermissionGuard,
         private val sessionHolder: SessionHolder,
+        authRepository: AuthRepository,
         syncStatus: SyncStatus,
         private val signOutCleaner: SignOutCleaner,
     ) : ViewModel() {
@@ -77,6 +81,7 @@ class MenuHomeViewModel
                     pendingSyncCount = pendingCount,
                     showSignOutDialog = dialogVisible,
                     isSigningOut = isSigningOut,
+                    canSignIn = session == null && authRepository.isConfigured,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MenuHomeUiState())
 

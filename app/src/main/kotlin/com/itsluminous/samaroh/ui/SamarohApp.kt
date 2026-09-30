@@ -7,10 +7,14 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
@@ -34,7 +38,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,6 +58,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -143,6 +151,7 @@ fun SamarohApp(
     val onboardingComplete by viewModel.onboardingComplete.collectAsStateWithLifecycle()
     val visibleTabsState by viewModel.visibleTabs.collectAsStateWithLifecycle()
     val syncIndicator by viewModel.syncIndicator.collectAsStateWithLifecycle()
+    val signedOut by viewModel.signedOut.collectAsStateWithLifecycle()
     val activityContext = LocalContext.current
 
     // Wait for the DataStore read before choosing the start destination (no flicker).
@@ -209,6 +218,14 @@ fun SamarohApp(
     // tab, exactly like the kebab, so back returns to where the user was.
     fun openMenu() {
         navController.navigate(MENU_TAB_ROUTE) { launchSingleTop = true }
+    }
+
+    // ADR-089 re-sign-in: the signed-out banner / Sync status / Menu identity row open the
+    // onboarding SIGN-IN step on top of the current screen — unlike the ADR-040 sign-out
+    // landing, local data is intact and back returns here. A successful sign-in as the
+    // same account ends onboarding (returning-user fast path) and drains the held queue.
+    fun openSignIn() {
+        navController.navigate(ONBOARDING_SIGN_IN_ROUTE) { launchSingleTop = true }
     }
     LaunchedEffect(pendingAppLink, onboarded) {
         val link = pendingAppLink
@@ -314,7 +331,7 @@ fun SamarohApp(
                     actions = {
                         SyncCloudIcon(
                             indicator = syncIndicator,
-                            // Badge > 0 → open the Sync-status pending list (§4.5).
+                            // Badge > 0 or signed out → open the Sync-status screen (§4.5, ADR-089).
                             onOpenSyncStatus = { navController.navigate(SYNC_STATUS_ROUTE) },
                         )
                         // Menu kebab (ADR-087): right of the sync icon; pushes the Menu
@@ -388,6 +405,12 @@ fun SamarohApp(
             ) {
                 OfflineBanner()
             }
+            // Signed-out banner (ADR-089): the device lost its session — nothing syncs
+            // until the user signs in again. Persistent (not a snackbar) because the
+            // condition persists; hidden inside onboarding where sign-in itself is shown.
+            if (signedOut && !inOnboarding) {
+                SignedOutBanner(onSignIn = ::openSignIn)
+            }
             // Nav-level motion (§6 polish): consistent fade-through from the shared spec,
             // disabled entirely when the user has reduced motion on.
             val reducedMotion = rememberReducedMotion()
@@ -443,9 +466,11 @@ fun SamarohApp(
                                 launchSingleTop = true
                             }
                         },
+                        // Identity row "Sign in" while signed out (ADR-089).
+                        onSignIn = ::openSignIn,
                     )
                     reportsGraph()
-                    syncStatusGraph(onBack = { navController.popBackStack() })
+                    syncStatusGraph(onBack = { navController.popBackStack() }, onSignIn = ::openSignIn)
                 }
                 onboardingGraph(
                     onOnboardingComplete = {
@@ -510,6 +535,15 @@ private fun SyncCloudIcon(
                     onClick = onTap,
                     modifier = Modifier.graphicsLayer { rotationZ = rotation },
                 )
+            // ADR-089: no user session — queued changes are waiting for sign-in and pulls
+            // return nothing. Never the green check. Tap opens Sync status (sign-in banner).
+            indicator.needsSignIn ->
+                ExplainableIcon(
+                    icon = Icons.Filled.CloudOff,
+                    explanationRes = R.string.sync_signed_out_icon,
+                    tint = MaterialTheme.colorScheme.error,
+                    onClick = onOpenSyncStatus,
+                )
             indicator.errorCount > 0 ->
                 ExplainableIcon(
                     icon = Icons.Filled.CloudOff,
@@ -528,6 +562,42 @@ private fun SyncCloudIcon(
                     icon = Icons.Filled.CloudDone,
                     explanationRes = R.string.common_state_synced,
                 )
+        }
+    }
+}
+
+/**
+ * Persistent shell banner while the device has lost its session (ADR-089): explains why
+ * nothing syncs and offers the way out. Sits under the offline banner, above the NavHost.
+ */
+@Composable
+private fun SignedOutBanner(
+    onSignIn: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.CloudOff,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = stringResource(R.string.sync_signed_out_banner),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onSignIn) {
+                Text(stringResource(R.string.sync_signed_out_action_sign_in))
+            }
         }
     }
 }

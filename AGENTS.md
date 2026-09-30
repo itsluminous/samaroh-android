@@ -24,7 +24,7 @@ Sign-In, Drive backups and Calendar sync.
 | `core:database` | Room entities/DAOs/converters, `outbox`, sync cursors/conflict log, exported schemas — **FROZEN CONTRACT** | done |
 | `core:data` | repository interfaces (**FROZEN**, additive extensions via ADRs) + Room-backed impls, `OutboxWriter`/`SyncScheduler`/`SyncStatusProvider` contracts, settings DataStore, session providers | done |
 | `core:sync` | full sync engine (keyset pull, LWW, post-sync hooks), `SyncWorker`, `SyncRunState` (drives `SyncStatus.isSyncing`, ADR-029), human-readable sync entries (ADR-022), WorkManager scheduler | done |
-| `core:auth` | Supabase auth (`SessionHolder`), `PermissionGuard` | done |
+| `core:auth` | Supabase auth (`SessionHolder`), `PermissionGuard`, `SyncAuthGate` (ADR-089: sync never runs as `anon`; lost-session banner), debug `SamarohAuthz` request-role log (ADR-088) | done |
 | `core:google` | Google linking, Drive backups/attachments, Calendar sync | done |
 | `core:invoice` | PDF renderer + invoice numbering (layout per `shared/invoice/layout-spec.md`) | done |
 | `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done |

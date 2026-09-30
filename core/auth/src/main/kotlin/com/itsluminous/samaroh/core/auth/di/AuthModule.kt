@@ -14,6 +14,7 @@ import com.itsluminous.samaroh.core.auth.SupabaseAuthManager
 import com.itsluminous.samaroh.core.auth.SupabaseMembershipRefresher
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -32,6 +33,9 @@ abstract class AuthModule {
     @Binds abstract fun bindSessionHolder(impl: SupabaseAuthManager): SessionHolder
 
     @Binds abstract fun bindAuthRepository(impl: SupabaseAuthManager): AuthRepository
+
+    /** Sync pre-flight + signed-out signal (ADR-089): the engine never runs as `anon`. */
+    @Binds abstract fun bindSyncAuthGate(impl: SupabaseAuthManager): SyncAuthGate
 
     @Binds abstract fun bindPermissionGuard(impl: DefaultPermissionGuard): PermissionGuard
 

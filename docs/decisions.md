@@ -3468,3 +3468,116 @@ reused). `NavPermissions.visibleTabRoutes` may now be EMPTY; `MainViewModel.visi
 callers must go through `startDestination`. e2e tests open the Menu via the kebab's
 content description. Web-mobile keeps the D15 overflow rule — this ADR is Android-only
 (the shared design doc's D15 row describes the pre-087 Android behaviour).
+
+## ADR-088 — Debug-build request auth-role diagnostics (`SamarohAuthz`) (2026-09-30)
+
+**Status:** accepted (P0 investigation: every owner push failing RLS `42501` while the
+app "looked synced").
+
+**Context.** A sync run that carries only the anon key fails every upsert with `42501`
+and gets empty pulls — indistinguishable in `SamarohSync` logs from a healthy run with
+nothing to do. Diagnosing WHICH role a request executed as required a proxy.
+
+**Decision.** `core:auth` installs `RequestAuthDiagnostics` on the shared Ktor client in
+**debug builds only** (`BuildConfig.DEBUG` in `AuthModule.provideSupabaseClient`). It
+logs, per Supabase request, `<METHOD> <path> role=<jwt role> sub=<8 chars>` (or
+`no-authorization`) under tag `SamarohAuthz`, derived from the bearer JWT's claims.
+Never the token itself, never in release. `adb logcat -s SamarohAuthz SamarohSync` now
+answers "anon or user?" in one line.
+
+**Consequences.** Debug-only interceptor (`@OptIn(SupabaseInternal)` for
+`client.httpClient.httpClient`); no behaviour change. Release builds are untouched.
+
+## ADR-089 — Sync never runs as `anon`: auth gate, signed-out banner, self-healing queue (2026-09-30)
+
+**Status:** accepted (P0 fix, v0.18.1). Additive extensions of the FROZEN contracts:
+`core:data` gains `SyncAuthGate`/`SyncAuthState`/`SyncErrorCodes` and
+`SyncStatus.authState` (defaulted, ADR-029 pattern); `core:database` gains
+`OutboxDao.holdAll`. Web parity in `samaroh-web` (`replayOutbox` guard +
+`SessionLostBanner`).
+
+**Context.** The owner's phone (v0.18.0) was found signed out. Root cause chain, with
+evidence:
+
+- supabase-kt 3.0.3 `AuthImpl.tryImportingSession` CLEARS the persisted session on any
+  non-5xx refresh failure — log line *"Couldn't refresh session. The refresh token may
+  have been revoked. Clearing session... (Status code 400)"*, then `clearSession()`,
+  which reports `SessionStatus.NotAuthenticated(isSignOut = true)` — the same value a
+  deliberate sign-out produces. Reproduced on the emulator by revoking the device's own
+  session server-side (`POST /auth/v1/logout?scope=local`) and forcing a refresh:
+  `Invalid Refresh Token: Refresh Token Not Found` → prefs key
+  `sb-<ref>-supabase-co-session` wiped.
+- The app then ran in "offline owner mode" (all tabs, `Menu → Not signed in` with NO
+  sign-in action — the only way in was a full sign-out wipe), and the sync engine kept
+  running with the anon key: every push `42501` (red cloud with a count but no
+  explanation), every pull empty, `lastSyncTime` still stamped. With an empty queue
+  the cloud icon was even the GREEN check.
+- The startup expedited sync also RACED the auth library's storage load: the first
+  `GET /rest/v1/businesses` went out as `role=anon` before *"Successfully loaded
+  session from storage!"*.
+- Ruled OUT (emulator, release APKs from GitHub): upgrading v0.17.0 → v0.18.0 over a
+  signed-in install keeps the session (*"Successfully loaded session from storage!"*,
+  identity row shows the owner, pull as `authenticated`). No persistence/R8/DataStore
+  change shipped in 0.18.0. The phone's session was therefore revoked or expired
+  SERVER-side (candidates: Supabase Auth "single session per user", session time-box /
+  inactivity timeout, or a refresh-token-family revocation) — our own password-grant
+  REST logins on 2026-09-25 and 2026-09-30 are the most likely trigger if single-session
+  is enabled. A refresh-token REUSE (same token refreshed out of band, then by the app
+  ~100 s later) did NOT evict the session on this project.
+
+**Decision.**
+
+1. **Auth gate.** `SyncAuthGate` (`core:data`), implemented by `SupabaseAuthManager`:
+   `awaitAuthState()` calls `auth.awaitInitialization()` (fixes the startup race) and
+   maps `SessionStatus` + a persisted marker to `SyncAuthState`: `SIGNED_IN`,
+   `REFRESH_PENDING` (transient refresh failure — session kept, no network this run,
+   WorkManager retries), `SIGNED_OUT` (no session BUT the marker says an account was
+   signed in on this device), `NO_ACCOUNT` (never signed in / explicit sign-out),
+   `NOT_CONFIGURED`. The marker is `auth_last_signed_in_user_id` in the settings
+   DataStore — written on every successful sign-in and on every authenticated run,
+   cleared by `signOut()`. It exists because `isSignOut` cannot tell a wipe from a
+   sign-out (see Context).
+2. **Engine pre-flight.** `SyncEngine.runSync()` awaits the gate FIRST. Anything but
+   `SIGNED_IN` never touches the network: `SIGNED_OUT`/`NO_ACCOUNT` stamp every outbox
+   row with `SyncErrorCodes.WAITING_FOR_SIGN_IN` via `OutboxDao.holdAll` (no
+   `attempt_count` bump; overwrites stale `42501` texts) and return
+   `SyncOutcome(authState=…)`; `REFRESH_PENDING` returns `networkFailed=true`.
+   `RoomSyncStatus.itemErrors` filters the hold code out — held rows are PENDING, not
+   errors (no "Discard" offered).
+3. **Surfacing.** `SyncStatus.authState` feeds: the app-bar cloud icon (`SyncIndicator.
+   needsSignIn` → red `CloudOff`, explanation `sync.signed_out.icon`, tap opens Sync
+   status; never the green check while signed out); a persistent shell banner under the
+   offline banner while `SIGNED_OUT` (`sync.signed_out.banner` + `Sign in`); the Sync
+   status screen's error-container card (`sync.signed_out.status_title` /
+   `sync.no_account.status_title` + message + `Sign in`) and heading
+   `sync.waiting_for_sign_in.pending`; and the Menu identity row's `Sign in` action
+   whenever there is no session and Supabase is configured (`menu.identity.sign_in`,
+   shared with web).
+4. **Re-sign-in path.** All three `Sign in` affordances navigate to
+   `ONBOARDING_SIGN_IN_ROUTE` ON TOP of the current screen (local data intact — unlike the
+   ADR-040 landing). `OnboardingViewModel`: entered at sign-in, back LEAVES the flow
+   (`canGoBack()`); a lost session shows `onboarding.sign_in.signed_out_notice`;
+   "Continue without an account" returns straight to the app (`DONE`) when a live
+   business already exists instead of forking into a second one. Signing in as the
+   SAME account hits the existing returning-user fast path (`existingBusinessId`) → the
+   expedited sync drains the held queue with no further user action (emulator: held note
+   pushed `role=authenticated`, banner and badge gone). A DIFFERENT account keeps today's
+   behaviour: the server's RLS rejects the other business's rows (per-item errors);
+   ADR-040 sign-out remains the supported way to switch accounts.
+5. **Web parity.** `replayOutbox()` returns `signedOut=true` and leaves the queue
+   untouched when `auth.getSession()` has no session (clients without an `auth`
+   surface are trusted); `SessionLostBanner` (app layout, non-guest only) appears on
+   `SIGNED_OUT` / a restored tab without a session and disappears — replaying the held
+   queue — on `SIGNED_IN`/`TOKEN_REFRESHED`. Keys `auth.session_lost.{banner,sign_in}`.
+
+**Consequences.** New shared keys: `sync.signed_out.{banner,action_sign_in,icon,
+status_title,status_message}`, `sync.no_account.status_title`,
+`sync.waiting_for_sign_in.pending`, `onboarding.sign_in.signed_out_notice`,
+`auth.session_lost.{banner,sign_in}`. Offline/no-account users with queued changes now
+see the red cloud + "Not signed in — changes stay on this device" instead of anonymous
+`42501` errors. Tests: `SyncEngineAuthGateTest`, `SyncAuthStateMappingTest`,
+`SyncIndicatorTest`, `MenuHomeViewModelTest`/`OnboardingViewModelTest` additions;
+web `outbox-signed-out.test.ts`, `session-lost-banner.test.tsx`. The owner only has to
+sign in again on the phone (0.18.1) — no data was lost: every change is still in the
+local outbox and pushes on sign-in. Recommended owner check: Supabase Dashboard → Auth →
+Sessions ("single session per user", time-box/inactivity settings); nothing to rotate.

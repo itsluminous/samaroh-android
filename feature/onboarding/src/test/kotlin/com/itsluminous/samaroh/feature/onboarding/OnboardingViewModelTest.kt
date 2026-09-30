@@ -16,6 +16,8 @@ import com.itsluminous.samaroh.core.auth.SessionHolder
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
+import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
@@ -54,6 +56,8 @@ class OnboardingViewModelTest {
     private val fakeSyncScheduler = FakeSyncScheduler()
     private val fakeLocale = FakeLocaleApplier()
 
+    private val fakeAuthGate = FakeSyncAuthGate()
+
     private fun viewModel(
         supabaseConfigured: Boolean = true,
         googleConfigured: Boolean = true,
@@ -79,8 +83,59 @@ class OnboardingViewModelTest {
             authConfig = config,
             clock = Clock.fixed(now, ZoneOffset.UTC),
             savedStateHandle = SavedStateHandle(mapOf(ONBOARDING_ARG_START_AT_SIGN_IN to startAtSignIn)),
+            syncAuthGate = fakeAuthGate,
         )
     }
+
+    // ---- Re-sign-in after a lost session (ADR-089) ----
+
+    @Test
+    fun `lost session shows the signed-out notice on the sign-in step`() =
+        runTest {
+            fakeAuthGate.state.value = SyncAuthState.SIGNED_OUT
+            val vm = viewModel(startAtSignIn = true)
+            assertThat(vm.uiState.value.signedOutNotice).isTrue()
+        }
+
+    @Test
+    fun `plain post-sign-out landing shows no notice`() =
+        runTest {
+            fakeAuthGate.state.value = SyncAuthState.NO_ACCOUNT
+            val vm = viewModel(startAtSignIn = true)
+            assertThat(vm.uiState.value.signedOutNotice).isFalse()
+        }
+
+    @Test
+    fun `entered at sign-in, back leaves the flow instead of replaying welcome`() {
+        val vm = viewModel(startAtSignIn = true)
+        assertThat(vm.canGoBack()).isFalse()
+        assertThat(vm.goBack()).isFalse()
+        assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.SIGN_IN)
+
+        val fresh = viewModel()
+        fresh.continueFromLanguage()
+        fresh.finishWelcome()
+        assertThat(fresh.canGoBack()).isTrue()
+        assertThat(fresh.goBack()).isTrue()
+        assertThat(fresh.uiState.value.step).isEqualTo(OnboardingStep.WELCOME)
+    }
+
+    @Test
+    fun `continue without account with an existing business returns to the app, not the fork`() =
+        runTest {
+            fakeBusinessRepo.saveBusiness(business("biz-local", "Singh Garden", ownerUserId = "local-1"))
+            val vm = viewModel(startAtSignIn = true)
+            vm.continueWithoutAccount()
+            assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.DONE)
+        }
+
+    @Test
+    fun `continue without account on a fresh device still forks`() =
+        runTest {
+            val vm = viewModel(startAtSignIn = true)
+            vm.continueWithoutAccount()
+            assertThat(vm.uiState.value.step).isEqualTo(OnboardingStep.FORK)
+        }
 
     // ---- Post-sign-out re-entry (ADR-040) ----
 
@@ -471,6 +526,13 @@ class OnboardingViewModelTest {
 }
 
 // ---- fakes ----
+
+private class FakeSyncAuthGate : SyncAuthGate {
+    val state = MutableStateFlow(SyncAuthState.SIGNED_IN)
+    override val authState: Flow<SyncAuthState> = state
+
+    override suspend fun awaitAuthState(): SyncAuthState = state.value
+}
 
 private class FakeAuthRepository : AuthRepository {
     var nextResult: AuthResult = AuthResult.Success

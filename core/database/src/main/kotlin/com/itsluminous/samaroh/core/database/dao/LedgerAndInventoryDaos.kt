@@ -491,6 +491,15 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox WHERE last_error IS NOT NULL ORDER BY id ASC")
     fun erroredEntries(): Flow<List<OutboxEntity>>
 
+    /**
+     * Stamps EVERY queued op with a hold reason (ADR-089: "waiting for sign-in") without
+     * touching `attempt_count` — the op was never attempted. Also overwrites a stale
+     * server-rejection text (an anon-role `42501` from before the guard), so the Sync
+     * status screen stops showing it as an error. No-op for rows already so stamped.
+     */
+    @Query("UPDATE outbox SET last_error = :reason WHERE last_error IS NULL OR last_error != :reason")
+    suspend fun holdAll(reason: String): Int
+
     /** Every queued op in push (FIFO) order — the Sync status pending list (ADR-022). */
     @Query("SELECT * FROM outbox ORDER BY id ASC")
     fun pendingEntries(): Flow<List<OutboxEntity>>

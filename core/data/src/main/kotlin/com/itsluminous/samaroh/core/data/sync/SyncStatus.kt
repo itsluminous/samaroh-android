@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.core.data.sync
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import java.time.Instant
 
 /*
@@ -94,6 +95,14 @@ interface SyncStatus {
      * animated cloud icon (§4.5). Additive extension of the frozen contract (ADR-029).
      */
     val isSyncing: Flow<Boolean>
+
+    /**
+     * Whether sync may run at all (ADR-089, additive extension like [isSyncing]):
+     * [SyncAuthState.SIGNED_OUT] means a session was lost — queued changes are held and
+     * the UI shows a sign-in prompt. Defaults to signed-in so simple fakes stay valid.
+     */
+    val authState: Flow<SyncAuthState>
+        get() = flowOf(SyncAuthState.SIGNED_IN)
 
     /** Requests an immediate (expedited) sync — the Settings "Sync now" button. */
     fun syncNow()

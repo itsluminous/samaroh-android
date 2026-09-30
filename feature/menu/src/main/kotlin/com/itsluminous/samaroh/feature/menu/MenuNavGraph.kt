@@ -28,9 +28,12 @@ const val MENU_ROUTE = "menu"
 const val SYNC_STATUS_ROUTE = "sync_status"
 
 /** Registers the top-level Sync-status destination on the app's root NavHost. */
-fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
+fun NavGraphBuilder.syncStatusGraph(
+    onBack: () -> Unit,
+    onSignIn: () -> Unit = {},
+) {
     composable(SYNC_STATUS_ROUTE) {
-        SyncStatusScreen(onBack = onBack)
+        SyncStatusScreen(onBack = onBack, onSignIn = onSignIn)
     }
 }
 
@@ -51,6 +54,8 @@ fun NavGraphBuilder.syncStatusGraph(onBack: () -> Unit) {
  * @param onBack the Menu is pushed over a tab by the title-bar kebab (ADR-087): the Menu
  *   home shows a back arrow that pops it; null when the Menu is the start destination
  *   (a member with no viewable module) — nothing lies beneath it then.
+ * @param onSignIn the identity row's "Sign in" while the device has no session (ADR-089)
+ *   — the app shell opens the sign-in step on top of the current screen, data intact.
  */
 fun NavGraphBuilder.menuGraph(
     onBack: (() -> Unit)? = null,
@@ -59,6 +64,7 @@ fun NavGraphBuilder.menuGraph(
     onSettingsDeepLinkConsumed: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onOpenReportDetail: (String) -> Unit = {},
+    onSignIn: () -> Unit = {},
 ) {
     composable(MENU_ROUTE) {
         MenuTabHost(
@@ -68,6 +74,7 @@ fun NavGraphBuilder.menuGraph(
             onSettingsDeepLinkConsumed = onSettingsDeepLinkConsumed,
             onSignedOut = onSignedOut,
             onOpenReportDetail = onOpenReportDetail,
+            onSignIn = onSignIn,
         )
     }
 }
@@ -109,6 +116,7 @@ private fun MenuTabHost(
     onSettingsDeepLinkConsumed: () -> Unit,
     onSignedOut: () -> Unit,
     onOpenReportDetail: (String) -> Unit,
+    onSignIn: () -> Unit,
 ) {
     val navController = rememberNavController()
     // App-Link settings target (ADR-033): push Settings over Home once, then consume.
@@ -129,6 +137,7 @@ private fun MenuTabHost(
                     if (reportArg == null) onOpenReports() else onOpenReportDetail(reportArg)
                 },
                 onSignedOut = onSignedOut,
+                onSignIn = onSignIn,
             )
         }
         composable(MenuRoutes.SETTINGS) {
@@ -148,7 +157,7 @@ private fun MenuTabHost(
             ReminderSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(MenuRoutes.SYNC_STATUS) {
-            SyncStatusScreen(onBack = { navController.popBackStack() })
+            SyncStatusScreen(onBack = { navController.popBackStack() }, onSignIn = onSignIn)
         }
         composable(MenuRoutes.BUSINESS_PROFILE) {
             BusinessProfileScreen(onBack = { navController.popBackStack() })

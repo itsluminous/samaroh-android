@@ -74,6 +74,15 @@ internal fun SignInScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
+        // ADR-089: re-entry after the device lost its session — explain, reassure.
+        if (state.signedOutNotice) {
+            Text(
+                text = stringResource(R.string.onboarding_sign_in_signed_out_notice),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+        }
 
         // Primary CTA: Sign in with Google — or its localized "not configured" state.
         if (state.googleSignInConfigured) {
