@@ -2,9 +2,11 @@ package com.itsluminous.samaroh.core.auth.di
 
 import com.itsluminous.samaroh.core.auth.AuthConfig
 import com.itsluminous.samaroh.core.auth.AuthRepository
+import com.itsluminous.samaroh.core.auth.BuildConfig
 import com.itsluminous.samaroh.core.auth.DefaultPermissionGuard
 import com.itsluminous.samaroh.core.auth.MembershipRefresher
 import com.itsluminous.samaroh.core.auth.PermissionGuard
+import com.itsluminous.samaroh.core.auth.RequestAuthDiagnostics
 import com.itsluminous.samaroh.core.auth.SessionActiveBusinessProvider
 import com.itsluminous.samaroh.core.auth.SessionCurrentUserProvider
 import com.itsluminous.samaroh.core.auth.SessionHolder
@@ -18,6 +20,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.annotations.SupabaseInternal
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
@@ -50,15 +53,21 @@ abstract class AuthModule {
          */
         @Provides
         @Singleton
+        @OptIn(SupabaseInternal::class)
         fun provideSupabaseClient(config: AuthConfig): SupabaseClient? {
             if (!config.isSupabaseConfigured) return null
-            return createSupabaseClient(
-                supabaseUrl = config.supabaseUrl,
-                supabaseKey = config.supabaseAnonKey,
-            ) {
-                install(Auth)
-                install(Postgrest)
-            }
+            val client =
+                createSupabaseClient(
+                    supabaseUrl = config.supabaseUrl,
+                    supabaseKey = config.supabaseAnonKey,
+                ) {
+                    install(Auth)
+                    install(Postgrest)
+                }
+            // Debug builds log the JWT role of every request (ADR-088) — `adb logcat -s
+            // SamarohAuthz` tells anon-role (dropped session) pushes from user-role ones.
+            if (BuildConfig.DEBUG) RequestAuthDiagnostics.install(client.httpClient.httpClient)
+            return client
         }
     }
 }
