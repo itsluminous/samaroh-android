@@ -119,6 +119,27 @@ abstract class BookingFlowTest(
     }
 
     @Test
+    fun bookingCard_showsBookingNotes() {
+        // ADR-092: the free-text `bookings.notes` column renders on the card (web parity).
+        val notes = "E2E-NOTES stage on the east lawn"
+        val booking =
+            Fixtures
+                .booking(startDate = futureDateInCurrentMonth(), totalAmountPaise = 1_00_000_00L)
+                .copy(customerName = "Kavita", notes = notes)
+        runBlocking { bookingRepository.saveBooking(booking) }
+
+        waitForContentDescription("Kavita", substring = true).performClick()
+        waitForText(string(R.string.booking_calendar_add_new_event))
+        compose
+            .onNode(
+                hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Kavita", substring = true),
+                useUnmergedTree = true,
+            ).performClick()
+
+        waitForText(notes)
+    }
+
+    @Test
     fun blockDates_marksCellBlocked() {
         waitForText(string(R.string.booking_summary_this_month))
         waitForContentDescription(string(R.string.booking_calendar_more_options)).performClick()

@@ -3775,3 +3775,32 @@ Android): `expenses.summary.period_label`, `expenses.summary.period_month`,
 `expenses.summary.period_year`, `expenses.summary.period_all`. New DI-visible
 `SummaryPeriodPreferences` (`@Singleton`, settings DataStore). `ExpensesHomeViewModel`
 now takes `Clock`. `ReportDetailScreen` loses its private auto-size copy.
+
+## ADR-092 — Booking card renders `bookings.notes` (web parity) (2026-10-02)
+
+**Status:** accepted (owner bug report: "tapping a booking does not show its notes; web
+does").
+
+**Context.** The add/edit form has saved free-text `notes` on the bookings row since the
+first booking commit (0b193f0), and the sync pull (`Booking.serializer()` →
+`Booking.toEntity()` → Room `notes` column → `BookingEntity.toModel()`) carries the value
+intact — the Room row on the device matches the server row. But `BookingCardSheet` never
+read `booking.notes`: there was no permission branch, no marker branch and no blank check
+hiding it — the field was simply **never rendered**, on any version. Web's
+`BookingDetail.tsx` shows it as plain secondary text directly under the dates line, with
+no permission key (booking notes are a different concept from the ADR-077 Notes tab and
+its `notes.*` permissions), for marker bookings too, and only when truthy. Web also
+appends ` · <notes>` to each payment-history line; Android omitted that as well.
+
+**Decision.** Mirror web exactly, via a pure helper (`feature:booking/domain/
+BookingCardNotes`): `displayNotes(notes)` = trimmed non-empty text or null (nothing
+rendered); `paymentLine(date, method, notes)` = `date · method[ · notes]`. The card shows
+the booking notes under the dates (`bodyMedium`, `onSurfaceVariant`, test tag
+`booking_card_notes`), ungated, markers included; payment rows use `paymentLine`. The
+booking LIST/agenda and calendar cells are unchanged — web shows notes on the detail
+only. No new string keys (user text is rendered verbatim); no contract change.
+
+**Verification.** Unit: `BookingCardNotesTest` (trim, null/blank → null, payment line
+with/without notes). E2E: `BookingFlowTest.bookingCard_showsBookingNotes` (en + hi)
+seeds a booking with notes and asserts the card shows them. Gate green; emulator
+screenshot of a seeded booking card with notes.

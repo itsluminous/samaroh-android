@@ -65,6 +65,7 @@ import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.BookingCardActionState
+import com.itsluminous.samaroh.feature.booking.domain.BookingCardNotes
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
@@ -167,6 +168,19 @@ internal fun BookingCardSheet(
                 Text(text = formatDateRange(booking.startDate, booking.endDate), style = MaterialTheme.typography.bodyLarge)
             }
 
+            // Booking notes (the free-text `bookings.notes` column — NOT the Notes tab):
+            // mirrors web's BookingDetail — plain secondary text right under the dates,
+            // ungated (no permission key on either platform), shown for markers too, and
+            // omitted entirely when blank. ADR-092.
+            BookingCardNotes.displayNotes(booking.notes)?.let { notes ->
+                Text(
+                    text = notes,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().testTag("booking_card_notes"),
+                )
+            }
+
             if (!detail.isMarker) {
                 AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise, masked = !canViewAmounts)
                 if (booking.securityDepositPaise > 0) {
@@ -208,8 +222,14 @@ internal fun BookingCardSheet(
                 } else {
                     detail.payments.forEach { payment ->
                         Row(modifier = Modifier.fillMaxWidth()) {
+                            // Payment line mirrors web: "date · method[ · notes]".
                             Text(
-                                text = "${formatDate(payment.paidOn)} · ${paymentMethodLabel(payment.method)}",
+                                text =
+                                    BookingCardNotes.paymentLine(
+                                        date = formatDate(payment.paidOn),
+                                        method = paymentMethodLabel(payment.method),
+                                        notes = payment.notes,
+                                    ),
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
