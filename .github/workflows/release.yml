@@ -35,6 +35,9 @@ jobs:
           fi
       - name: ktlint, Android Lint, unit tests
         run: ./gradlew ktlintCheck lintDebug testDebugUnitTest
+      # Same androidTest Hilt-graph compile as CI (never runs the suite).
+      - name: Compile instrumented tests (Hilt test graph)
+        run: ./gradlew :app:compileDebugAndroidTestKotlin :app:hiltJavaCompileDebugAndroidTest
 
   release:
     name: Build signed release APK

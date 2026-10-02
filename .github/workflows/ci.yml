@@ -77,6 +77,14 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew assembleDebug
 
+      # Compile (never run) the :app instrumented suite so the androidTest Hilt graph is
+      # validated on every push/PR. The suite itself only runs nightly (job below), and
+      # a binding added to a production module but not mirrored in the e2e
+      # @TestInstallIn replacement modules otherwise surfaces only as a
+      # [Dagger/MissingBinding] in the scheduled run. Cheap: no test APK is packaged.
+      - name: Compile instrumented tests (Hilt test graph)
+        run: ./gradlew :app:compileDebugAndroidTestKotlin :app:hiltJavaCompileDebugAndroidTest
+
       # Every PR carries an installable debug APK for review (§9.5).
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

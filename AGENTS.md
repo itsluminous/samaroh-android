@@ -63,14 +63,23 @@ git submodule update --init --recursive   # once per checkout
 ./gradlew lintDebug                       # Android lint — HardcodedText/SetTextI18n are ERRORS
 ./gradlew testDebugUnitTest               # unit tests (Robolectric DAO tests included)
 ./gradlew assembleDebug                   # app/build/outputs/apk/debug/Samaroh-debug.apk
+./gradlew :app:compileDebugAndroidTestKotlin :app:hiltJavaCompileDebugAndroidTest
+                                          # compile (not run) the e2e suite — validates the
+                                          # androidTest Hilt graph; cheap, no test APK
 
 # the full local quality gate (same as CI):
-./gradlew generateStrings ktlintCheck lintDebug testDebugUnitTest assembleDebug
+./gradlew generateStrings ktlintCheck lintDebug testDebugUnitTest assembleDebug \
+  :app:compileDebugAndroidTestKotlin :app:hiltJavaCompileDebugAndroidTest
 
 bash scripts/legal-check.sh               # legal-hygiene denylist scan
 ```
 
-Run ktlint + unit tests before EVERY commit.
+Run ktlint + unit tests before EVERY commit. **Any new `@Binds`/`@Provides`/
+`@BindsOptionalOf` in `AuthModule` or `SyncModule` MUST be mirrored in the e2e
+replacement modules** (`app/src/androidTest/.../e2e/TestAuthModule.kt`,
+`TestSyncModule.kt` — `@TestInstallIn(replaces = …)` swaps the WHOLE module, so an
+unmirrored binding is a `[Dagger/MissingBinding]` that only the instrumented build
+sees). The `hiltJavaCompileDebugAndroidTest` task in the gate catches this on every push.
 
 ## Hard rules
 

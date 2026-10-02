@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.auth.SupabaseMembershipRefresher
 import com.itsluminous.samaroh.core.auth.di.AuthModule
 import com.itsluminous.samaroh.core.data.session.ActiveBusinessProvider
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
+import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -36,6 +37,14 @@ abstract class TestAuthModule {
     @Binds abstract fun bindSessionHolder(impl: SupabaseAuthManager): SessionHolder
 
     @Binds abstract fun bindAuthRepository(impl: SupabaseAuthManager): AuthRepository
+
+    /**
+     * Sync pre-flight (ADR-089). Same impl as production: with the null client pinned
+     * below it settles to [com.itsluminous.samaroh.core.data.sync.SyncAuthState.NOT_CONFIGURED],
+     * so the engine is an offline no-op and no lost-session banner ever shows — exactly
+     * the hermetic default the suite asserts against.
+     */
+    @Binds abstract fun bindSyncAuthGate(impl: SupabaseAuthManager): SyncAuthGate
 
     @Binds abstract fun bindPermissionGuard(impl: DefaultPermissionGuard): PermissionGuard
 

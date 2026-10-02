@@ -1,9 +1,13 @@
 package com.itsluminous.samaroh.e2e
 
+import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.AttachmentPermissionRepair
 import com.itsluminous.samaroh.core.data.sync.AttachmentUploader
+import com.itsluminous.samaroh.core.data.sync.FilesUploader
 import com.itsluminous.samaroh.core.data.sync.ItemPhotoDriveMirror
 import com.itsluminous.samaroh.core.data.sync.OutboxWriter
+import com.itsluminous.samaroh.core.data.sync.PostSyncHook
+import com.itsluminous.samaroh.core.data.sync.RemoteChangeListener
 import com.itsluminous.samaroh.core.data.sync.ReplicaIntegrity
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.data.sync.SyncStatus
@@ -23,6 +27,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.components.SingletonComponent
 import dagger.hilt.testing.TestInstallIn
+import dagger.multibindings.IntoSet
+import dagger.multibindings.Multibinds
 import javax.inject.Singleton
 
 /**
@@ -47,12 +53,25 @@ abstract class TestSyncModule {
     /** Real impl (ADR-060): with the null remote store below it always reports consistent. */
     @Binds abstract fun bindReplicaIntegrity(impl: DefaultReplicaIntegrity): ReplicaIntegrity
 
+    /** Mirrors production (ADR-040): sign-out wipes the sync metadata with the rest of the local data. */
+    @Binds
+    @IntoSet
+    abstract fun bindSyncMetaSessionScopedStore(impl: DataStoreSyncMetaStore): SessionScopedStore
+
     @BindsOptionalOf abstract fun optionalAttachmentUploader(): AttachmentUploader
+
+    /** Populated by the real GoogleModule (ADR-085); harmless in tests (nothing is ever linked). */
+    @BindsOptionalOf abstract fun optionalFilesUploader(): FilesUploader
 
     /** Populated by the real GoogleModule; harmless in tests (nothing is ever linked). */
     @BindsOptionalOf abstract fun optionalItemPhotoDriveMirror(): ItemPhotoDriveMirror
 
     @BindsOptionalOf abstract fun optionalAttachmentPermissionRepair(): AttachmentPermissionRepair
+
+    /** Mirrors production: valid even when no feature module contributes (ADR-024 / ADR-047). */
+    @Multibinds abstract fun postSyncHooks(): Set<PostSyncHook>
+
+    @Multibinds abstract fun remoteChangeListeners(): Set<RemoteChangeListener>
 
     companion object {
         @Provides
