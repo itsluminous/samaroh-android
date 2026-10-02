@@ -782,6 +782,15 @@ private fun FilesGrid(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Uploader attribution under the size (design §6 lists added_by for every
+                // file listing; web grid tiles show it too — ADR-093 reconciliation).
+                row.addedBy?.let {
+                    MetadataText(
+                        text = stringResource(R.string.files_file_added_by, it),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

@@ -3835,8 +3835,12 @@ the size caption with " · "). There was no shared role for "text ABOUT a record
 3. **What counts as metadata:** provenance/attribution about a record — *who* recorded it,
    *when* it was recorded or last touched ("Added by … on …", "Updated …", "Edited by …").
    **What does NOT:** anything that *is* the record — booking notes, customer phone, the
-   booking/expense/transaction date, amounts, file size, item counts. Those stay body/label
-   roles. Specifically, **content text that sits next to a metadata line uses `onSurface`,
+   booking dates, amounts, file size, item counts. Those stay body/label roles.
+   *Reconciled with web (2026-10-02, same day):* a **date/time stamp line** on a ledger
+   entry or inventory transaction row, and a "last entry …" relative time, ARE metadata —
+   they are *when* stamps that sit directly next to free-text notes, which is exactly the
+   ambiguity this ADR removes. Only the booking's own date range (the thing being booked)
+   stays content. Specifically, **content text that sits next to a metadata line uses `onSurface`,
    not `onSurfaceVariant`**, so the content/metadata contrast is two steps (size+face AND
    colour), never one.
 4. **Applied everywhere a metadata line exists today:**
@@ -3847,11 +3851,16 @@ the size caption with " · "). There was no shared role for "text ABOUT a record
    - Files list row (`FileListRow`): "Added by {name}" moved OUT of the joined
      `subtitle · size · pending` caption onto its own `MetadataText` line beneath it
      (caption is now single-line; the row grows by one 16sp line only when an uploader is
-     known). Grid tiles show no attribution and are unchanged.
-   Audited and intentionally left alone (not metadata): expense entry dates on the party
-   ledger, inventory transaction dates in item history (the date is the row), Notes tab
-   (renders no timestamps/authors), Menu "last sync"/"last backup" rows (system status, not
-   record provenance — converge opportunistically if they are next touched).
+     known). Grid tiles now also carry the attribution as a `MetadataText` line under the
+     size (design §6 lists `files.file.added_by` for every file listing; web tiles show it).
+   - *Reconciliation pass (web parity, same release):* Expenses home party row "{relative
+     time}" last-entry stamp → `MetadataText`; party ledger entry date line above the notes
+     → `MetadataText` (notes stay `bodyLarge`/`onSurface`); inventory item-history
+     transaction timestamp → `MetadataText`, and that row's notes → `onSurface` (§3).
+   Audited and intentionally left alone: Notes tab (renders no timestamps/authors), Menu
+   "last sync"/"last backup" rows (system status, not record provenance — converge
+   opportunistically if they are next touched). The cross-platform rule lives in
+   `shared/docs/ui-conventions.md`.
 
 **Verification.** Unit: `MetadataTextTest` (font size < bodyMedium, `Monospace`, colour ==
 `outline` and != `onSurfaceVariant`, text rendered verbatim). Existing `BookingFlowTest.

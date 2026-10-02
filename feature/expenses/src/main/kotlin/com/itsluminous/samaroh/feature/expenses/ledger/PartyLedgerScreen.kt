@@ -81,6 +81,7 @@ import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDeleteAction
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
+import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
@@ -520,11 +521,9 @@ private fun LedgerEntryRow(
     val expense = row.expense
     Row(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = expense.expenseDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // Entry date stamp above the notes = metadata (ADR-093 reconciliation, web
+            // PartyLedger parity) so the stamp and the free-text notes never read as one block.
+            MetadataText(text = expense.expenseDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)))
             expense.notes?.let {
                 Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 2.dp))
             }

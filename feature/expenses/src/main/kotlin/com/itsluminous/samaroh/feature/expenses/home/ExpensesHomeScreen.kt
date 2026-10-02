@@ -45,6 +45,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.AutoShrinkText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
+import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.component.SortMenuButton
@@ -269,10 +270,8 @@ private fun PartyRow(
         supportingContent = {
             item.lastEntryAt?.let { at ->
                 // System-localized relative time ("2 hours ago") — follows the app locale.
-                Text(
-                    text = DateUtils.getRelativeTimeSpanString(at.toEpochMilli()).toString(),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                // "Last touched" stamp = metadata (ADR-093), web ExpensesHome parity.
+                MetadataText(text = DateUtils.getRelativeTimeSpanString(at.toEpochMilli()).toString())
             }
         },
         trailingContent = {

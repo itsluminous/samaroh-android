@@ -61,6 +61,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
+import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
@@ -458,12 +459,8 @@ private fun TransactionRowCard(
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TxnTypeChip(type = txn.transactionType)
-                Text(
-                    text = formatDateTime(txn.transactionDate),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
+                // Transaction timestamp = metadata (ADR-093 reconciliation, web ItemDetail parity).
+                MetadataText(text = formatDateTime(txn.transactionDate), modifier = Modifier.weight(1f))
                 AmountText(
                     amountPaise = (txn.quantity * txn.unitPricePaise).roundToLong(),
                     style = MaterialTheme.typography.titleSmall,
@@ -486,11 +483,8 @@ private fun TransactionRowCard(
                 style = MaterialTheme.typography.bodyLarge,
             )
             txn.notes?.let { notes ->
-                Text(
-                    text = notes,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Content next to a metadata line stays onSurface (ADR-093 §3).
+                Text(text = notes, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
