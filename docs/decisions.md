@@ -3804,3 +3804,60 @@ only. No new string keys (user text is rendered verbatim); no contract change.
 with/without notes). E2E: `BookingFlowTest.bookingCard_showsBookingNotes` (en + hi)
 seeds a booking with notes and asserts the card shows them. Gate green; emulator
 screenshot of a seeded booking card with notes.
+
+## ADR-093 — Metadata text convention (2026-10-02)
+
+**Status:** accepted (owner feedback on the ADR-092 card: "the notes and the 'Added by'
+line look like one block"; applied in parallel by the web track).
+
+**Context.** The booking card rendered the free-text notes (`bodyMedium`,
+`onSurfaceVariant`) directly above the audit line (`bodySmall`, `onSurfaceVariant`) — and
+because this app floors every body style at 16sp (§6 persona), `bodySmall` IS `bodyMedium`
+here, so content and provenance were pixel-identical and read as a single paragraph. The
+same ambiguity existed on the Inventory row ("Updated {date}" in `bodyMedium`/
+`onSurfaceVariant`, same as any hint) and the Files row ("Added by {name}" spliced into
+the size caption with " · "). There was no shared role for "text ABOUT a record".
+
+**Decision.**
+
+1. **One metadata text role in `core:designsystem`.** `SamarohTheme.metadataTextStyle` =
+   `MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)` and
+   `SamarohTheme.metadataColor` = `colorScheme.outline`. `labelSmall` (11sp/16sp line) is
+   the only sub-16sp role the app already uses (captions, chart axes), so metadata is
+   *smaller* than any body copy without introducing a new size; the monospace face makes it
+   read as a stamp rather than a second paragraph; `outline` is one step quieter than
+   `onSurfaceVariant` and a real scheme token (no alpha compositing — stays correct under
+   dynamic colour and on tinted surfaces). Contrast against `surface` is ≥4.5:1 in both
+   fallback schemes.
+2. **`MetadataText(text, modifier, maxLines, overflow)`** is the only sanctioned way to
+   render it; features never spell out the style. It adds no text — callers pass a
+   localized string.
+3. **What counts as metadata:** provenance/attribution about a record — *who* recorded it,
+   *when* it was recorded or last touched ("Added by … on …", "Updated …", "Edited by …").
+   **What does NOT:** anything that *is* the record — booking notes, customer phone, the
+   booking/expense/transaction date, amounts, file size, item counts. Those stay body/label
+   roles. Specifically, **content text that sits next to a metadata line uses `onSurface`,
+   not `onSurfaceVariant`**, so the content/metadata contrast is two steps (size+face AND
+   colour), never one.
+4. **Applied everywhere a metadata line exists today:**
+   - Booking card (`BookingCardSheet`): audit line "Added by {name} on {date}" →
+     `MetadataText` (test tag `booking_card_audit`); booking notes → `bodyMedium` +
+     `onSurface` (was `onSurfaceVariant`).
+   - Inventory list row (`CurrentInventoryScreen`): "Updated {date}" → `MetadataText`.
+   - Files list row (`FileListRow`): "Added by {name}" moved OUT of the joined
+     `subtitle · size · pending` caption onto its own `MetadataText` line beneath it
+     (caption is now single-line; the row grows by one 16sp line only when an uploader is
+     known). Grid tiles show no attribution and are unchanged.
+   Audited and intentionally left alone (not metadata): expense entry dates on the party
+   ledger, inventory transaction dates in item history (the date is the row), Notes tab
+   (renders no timestamps/authors), Menu "last sync"/"last backup" rows (system status, not
+   record provenance — converge opportunistically if they are next touched).
+
+**Verification.** Unit: `MetadataTextTest` (font size < bodyMedium, `Monospace`, colour ==
+`outline` and != `onSurfaceVariant`, text rendered verbatim). Existing `BookingFlowTest.
+bookingCard_showsBookingNotes` still asserts the notes node. Gate green; emulator
+screenshot of a seeded booking card with notes above the smaller monospace audit line.
+
+**Consequences.** No string keys added or changed; no contract change. New public API in
+`core:designsystem`: `SamarohTheme.metadataTextStyle`, `SamarohTheme.metadataColor`,
+`MetadataText`. Web applies the same convention (smaller, monospace, muted) in parallel.

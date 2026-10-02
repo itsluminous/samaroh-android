@@ -58,6 +58,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
@@ -169,14 +170,15 @@ internal fun BookingCardSheet(
             }
 
             // Booking notes (the free-text `bookings.notes` column — NOT the Notes tab):
-            // mirrors web's BookingDetail — plain secondary text right under the dates,
-            // ungated (no permission key on either platform), shown for markers too, and
-            // omitted entirely when blank. ADR-092.
+            // mirrors web's BookingDetail — plain text right under the dates, ungated (no
+            // permission key on either platform), shown for markers too, and omitted
+            // entirely when blank. ADR-092. Rendered as CONTENT (bodyMedium/onSurface) so it
+            // is visibly stronger than the metadata audit line below. ADR-093.
             BookingCardNotes.displayNotes(booking.notes)?.let { notes ->
                 Text(
                     text = notes,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.fillMaxWidth().testTag("booking_card_notes"),
                 )
             }
@@ -239,16 +241,15 @@ internal fun BookingCardSheet(
                 }
             }
 
-            // Audit line (§4.1 ★): who created the booking and when.
-            Text(
+            // Audit line (§4.1 ★): who created the booking and when — metadata, ADR-093.
+            MetadataText(
                 text =
                     stringResource(
                         R.string.booking_card_audit_added,
                         creatorName,
                         formatDate(booking.createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate()),
                     ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("booking_card_audit"),
             )
 
             HorizontalDivider()

@@ -10,7 +10,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
 
 /**
@@ -29,11 +32,31 @@ private val SamarohTypography =
 
 private val LocalSemanticColors = staticCompositionLocalOf { LightSemanticColors }
 
-/** Access point for semantic colors (moneyIn/moneyOut/tentative). */
+/** Access point for semantic colors (moneyIn/moneyOut/tentative) and app-level text roles. */
 object SamarohTheme {
     val semanticColors: SemanticColors
         @Composable @ReadOnlyComposable
         get() = LocalSemanticColors.current
+
+    /**
+     * Metadata text role (ADR-093): provenance/attribution lines such as "Added by … on …",
+     * "Updated …" — text ABOUT a record rather than the record's content. Deliberately
+     * smaller than any body style (`labelSmall` size, the only sub-16sp role the app uses)
+     * and set in a monospace face so it reads as a stamp, not as a second paragraph.
+     * Pair with [metadataColor]; prefer the `MetadataText` component over using these raw.
+     */
+    val metadataTextStyle: TextStyle
+        @Composable @ReadOnlyComposable
+        get() = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+
+    /**
+     * Colour for [metadataTextStyle]: the scheme's `outline` token — one step quieter than
+     * `onSurfaceVariant` (which body copy, hints and empty states already use) and a real
+     * token rather than an alpha, so it stays correct on tinted/dynamic surfaces.
+     */
+    val metadataColor: Color
+        @Composable @ReadOnlyComposable
+        get() = MaterialTheme.colorScheme.outline
 }
 
 /**

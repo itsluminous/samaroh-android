@@ -86,6 +86,7 @@ import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
+import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.imaging.MediaStoreImageSaver
 import com.itsluminous.samaroh.core.i18n.R
@@ -692,14 +693,26 @@ private fun FileListRow(
         buildList {
             subtitle?.let(::add)
             add(sizeLabel(row.file.sizeBytes))
-            row.addedBy?.let { add(stringResource(R.string.files_file_added_by, it)) }
             if (!row.file.isUploaded) {
                 add(stringResource(if (googleLinked) R.string.files_file_pending_label else R.string.files_upload_pending_unlinked))
             }
         }.joinToString(" · ")
     ListItem(
         headlineContent = { Text(row.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(secondary, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Column {
+                Text(secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Uploader attribution is metadata (ADR-093): its own quieter line, not
+                // part of the content caption above.
+                row.addedBy?.let {
+                    MetadataText(
+                        text = stringResource(R.string.files_file_added_by, it),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        },
         leadingContent = { FileThumbnail(row = row, size = 40.dp) },
         modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
     )

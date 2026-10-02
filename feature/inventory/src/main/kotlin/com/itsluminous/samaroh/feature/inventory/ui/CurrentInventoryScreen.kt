@@ -52,6 +52,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountText
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
+import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.component.SortMenuButton
 import com.itsluminous.samaroh.core.designsystem.component.SortMenuEntry
@@ -251,11 +252,8 @@ private fun CurrentInventoryRowCard(
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 line.lastTransactionAt?.let {
-                    Text(
-                        text = stringResource(R.string.inventory_list_last_updated, formatDate(it)),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // Last-movement stamp — metadata, not the row's content (ADR-093).
+                    MetadataText(text = stringResource(R.string.inventory_list_last_updated, formatDate(it)))
                 }
             }
             AmountText(
