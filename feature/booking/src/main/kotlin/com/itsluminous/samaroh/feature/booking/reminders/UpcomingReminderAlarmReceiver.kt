@@ -5,28 +5,22 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import com.itsluminous.samaroh.feature.booking.domain.UpcomingReminderPlanner
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
 import java.time.Clock
-import java.time.ZonedDateTime
+import java.time.ZoneId
 
 /**
  * Fires the alarm-style full-screen upcoming-event reminder (§4.1 "fullscreen" style):
  * the daily worker schedules an exact alarm via [scheduleExact]
  * (`AlarmManager.setExactAndAllowWhileIdle`); this receiver posts the full-screen-intent
  * notification that launches [FullScreenReminderActivity].
+ *
+ * Delivery is gated on the [ReminderLedger] (ADR-094): an alarm whose key was already
+ * FIRED/ACKED/SNOOZED (style switched to plain notification before 09:00, user acted on
+ * an earlier delivery) is swallowed, and a real fire records FIRED so the next planning
+ * pass does not re-arm it. The Settings Test sample carries no key and always rings.
  */
 class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
-    @EntryPoint
-    @InstallIn(SingletonComponent::class)
-    interface Dependencies {
-        fun notifier(): BookingNotifier
-    }
-
     override fun onReceive(
         context: Context,
         intent: Intent,
@@ -42,10 +36,16 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
         val style =
             ReminderStyle.fromWire(intent.getStringExtra(EXTRA_STYLE)).takeIf { it != ReminderStyle.NOTIFICATION }
                 ?: ReminderStyle.FULLSCREEN
-        EntryPointAccessors
-            .fromApplication(context.applicationContext, Dependencies::class.java)
-            .notifier()
-            .postFullScreenUpcomingReminder(bookingId, title, daysAway, soundUri, style)
+        val key = ReminderLedgerKey.decode(intent.getStringExtra(EXTRA_LEDGER_KEY)) as? ReminderLedgerKey.Upcoming
+        val deps = reminderDeps(context)
+        runAsync {
+            if (key != null) {
+                val entry = deps.ledger().entry(key)
+                if (entry != null && entry.blocksPlanning) return@runAsync
+            }
+            deps.notifier().postFullScreenUpcomingReminder(bookingId, title, daysAway, soundUri, style, key)
+            if (key != null) deps.ledger().mark(key, ReminderFireState.FIRED, keepUntil = key.startDate)
+        }
     }
 
     companion object {
@@ -57,6 +57,8 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
         /**
          * Schedules the exact wake-up for the daily pass. The pass runs at 09:00; the
          * popup fires right at the pass's run time (or ~now when the pass ran late).
+         * 09:00 is DEVICE local time: the injected Clock is UTC (DataModule), so the
+         * wall-clock date/time is taken in the system zone, not the clock's.
          */
         fun scheduleExact(
             context: Context,
@@ -66,17 +68,20 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             soundUri: String?,
             style: ReminderStyle,
             clock: Clock,
+            ledgerKey: ReminderLedgerKey.Upcoming? = null,
         ) {
+            val zone = ZoneId.systemDefault()
             val triggerAt =
-                ZonedDateTime
-                    .now(clock)
+                clock
+                    .instant()
+                    .atZone(zone)
                     .toLocalDate()
                     .atTime(UpcomingReminderPlanner.DAILY_RUN_TIME)
-                    .atZone(clock.zone)
+                    .atZone(zone)
                     .toInstant()
                     .toEpochMilli()
                     .coerceAtLeast(System.currentTimeMillis() + 1_000)
-            scheduleExactAt(context, bookingId, title, daysAway, soundUri, style, triggerAt)
+            scheduleExactAt(context, bookingId, title, daysAway, soundUri, style, triggerAt, ledgerKey)
         }
 
         /**
@@ -95,6 +100,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             soundUri: String?,
             style: ReminderStyle,
             triggerAtMillis: Long,
+            ledgerKey: ReminderLedgerKey.Upcoming? = null,
         ) {
             val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
             val intent =
@@ -104,6 +110,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
                     putExtra(EXTRA_DAYS_AWAY, daysAway)
                     putExtra(EXTRA_SOUND_URI, soundUri)
                     putExtra(EXTRA_STYLE, style.wire)
+                    putExtra(EXTRA_LEDGER_KEY, ledgerKey?.encode())
                 }
             val pending =
                 PendingIntent.getBroadcast(
@@ -112,12 +119,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
                     intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
-            val canExact = Build.VERSION.SDK_INT < 31 || alarmManager.canScheduleExactAlarms()
-            if (canExact) {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
-            } else {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pending)
-            }
+            alarmManager.setExactOrInexact(triggerAtMillis, pending)
         }
     }
 }

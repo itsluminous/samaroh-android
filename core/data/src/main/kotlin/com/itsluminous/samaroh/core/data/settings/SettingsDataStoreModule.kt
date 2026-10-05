@@ -30,6 +30,8 @@ import javax.inject.Singleton
  *   written by menu Settings, read by the expense-attachment and item-photo encoders)
  * - `sort_order_inventory_stock`, `sort_order_expenses_parties` ([ListSortPreferences];
  *   written by the stock/party lists' sort menus, read by their ViewModels — ADR-069)
+ * - `reminder_ledger.<key>` (booking's `ReminderLedger`, ADR-094): per-device
+ *   delivered/acknowledged/snoozed state of each reminder; self-pruning, never synced)
  */
 @Qualifier
 @Retention(AnnotationRetention.BINARY)

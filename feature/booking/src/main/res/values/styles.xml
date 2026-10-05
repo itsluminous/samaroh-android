@@ -3,4 +3,14 @@
     <!-- Theme for the alarm-style full-screen reminder activity. Content is Compose
          (SamarohTheme); this only needs to remove the action bar. -->
     <style name="Theme.SamarohBooking.FullScreenReminder" parent="Theme.AppCompat.DayNight.NoActionBar" />
+
+    <!-- Transparent host for the snooze preset chooser (ADR-094): the Compose
+         AlertDialog draws its own window; the activity itself must be invisible. -->
+    <style name="Theme.SamarohBooking.SnoozeChooser" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

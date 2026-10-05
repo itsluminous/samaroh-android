@@ -76,6 +76,12 @@ class ReminderPostSyncHookTest {
         storeScope.cancel()
     }
 
+    private val dataStore by lazy {
+        PreferenceDataStoreFactory.create(scope = storeScope) {
+            File(tmp.root, "settings.preferences_pb")
+        }
+    }
+
     private fun hook(): ReminderPostSyncHook =
         ReminderPostSyncHook(
             context = context,
@@ -87,13 +93,10 @@ class ReminderPostSyncHookTest {
                     eventTypeRepository = FakeEventTypeRepository(),
                     eventTypes = emptyCatalog, // labelFor falls back to the raw key — no resource ids in JVM tests
                     notifier = BookingNotifier(context, FullScreenTakeover(context)),
-                    prefs =
-                        BookingReminderPrefs(
-                            PreferenceDataStoreFactory.create(scope = storeScope) {
-                                File(tmp.root, "settings.preferences_pb")
-                            },
-                        ),
+                    prefs = BookingReminderPrefs(dataStore),
                     replicaIntegrity = ReplicaIntegrity { true },
+                    ledger = ReminderLedger(dataStore),
+                    snoozer = ReminderSnoozer(context, ReminderLedger(dataStore), clock),
                     clock = clock,
                 ),
         )

@@ -20,6 +20,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import java.time.Clock
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,8 +29,8 @@ import javax.inject.Singleton
  * Orchestrates the daily reminder pass (§4.1): runs the pure planners against repository
  * state and executes the resulting plan (persist reminders via Room+outbox, post
  * notifications, schedule exact alarms for the full-screen style). Called by
- * [BookingReminderWorker] every day at 09:00 local and by [ReminderPostSyncHook] after
- * every completed sync pull.
+ * [BookingReminderWorker] every day at 09:00 local, by [ReminderPostSyncHook] after
+ * every completed sync pull and by [ReminderBootReceiver] after a reboot.
  *
  * MUTATING passes are gated on replica consistency (ADR-060): payment planning derives
  * `due = total − Σpayments`, so running it while a pull is in flight or after a partial
@@ -39,6 +40,12 @@ import javax.inject.Singleton
  * booking row must not dismiss a synced reminder either) and still posts the read-only
  * upcoming-event reminders. The pull that restores consistency re-runs the engine via
  * [ReminderPostSyncHook], so deferred planning happens within the same sync cycle.
+ *
+ * DELIVERY is idempotent per device (ADR-094): the pass runs many times a day (every
+ * sync pull), so every post/alarm is gated on the [ReminderLedger] — a reminder key is
+ * delivered at most once, and once the user dismissed/acted on it (ACKED) or snoozed it
+ * (SNOOZED) the planner never touches it again. Only a changed key (edited booking
+ * dates, changed lead-day setting, a chained successor row) fires anew.
  */
 @Singleton
 class ReminderEngine
@@ -52,10 +59,13 @@ class ReminderEngine
         private val notifier: BookingNotifier,
         private val prefs: BookingReminderPrefs,
         private val replicaIntegrity: ReplicaIntegrity,
+        private val ledger: ReminderLedger,
+        private val snoozer: ReminderSnoozer,
         private val clock: Clock,
     ) {
         suspend fun runDailyPass() {
             val today = LocalDate.now(clock)
+            ledger.prune(today)
             // Style/sound resolved ONCE at fire time and honored by EVERY reminder kind
             // (ADR-045) — payment, follow-up and upcoming alike.
             val settings = prefs.current()
@@ -67,6 +77,52 @@ class ReminderEngine
                     runFollowUpReminders(business.id, today, settings)
                 }
                 runUpcomingReminders(business.id, today, settings)
+            }
+        }
+
+        /**
+         * Snooze re-fire (ADR-094): re-validate the reminder against CURRENT state — a
+         * booking paid off, cancelled or deleted while snoozed never rings again
+         * (ADR-064 rules) — then post through the same style pipeline as a first
+         * delivery and record FIRED so the next pass leaves it alone.
+         */
+        suspend fun refire(key: ReminderLedgerKey) {
+            val today = LocalDate.now(clock)
+            val settings = prefs.current()
+            when (key) {
+                is ReminderLedgerKey.Upcoming -> {
+                    val booking = bookingRepository.booking(key.bookingId)
+                    if (!SnoozePolicy.upcomingStillRelevant(booking, today)) {
+                        ledger.remove(key)
+                        return
+                    }
+                    checkNotNull(booking)
+                    val daysAway = ChronoUnit.DAYS.between(today, booking.startDate).toInt()
+                    val title = upcomingTitle(booking)
+                    when (settings.style) {
+                        ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking.id, title, daysAway, key)
+                        ReminderStyle.FULLSCREEN, ReminderStyle.FULLSCREEN_ALWAYS ->
+                            notifier.postFullScreenUpcomingReminder(booking.id, title, daysAway, settings.soundUri, settings.style, key)
+                    }
+                    ledger.mark(key, ReminderFireState.FIRED, keepUntil = booking.startDate)
+                }
+
+                is ReminderLedgerKey.Row -> {
+                    val reminder = bookingRepository.reminder(key.reminderId)
+                    val booking = reminder?.let { bookingRepository.booking(it.bookingId) }
+                    val due = booking?.let { DueCalculator.duePaise(it, bookingRepository.totalPaidPaise(it.id)) } ?: 0L
+                    if (!SnoozePolicy.rowStillRelevant(reminder, booking, due, key.followUp)) {
+                        ledger.remove(key)
+                        return
+                    }
+                    checkNotNull(reminder)
+                    checkNotNull(booking)
+                    if (key.followUp) {
+                        postFollowUp(reminder, booking, settings)
+                    } else {
+                        postPayment(reminder, booking, due, settings)
+                    }
+                }
             }
         }
 
@@ -127,15 +183,29 @@ class ReminderEngine
 
             for (reminder in plan.toNotify) {
                 val booking = bookingById[reminder.bookingId] ?: continue
-                notifier.postPaymentReminder(
-                    reminder = reminder,
-                    booking = booking,
-                    eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
-                    duePaise = dueByBooking[booking.id] ?: reminder.amountDueSnapshotPaise,
-                    style = settings.style,
-                    soundUri = settings.soundUri,
-                )
+                val key = rowKey(reminder)
+                if (ledger.entry(key)?.blocksPlanning == true) continue
+                postPayment(reminder, booking, dueByBooking[booking.id] ?: reminder.amountDueSnapshotPaise, settings)
             }
+        }
+
+        private suspend fun postPayment(
+            reminder: PaymentReminder,
+            booking: Booking,
+            duePaise: Long,
+            settings: UpcomingReminderPrefs,
+        ) {
+            val key = rowKey(reminder)
+            notifier.postPaymentReminder(
+                reminder = reminder,
+                booking = booking,
+                eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
+                duePaise = duePaise,
+                style = settings.style,
+                soundUri = settings.soundUri,
+                ledgerKey = key,
+            )
+            ledger.mark(key, ReminderFireState.FIRED, keepUntil = rowKeepUntil())
         }
 
         /**
@@ -158,14 +228,26 @@ class ReminderEngine
                     dismiss(reminder)
                     continue
                 }
-                notifier.postFollowUpReminder(
-                    reminder = reminder,
-                    booking = checkNotNull(booking),
-                    eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
-                    style = settings.style,
-                    soundUri = settings.soundUri,
-                )
+                if (ledger.entry(rowKey(reminder))?.blocksPlanning == true) continue
+                postFollowUp(reminder, checkNotNull(booking), settings)
             }
+        }
+
+        private suspend fun postFollowUp(
+            reminder: PaymentReminder,
+            booking: Booking,
+            settings: UpcomingReminderPrefs,
+        ) {
+            val key = rowKey(reminder)
+            notifier.postFollowUpReminder(
+                reminder = reminder,
+                booking = booking,
+                eventLabel = eventTypes.labelFor(booking.eventType, context::getString),
+                style = settings.style,
+                soundUri = settings.soundUri,
+                ledgerKey = key,
+            )
+            ledger.mark(key, ReminderFireState.FIRED, keepUntil = rowKeepUntil())
         }
 
         private suspend fun dismiss(reminder: PaymentReminder) {
@@ -173,6 +255,10 @@ class ReminderEngine
                 reminder.copy(status = ReminderStatus.DISMISSED, updatedAt = clock.instant()),
             )
             notifier.cancelPaymentReminder(reminder.id)
+            // A dismissed row's pending snooze must never ring (ADR-064 cases).
+            val key = rowKey(reminder)
+            snoozer.cancel(key)
+            ledger.remove(key)
         }
 
         private suspend fun runUpcomingReminders(
@@ -187,14 +273,21 @@ class ReminderEngine
 
             for (upcoming in reminders) {
                 val booking = upcoming.booking
-                val label = eventTypes.labelFor(booking.eventType, context::getString)
-                val title = "${booking.displayIcon} $label - ${booking.customerName}"
+                val key = ReminderLedgerKey.Upcoming(booking.id, upcoming.daysAway, booking.startDate)
+                // Deliver at most once per key: FIRED/ACKED/SNOOZED entries are skipped
+                // (ADR-094). SCHEDULED is re-armed — idempotent (same PendingIntent), and
+                // it is how a lost alarm (reboot, revoked exact-alarm grant) recovers.
+                if (ledger.entry(key)?.blocksPlanning == true) continue
+                val title = upcomingTitle(booking)
                 when (settings.style) {
-                    ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking.id, title, upcoming.daysAway)
+                    ReminderStyle.NOTIFICATION -> {
+                        notifier.postUpcomingReminder(booking.id, title, upcoming.daysAway, key)
+                        ledger.mark(key, ReminderFireState.FIRED, keepUntil = booking.startDate)
+                    }
                     // Both full-screen styles travel the exact-alarm path; the style
                     // rides in the intent so the receiver picks the launch path
                     // (locked-only vs always-takeover, ADR-072) at fire time.
-                    ReminderStyle.FULLSCREEN, ReminderStyle.FULLSCREEN_ALWAYS ->
+                    ReminderStyle.FULLSCREEN, ReminderStyle.FULLSCREEN_ALWAYS -> {
                         UpcomingReminderAlarmReceiver.scheduleExact(
                             context = context,
                             bookingId = booking.id,
@@ -203,8 +296,21 @@ class ReminderEngine
                             soundUri = settings.soundUri,
                             style = settings.style,
                             clock = clock,
+                            ledgerKey = key,
                         )
+                        ledger.mark(key, ReminderFireState.SCHEDULED, keepUntil = booking.startDate)
+                    }
                 }
             }
         }
+
+        private fun upcomingTitle(booking: Booking): String {
+            val label = eventTypes.labelFor(booking.eventType, context::getString)
+            return "${booking.displayIcon} $label - ${booking.customerName}"
+        }
+
+        private fun rowKey(reminder: PaymentReminder) =
+            ReminderLedgerKey.Row(reminder.id, reminder.bookingId, followUp = reminder.kind == ReminderKind.FOLLOW_UP)
+
+        private fun rowKeepUntil(): LocalDate = LocalDate.now(clock).plusDays(ReminderLedger.ROW_KEEP_DAYS)
     }

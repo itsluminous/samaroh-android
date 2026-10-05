@@ -136,6 +136,7 @@ class BookingNotifier
             duePaise: Long,
             style: ReminderStyle,
             soundUri: String?,
+            ledgerKey: ReminderLedgerKey? = null,
         ) {
             if (!canNotify()) return
             val path = takeover.pathFor(style)
@@ -173,7 +174,11 @@ class BookingNotifier
                     soundUri = fullScreenSound,
                     notificationTag = PAYMENT_NOTIFICATION_TAG,
                     notificationId = reminder.id.hashCode(),
+                    ledgerKey = ledgerKey,
                 )
+            // Three actions is the platform cap: Yes-full / Partial… / Not-yet stay —
+            // "Not yet" IS this reminder's snooze (re-chains at +7 days); the popup
+            // path still offers the short-term Snooze chooser (ADR-094).
             val notification =
                 NotificationCompat
                     .Builder(context, channel)
@@ -183,7 +188,8 @@ class BookingNotifier
                     .setStyle(NotificationCompat.BigTextStyle().bigText(question))
                     .setContentIntent(launchAppIntent(booking.id))
                     .setAutoCancel(true)
-                    .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
+                    .setOnlyAlertOnce(true) // a re-post (snooze re-fire) updates silently (ADR-024)
+                    .applyAck(ledgerKey)
                     .addAction(
                         0,
                         context.getString(R.string.booking_reminder_action_yes_full),
@@ -227,6 +233,7 @@ class BookingNotifier
             eventLabel: String,
             style: ReminderStyle,
             soundUri: String?,
+            ledgerKey: ReminderLedgerKey? = null,
         ) {
             if (!canNotify()) return
             val path = takeover.pathFor(style)
@@ -249,6 +256,7 @@ class BookingNotifier
                     soundUri = fullScreenSound,
                     notificationTag = PAYMENT_NOTIFICATION_TAG,
                     notificationId = reminder.id.hashCode(),
+                    ledgerKey = ledgerKey,
                 )
             val notification =
                 NotificationCompat
@@ -259,7 +267,9 @@ class BookingNotifier
                     .setStyle(NotificationCompat.BigTextStyle().bigText(question))
                     .setContentIntent(launchAppIntent(booking.id))
                     .setAutoCancel(true)
-                    .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
+                    .setOnlyAlertOnce(true) // a re-post (snooze re-fire) updates silently (ADR-024)
+                    .applyAck(ledgerKey)
+                    .applySnoozeAction(ledgerKey, PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode())
                     .applyFullScreenStyle(
                         enabled = fullScreen,
                         popupIntent = popupIntent,
@@ -278,6 +288,7 @@ class BookingNotifier
             bookingId: String,
             title: String,
             daysAway: Int,
+            ledgerKey: ReminderLedgerKey? = null,
         ) {
             if (!canNotify()) return
             val notification =
@@ -288,7 +299,9 @@ class BookingNotifier
                     .setContentText(daysAwayText(daysAway))
                     .setContentIntent(launchAppIntent(bookingId))
                     .setAutoCancel(true)
-                    .setOnlyAlertOnce(true) // post-sync passes re-post; only a fresh notification alerts (ADR-024)
+                    .setOnlyAlertOnce(true) // a re-post (snooze re-fire) updates silently (ADR-024)
+                    .applyAck(ledgerKey)
+                    .applySnoozeAction(ledgerKey, UPCOMING_NOTIFICATION_TAG, bookingId.hashCode())
                     .build()
             NotificationManagerCompat.from(context).notify(UPCOMING_NOTIFICATION_TAG, bookingId.hashCode(), notification)
         }
@@ -310,6 +323,7 @@ class BookingNotifier
             daysAway: Int,
             soundUri: String?,
             style: ReminderStyle = ReminderStyle.FULLSCREEN,
+            ledgerKey: ReminderLedgerKey? = null,
         ) {
             if (!canNotify()) return
             val effectiveSound = ReminderSoundPolicy.effectiveSoundUri(soundUri).toString()
@@ -322,6 +336,7 @@ class BookingNotifier
                     soundUri = effectiveSound,
                     notificationTag = UPCOMING_NOTIFICATION_TAG,
                     notificationId = bookingId.hashCode(),
+                    ledgerKey = ledgerKey,
                 )
             val fullScreenIntent =
                 PendingIntent.getActivity(
@@ -338,7 +353,10 @@ class BookingNotifier
                     .setContentText(daysAwayText(daysAway))
                     .setPriority(NotificationCompat.PRIORITY_MAX)
                     .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setContentIntent(launchAppIntent(bookingId))
                     .setAutoCancel(true)
+                    .applyAck(ledgerKey)
+                    .applySnoozeAction(ledgerKey, UPCOMING_NOTIFICATION_TAG, bookingId.hashCode())
                     .setFullScreenIntent(fullScreenIntent, true)
                     .build()
                     .applyInsistent(ReminderRepeatPolicy.insistent(style))
@@ -348,8 +366,53 @@ class BookingNotifier
             }
         }
 
+        /** "in N days" — or "Today" when a snoozed reminder re-fires on the event day (ADR-094). */
         fun daysAwayText(daysAway: Int): String =
-            context.resources.getQuantityString(R.plurals.booking_reminder_upcoming_days, daysAway, daysAway)
+            if (daysAway <= 0) {
+                context.getString(R.string.booking_reminder_upcoming_today)
+            } else {
+                context.resources.getQuantityString(R.plurals.booking_reminder_upcoming_days, daysAway, daysAway)
+            }
+
+        /**
+         * Swipe-dismiss / clear-all / tap = acknowledged (ADR-094): the deleteIntent
+         * marks the ledger key ACKED so no later planning pass re-posts this reminder.
+         */
+        private fun NotificationCompat.Builder.applyAck(ledgerKey: ReminderLedgerKey?): NotificationCompat.Builder {
+            if (ledgerKey == null) return this
+            val wire = ledgerKey.encode()
+            return setDeleteIntent(
+                PendingIntent.getBroadcast(
+                    context,
+                    (wire + ReminderAckReceiver.ACTION_ACK).hashCode(),
+                    Intent(context, ReminderAckReceiver::class.java).apply {
+                        action = ReminderAckReceiver.ACTION_ACK
+                        putExtra(EXTRA_LEDGER_KEY, wire)
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+        }
+
+        /** Snooze action → the lightweight preset chooser dialog activity (ADR-094). */
+        private fun NotificationCompat.Builder.applySnoozeAction(
+            ledgerKey: ReminderLedgerKey?,
+            notificationTag: String,
+            notificationId: Int,
+        ): NotificationCompat.Builder {
+            if (ledgerKey == null) return this
+            val wire = ledgerKey.encode()
+            return addAction(
+                0,
+                context.getString(R.string.booking_reminder_snooze),
+                PendingIntent.getActivity(
+                    context,
+                    (wire + SnoozeChooserActivity.ACTION_CHOOSE).hashCode(),
+                    SnoozeChooserActivity.intent(context, ledgerKey, notificationTag, notificationId),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+        }
 
         /**
          * Adds the alarm-style full-screen treatment to a reminder notification

@@ -58,6 +58,11 @@ class ReminderEngineGatingTest {
     private val bookingRepository = FakeBookingRepository()
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
 
+    private val dataStore =
+        PreferenceDataStoreFactory.create(scope = storeScope) {
+            File(tmp.root, "settings.preferences_pb")
+        }
+
     private fun engine(consistent: Boolean): ReminderEngine =
         ReminderEngine(
             context = context,
@@ -66,13 +71,10 @@ class ReminderEngineGatingTest {
             eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures()),
             eventTypes = emptyCatalog,
             notifier = BookingNotifier(context, FullScreenTakeover(context)),
-            prefs =
-                BookingReminderPrefs(
-                    PreferenceDataStoreFactory.create(scope = storeScope) {
-                        File(tmp.root, "settings.preferences_pb")
-                    },
-                ),
+            prefs = BookingReminderPrefs(dataStore),
             replicaIntegrity = ReplicaIntegrity { consistent },
+            ledger = ReminderLedger(dataStore),
+            snoozer = ReminderSnoozer(context, ReminderLedger(dataStore), clock),
             clock = clock,
         )
 

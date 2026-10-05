@@ -3870,3 +3870,96 @@ screenshot of a seeded booking card with notes above the smaller monospace audit
 **Consequences.** No string keys added or changed; no contract change. New public API in
 `core:designsystem`: `SamarohTheme.metadataTextStyle`, `SamarohTheme.metadataColor`,
 `MetadataText`. Web applies the same convention (smaller, monospace, muted) in parallel.
+
+## ADR-094 — Reminder delivery ledger: dismissed stays dismissed + Snooze with presets (2026-10-05)
+
+**Status:** accepted (owner bug: "the '1 day before' reminder keeps coming back after I
+dismiss it"). `feature:booking` only; no schema, wire or repository-contract change — the
+ledger is DEVICE state in the shared settings DataStore (ADR-016 key contract extended
+with the `reminder_ledger.` prefix; see `SettingsDataStoreModule`).
+
+**Root cause (verified in code; reproduced on the emulator).** Upcoming-event reminders
+("N days before") were STATELESS: `ReminderEngine.runUpcomingReminders` recomputed the
+day's list and, every time it ran, either re-`notify()`ed the notification (NOTIFICATION
+style — `setOnlyAlertOnce` only mutes the sound of an update to a notification STILL in
+the shade; a dismissed one simply re-appears) or re-armed the exact alarm at
+`max(09:00, now + 1 s)` (both full-screen styles — so every pass after 09:00 rang the
+insistent alarm again one second later). The pass is no longer "daily": ADR-060 §4 runs
+it after EVERY completed sync pull, and ADR-036 on-change sync plus the ADR-089 auth gate
+make pulls frequent — a dismissed reminder returned within minutes. There was no
+acknowledgement anywhere: swipe-dismiss had no `deleteIntent`, the popup's Dismiss just
+`finish()`ed, nothing was persisted per (booking, offset), and nothing survived a reboot
+(no boot receiver). Payment / follow-up notifications had the same re-post-every-pass
+behaviour (their rows stay PENDING by design, ADR-064), so a swiped "Did X pay?" also
+came back after the next sync.
+
+**Decision.**
+
+1. **`ReminderLedger` — at-most-once delivery per key, per device.** A
+   `ReminderLedgerKey` identifies one delivery: `Upcoming(bookingId, daysAway, startDate)`
+   (any date edit or lead-day change is a NEW key and fires again — an unchanged booking
+   never does) or `Row(reminderId)` for payment / follow-up rows (a chained successor is
+   a new key). Each key carries a `ReminderFireState`: `SCHEDULED` (exact alarm armed),
+   `FIRED` (shown), `ACKED` (user dismissed/tapped/viewed/acted — never shown again) or
+   `SNOOZED` (+ due time). Every planning pass (`runDailyPass`) skips any key whose state
+   is FIRED/ACKED/SNOOZED; SCHEDULED is re-armed idempotently (same `PendingIntent`),
+   which is also how a lost alarm recovers. Entries carry a `keepUntil` date (the event
+   day for upcoming keys; 90 days for rows) and are pruned on every pass. The ledger is
+   deliberately NOT a synced row: notifications are per-device state and the
+   `payment_reminders` row's status (PENDING/CONFIRMED/SNOOZED/DISMISSED) keeps its
+   ADR-064 meaning untouched — dismissing a payment NOTIFICATION leaves the row on the
+   in-app card.
+2. **Every exit is an acknowledgement.** Each reminder notification sets a
+   `deleteIntent` → `ReminderAckReceiver` (swipe, clear-all and auto-cancel tap all
+   deliver it; an app-side `cancel()` does not — correct, that is not a user act).
+   `FullScreenReminderActivity` persists ACK on Dismiss, View, and in `onStop` (ADR-074
+   already treats leaving the popup as acknowledgement). The payment action receiver
+   (Yes-full / Not-yet) drops the key with the row. The alarm receiver itself is gated:
+   an armed alarm whose key was meanwhile ACKED/FIRED (style switched, user acted) is
+   swallowed instead of ringing.
+3. **Snooze on all three styles.** Upcoming and follow-up notifications gain a **Snooze**
+   action (the payment notification is at the platform's 3-action cap — its "Not yet"
+   already IS a snooze that re-chains at +7 days; the payment popup still offers the
+   chooser). The full-screen popup gains a Snooze button. Both open the same
+   `SnoozeChooserDialog` — in-activity for the popup, hosted by the transparent
+   `SnoozeChooserActivity` for the notification action — with presets 10 min, 30 min,
+   1 h, 3 h, Tomorrow at 09:00 (`SnoozePresets`, pure: "tomorrow" is the NEXT local
+   calendar day at 09:00 in the device zone, DST-safe). Snooze = ACK now + ONE one-shot
+   exact alarm (`ReminderSnoozer` → `ReminderSnoozeAlarmReceiver`), recorded in the
+   ledger as `SNOOZED(until)`; sync/daily passes never re-plan it. At fire time
+   `ReminderEngine.refire` re-validates with `SnoozePolicy` (mirrors ADR-064: booking
+   deleted/cancelled, payment truly paid, follow-up no longer tentative, upcoming event
+   already started → dropped, nothing posts) and otherwise posts through the SAME style
+   pipeline as a first delivery (notification, or full-screen notification + direct
+   takeover per ADR-072), then goes back to FIRED. The engine's dismissal path also
+   disarms any snooze for the row it dismisses. Exact-alarm handling is the existing
+   rule (`setExactAndAllowWhileIdle` when permitted, inexact fallback — shared
+   `AlarmManager.setExactOrInexact`). Wall-clock math uses the DEVICE zone
+   (`ZoneId.systemDefault()`): the injected `Clock` is UTC (`DataModule`), and the
+   pre-existing 09:00 full-screen alarm had been computed in the clock's zone — i.e. it
+   rang at 14:30 IST; fixed alongside (found while verifying the "tomorrow 09:00"
+   preset on the emulator, which armed for 14:30 before the fix).
+4. **Reboot recovery.** `ReminderBootReceiver` (`BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`)
+   re-arms SNOOZED entries (past-due ones ring at once), keeps ACKED acked, and runs a
+   planning pass so today's full-screen alarms are re-scheduled. A real boot
+   additionally forgets FIRED-but-unacked deliveries (the OS lost those notifications,
+   the user never dismissed them — the pass re-posts); an app update keeps them (posted
+   notifications survive updates, only alarms are lost). "Dismissed stays dismissed" therefore holds across process death
+   AND reboot.
+5. **Strings.** `booking.reminder.snooze`, `snooze_title`, `snooze_10m/30m/1h/3h`,
+   `snooze_tomorrow` ({time}), `snoozed_until` ({time}), `upcoming_today` (replaces
+   "in N days" when a snoozed reminder re-fires on the event day) — en + hi in the
+   booking fragment. The post-snooze confirmation is a toast: both hosting activities
+   finish on the spot and have no scaffold for a snackbar (documented exception).
+
+**Consequences.** Payment/follow-up notifications no longer silently refresh their text
+on every pass (a changed due amount shows on the in-app card and on the NEXT chained
+row); ADR-073's "deleting a legacy channel re-posts on the next pass" one-time upgrade
+behaviour no longer applies (a FIRED key stays fired). `ReminderEngine` gains `ledger` +
+`snoozer` constructor dependencies (tests updated). Web has no reminders (platform
+native); nothing to mirror. Tests: `ReminderLedgerKeyTest`, `SnoozePresetsTest`,
+`SnoozePolicyTest`, `ReminderEngineIdempotenceTest` (posted once across passes;
+deleteIntent carries the key and ACK blocks re-posts; changed dates re-fire; full-screen
+alarm armed once and not re-armed after ack; payment row posts once with the row still
+PENDING; snooze arms the alarm at the preset, blocks planning, refires once per style;
+snoozed reminders dropped on cancel/delete/paid; boot reset; prune).

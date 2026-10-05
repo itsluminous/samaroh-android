@@ -7,6 +7,7 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -27,8 +32,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.lifecycleScope
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.R
+import kotlinx.coroutines.launch
+import java.time.ZonedDateTime
 
 /**
  * Alarm-style full-screen upcoming-event reminder (§4.1 "full-screen popup" style).
@@ -42,9 +50,15 @@ import com.itsluminous.samaroh.core.i18n.R
  * View acknowledge explicitly; leaving the popup any other way (home/back/screen
  * off) stops the loop too — a full-screen popup the user navigated away from has
  * been seen. Do Not Disturb keeps the popup visual-only ([ReminderRepeatPolicy]).
+ *
+ * Acknowledgement is PERSISTED (ADR-094): leaving the popup by any route marks its
+ * ledger key ACKED so no planning pass re-posts it; Snooze opens the preset chooser
+ * and records a one-shot re-fire instead.
  */
 class FullScreenReminderActivity : ComponentActivity() {
     private var loopPlayer: MediaPlayer? = null
+    private var ledgerKey: ReminderLedgerKey? = null
+    private var ackHandled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,9 +66,17 @@ class FullScreenReminderActivity : ComponentActivity() {
         val body = intent.getStringExtra(EXTRA_BODY)
         val daysAway = intent.getIntExtra(EXTRA_DAYS_AWAY, 1)
         val bookingId = intent.getStringExtra(EXTRA_BOOKING_ID)
+        ledgerKey = ReminderLedgerKey.decode(intent.getStringExtra(EXTRA_LEDGER_KEY))
 
         setContent {
             SamarohTheme {
+                var chooserOpen by remember { mutableStateOf(false) }
+                if (chooserOpen) {
+                    SnoozeChooserDialog(
+                        onPick = { preset -> snooze(preset) },
+                        onDismiss = { chooserOpen = false },
+                    )
+                }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -70,7 +92,13 @@ class FullScreenReminderActivity : ComponentActivity() {
                             // Payment/follow-up popups carry their question as a plain
                             // body (ADR-045); upcoming-event popups keep the "in N days"
                             // plural resolved here so it renders in the app locale.
-                            text = body ?: pluralStringResource(R.plurals.booking_reminder_upcoming_days, daysAway, daysAway),
+                            text =
+                                body
+                                    ?: if (daysAway <= 0) {
+                                        stringResource(R.string.booking_reminder_upcoming_today)
+                                    } else {
+                                        pluralStringResource(R.plurals.booking_reminder_upcoming_days, daysAway, daysAway)
+                                    },
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary,
                             textAlign = TextAlign.Center,
@@ -80,8 +108,20 @@ class FullScreenReminderActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                         ) {
-                            OutlinedButton(onClick = { finish() }) {
+                            OutlinedButton(onClick = {
+                                acknowledge()
+                                finish()
+                            }) {
                                 Text(stringResource(R.string.booking_reminder_dismiss))
+                            }
+                            // Snooze needs a ledger key; the Settings Test sample has none.
+                            if (ledgerKey != null) {
+                                OutlinedButton(onClick = {
+                                    stopLoop()
+                                    chooserOpen = true
+                                }) {
+                                    Text(stringResource(R.string.booking_reminder_snooze))
+                                }
                             }
                             Button(onClick = { openBooking(bookingId) }) {
                                 Text(stringResource(R.string.booking_reminder_view))
@@ -103,7 +143,39 @@ class FullScreenReminderActivity : ComponentActivity() {
 
     override fun onStop() {
         stopLoop()
+        // Navigating away (home/back/screen-off) counts as seeing it (ADR-074) — and
+        // therefore as acknowledging it (ADR-094), unless Snooze already recorded itself.
+        if (isFinishing || !isChangingConfigurations) acknowledge()
         super.onStop()
+    }
+
+    /** Persists the ACK for this popup's key once; later calls are no-ops. */
+    private fun acknowledge() {
+        val key = ledgerKey ?: return
+        if (ackHandled) return
+        ackHandled = true
+        val deps = reminderDeps(this)
+        deps.snoozer().cancel(key)
+        lifecycleScope.launch { deps.ledger().ack(key, fallbackKeepUntil = defaultKeepUntil(key)) }
+    }
+
+    /** Snooze (ADR-094): acked now + a one-shot re-fire at the preset; cancels this popup's notification. */
+    private fun snooze(preset: SnoozePreset) {
+        val key = ledgerKey ?: return
+        ackHandled = true
+        stopLoop()
+        val deps = reminderDeps(this)
+        lifecycleScope.launch {
+            val fireAt = deps.snoozer().snooze(key, preset, keepUntil = defaultKeepUntil(key))
+            cancelPairedNotification()
+            Toast
+                .makeText(
+                    this@FullScreenReminderActivity,
+                    SnoozeFormatting.untilLabel(this@FullScreenReminderActivity, fireAt, ZonedDateTime.now()),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            finish()
+        }
     }
 
     /**
@@ -161,6 +233,7 @@ class FullScreenReminderActivity : ComponentActivity() {
 
     private fun openBooking(bookingId: String?) {
         stopLoop()
+        acknowledge()
         packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
             bookingId?.let { launch.putExtra(EXTRA_BOOKING_ID, it) }
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -187,6 +260,7 @@ class FullScreenReminderActivity : ComponentActivity() {
             soundUri: String? = null,
             notificationTag: String? = null,
             notificationId: Int = 0,
+            ledgerKey: ReminderLedgerKey? = null,
         ): Intent =
             Intent(context, FullScreenReminderActivity::class.java).apply {
                 putExtra(EXTRA_BOOKING_ID, bookingId)
@@ -195,6 +269,7 @@ class FullScreenReminderActivity : ComponentActivity() {
                 putExtra(EXTRA_SOUND_URI, soundUri)
                 putExtra(EXTRA_NOTIFICATION_TAG, notificationTag)
                 putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+                putExtra(EXTRA_LEDGER_KEY, ledgerKey?.encode())
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
@@ -207,6 +282,7 @@ class FullScreenReminderActivity : ComponentActivity() {
             soundUri: String? = null,
             notificationTag: String? = null,
             notificationId: Int = 0,
+            ledgerKey: ReminderLedgerKey? = null,
         ): Intent =
             Intent(context, FullScreenReminderActivity::class.java).apply {
                 putExtra(EXTRA_BOOKING_ID, bookingId)
@@ -215,6 +291,7 @@ class FullScreenReminderActivity : ComponentActivity() {
                 putExtra(EXTRA_SOUND_URI, soundUri)
                 putExtra(EXTRA_NOTIFICATION_TAG, notificationTag)
                 putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+                putExtra(EXTRA_LEDGER_KEY, ledgerKey?.encode())
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
     }

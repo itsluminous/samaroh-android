@@ -14,6 +14,8 @@
          directly even while another app is in use. Optional like the rest — without
          it the style degrades to the "when locked" behaviour. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Re-arm snoozes / today's exact alarms after a reboot (ADR-094). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application>
 
@@ -38,6 +40,34 @@
             android:taskAffinity=""
             android:theme="@style/Theme.SamarohBooking.FullScreenReminder"
             android:turnScreenOn="true" />
+
+        <!-- Snooze preset chooser behind the notification "Snooze" action (ADR-094):
+             transparent dialog-style window, gone as soon as a preset is picked. -->
+        <activity
+            android:name=".reminders.SnoozeChooserActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.SamarohBooking.SnoozeChooser" />
+
+        <!-- Swipe-dismiss acknowledgement (deleteIntent) and snooze re-fire alarms (ADR-094). -->
+        <receiver
+            android:name=".reminders.ReminderAckReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".reminders.ReminderSnoozeAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Reboot recovery: re-arms snoozes and re-plans today's alarms (ADR-094). -->
+        <receiver
+            android:name=".reminders.ReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Handles the payment-reminder notification actions (Yes-full / Not-yet). -->
         <receiver

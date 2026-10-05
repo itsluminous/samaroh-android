@@ -43,6 +43,10 @@ class PaymentReminderActionReceiver : BroadcastReceiver() {
         fun syncScheduler(): SyncScheduler
 
         fun clock(): Clock
+
+        fun ledger(): ReminderLedger
+
+        fun snoozer(): ReminderSnoozer
     }
 
     override fun onReceive(
@@ -112,6 +116,11 @@ class PaymentReminderActionReceiver : BroadcastReceiver() {
         }
 
         deps.notifier().cancelPaymentReminder(reminderId)
+        // Acting on the row is an acknowledgement (ADR-094): drop any armed snooze and
+        // the ledger entry — the row is no longer PENDING, so nothing re-posts it.
+        val key = ReminderLedgerKey.Row(reminder.id, reminder.bookingId, followUp = false)
+        deps.snoozer().cancel(key)
+        deps.ledger().remove(key)
         deps.syncScheduler().requestImmediateSync()
     }
 

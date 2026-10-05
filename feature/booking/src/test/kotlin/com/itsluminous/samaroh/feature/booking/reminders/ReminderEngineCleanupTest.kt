@@ -60,6 +60,11 @@ class ReminderEngineCleanupTest {
     private val businessRepository = FakeBusinessRepository(listOf(Fixtures.business()))
     private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
 
+    private val dataStore =
+        PreferenceDataStoreFactory.create(scope = storeScope) {
+            File(tmp.root, "settings.preferences_pb")
+        }
+
     private fun engine(): ReminderEngine =
         ReminderEngine(
             context = context,
@@ -68,13 +73,10 @@ class ReminderEngineCleanupTest {
             eventTypeRepository = eventTypeRepository,
             eventTypes = emptyCatalog, // labelFor falls back to the raw key — no resource ids in JVM tests
             notifier = BookingNotifier(context, FullScreenTakeover(context)),
-            prefs =
-                BookingReminderPrefs(
-                    PreferenceDataStoreFactory.create(scope = storeScope) {
-                        File(tmp.root, "settings.preferences_pb")
-                    },
-                ),
+            prefs = BookingReminderPrefs(dataStore),
             replicaIntegrity = replicaIntegrity,
+            ledger = ReminderLedger(dataStore),
+            snoozer = ReminderSnoozer(context, ReminderLedger(dataStore), clock),
             clock = clock,
         )
 

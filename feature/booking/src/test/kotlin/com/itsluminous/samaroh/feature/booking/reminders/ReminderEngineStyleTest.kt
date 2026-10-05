@@ -82,6 +82,8 @@ class ReminderEngineStyleTest {
             notifier = BookingNotifier(context, FullScreenTakeover(context)),
             prefs = BookingReminderPrefs(dataStore),
             replicaIntegrity = replicaIntegrity,
+            ledger = ReminderLedger(dataStore),
+            snoozer = ReminderSnoozer(context, ReminderLedger(dataStore), clock),
             clock = clock,
         )
 
