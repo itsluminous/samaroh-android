@@ -4061,3 +4061,46 @@ during auth init, local scope, legacy adoption, cross-scope prune, sign-out wipe
 `ReminderEnginePermissionTest` (viewer gets no row/notification; `record_payment` and
 owner do; amount masked without `view_amounts`; follow-up needs `edit`; upcoming needs
 `view`; snooze re-fire dropped after revocation).
+
+## ADR-096 — Marker event types are badged wherever types are listed for choice (2026-10-07)
+
+**Status:** accepted (applied in parallel by the web track; shared keys
+`booking.event_type.marker_badge` / `booking.event_type.marker_hint`, shared@4cec650).
+
+**Context.** ADR-041/044 made marker-kind presets (Lagan, Tilak) first-class — no amounts,
+no availability conflicts, no status surface — but the Add/Edit booking form's EVENT TYPE
+dropdown listed them exactly like bookable types: `"⭐ Lagan"` next to `"💒 Wedding"`.
+The user could only discover the difference AFTER selecting one, when the amount fields
+silently disappeared (ADR-044 §3) with no explanation. The Settings → Event types list
+already badged markers (ADR-041 §6) with its own inline pill, so the two surfaces also
+looked different.
+
+**Decision.**
+1. **One `MarkerBadge` in `core:designsystem`** (`component/MarkerBadge.kt`): an outlined
+   flag glyph + short label in a `secondaryContainer` small-shape pill, `labelSmall`, sized
+   to sit after a `bodyLarge` row label. Callers pass the localized label
+   (`booking.event_type.marker_badge` — en "Marker", hi "सूचक"); the flag is decorative
+   (no content description — the label carries the meaning). A cross-feature component,
+   hence this ADR (AGENTS.md "ADR process").
+2. **Picker model.** `BookingFormState.pickerEntries: List<EventTypePickerEntry>` =
+   `pickerPresets` × `isMarker`, where the flag is RESOLVED via
+   `EventTypeKinds.isMarker(presets, label)` — the same normalized-label contract the
+   card/summary/reports/`isMarkerType` use — so the badge shown before choosing can never
+   disagree with the amount blackout applied after choosing (tombstoned presets resolve
+   false, like everywhere else). `pickerPresets` stays (Custom-row filter).
+3. **Form.** Dropdown rows flagged marker get the badge as `DropdownMenuItem.trailingIcon`.
+   While `isMarkerType` is true the type field shows the badge as its `prefix` and the
+   one-line `booking.event_type.marker_hint` ("Marks a date only - no amounts or
+   availability conflicts") as `supportingText` — explaining the hidden amount fields
+   in place. Nothing else in the form changes; the field keeps its dropdown arrow.
+4. **Manage screen.** `EventTypesScreen` `PresetRow` swaps its inline pill for the shared
+   `MarkerBadge` with the new key, so markers look alike on both surfaces. The existing
+   colour dot is untouched. `booking.marker.badge` is no longer referenced on Android
+   (kept in the catalog — never rename; web may still use it).
+
+**Consequences.** Two new shared keys, zero renames. Tests: `EventTypePickerEntryTest`
+(flag follows preset kind in sort order, Custom never a row, tombstoned marker not a
+marker row, selecting a marker row flips `isMarkerType`, empty presets) and the e2e
+`BookingFlowTest.eventTypePicker_badgesMarkers_andExplainsSelection` (en + hi: two badged
+rows in the open picker from the seeded template, hint shown and Total amount gone after
+picking Lagan).

@@ -66,6 +66,7 @@ import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchDotsRow
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchEntry
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.MarkerBadge
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
@@ -213,15 +214,43 @@ fun BookingFormScreen(
                         readOnly = true,
                         label = { Text(stringResource(R.string.booking_form_event_type)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeMenu) },
+                        // Marker selected (ADR-041/044/096): the badge inside the field plus
+                        // the one-line hint explain WHY the amount fields below are gone.
+                        prefix =
+                            if (state.isMarkerType) {
+                                {
+                                    MarkerBadge(
+                                        label = stringResource(R.string.booking_event_type_marker_badge),
+                                        modifier = Modifier.padding(end = 8.dp),
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                        supportingText =
+                            if (state.isMarkerType) {
+                                { Text(stringResource(R.string.booking_event_type_marker_hint)) }
+                            } else {
+                                null
+                            },
                         modifier =
                             Modifier
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                 .fillMaxWidth(),
                     )
                     ExposedDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        state.pickerPresets.forEach { preset ->
+                        state.pickerEntries.forEach { entry ->
+                            val preset = entry.preset
                             DropdownMenuItem(
                                 text = { Text("${preset.icon} ${preset.label}") },
+                                // Marker-kind rows carry the badge so the user can tell a
+                                // date marker from a bookable type BEFORE choosing (ADR-096).
+                                trailingIcon =
+                                    if (entry.isMarker) {
+                                        { MarkerBadge(label = stringResource(R.string.booking_event_type_marker_badge)) }
+                                    } else {
+                                        null
+                                    },
                                 onClick = {
                                     viewModel.setEventType(EventTypeChoice.Preset(preset))
                                     typeMenu = false

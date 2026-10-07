@@ -71,6 +71,15 @@ sealed interface EventTypeChoice {
     data object Custom : EventTypeChoice
 }
 
+/**
+ * One row of the event-type dropdown (ADR-096): the preset plus whether it resolves to a
+ * MARKER kind — rows flagged true render the marker badge next to the label.
+ */
+data class EventTypePickerEntry(
+    val preset: EventType,
+    val isMarker: Boolean,
+)
+
 data class BookingFormState(
     val loaded: Boolean = false,
     val editingId: String? = null,
@@ -131,6 +140,15 @@ data class BookingFormState(
      */
     val pickerPresets: List<EventType>
         get() = presets.filterNot { EventTypePresets.normalize(it.label) == BuiltInEventType.CUSTOM_KEY }
+
+    /**
+     * The dropdown's rows (ADR-096): every [pickerPresets] entry with its marker flag
+     * RESOLVED through the same normalized-label contract the card/summary/reports use
+     * ([EventTypeKinds.isMarker] against the live presets), so the badge in the picker can
+     * never disagree with the amount blackout [isMarkerType] applies after selection.
+     */
+    val pickerEntries: List<EventTypePickerEntry>
+        get() = pickerPresets.map { EventTypePickerEntry(it, EventTypeKinds.isMarker(presets, it.label)) }
 
     /**
      * Whether the CURRENT selection resolves to a MARKER-kind preset (ADR-041/ADR-044).

@@ -152,6 +152,22 @@ abstract class BookingFlowTest(
         waitForContentDescription(string(R.string.booking_calendar_a11y_blocked_day), substring = true)
     }
 
+    @Test
+    fun eventTypePicker_badgesMarkers_andExplainsSelection() {
+        openAddBookingForm()
+        // Open the type dropdown: the seeded presets include two marker kinds (Tilak,
+        // Lagan — ADR-041 seed template), each row carrying the marker badge (ADR-096).
+        compose.onNode(hasText(string(R.string.booking_form_event_type))).performClick()
+        val badge = string(R.string.booking_event_type_marker_badge)
+        waitForText(badge)
+        compose.onAllNodesWithText(badge).assertCountEquals(2)
+
+        // Pick Lagan: the hint explains the missing amount fields (ADR-044 blackout).
+        compose.onNode(hasText(string(R.string.booking_event_type_lagan), substring = true)).performClick()
+        waitForText(string(R.string.booking_event_type_marker_hint))
+        compose.onAllNodesWithText(string(R.string.booking_form_total_amount)).assertCountEquals(0)
+    }
+
     /** A current-month date guaranteed empty in these tests (today is never day 20 AND 21). */
     private fun emptyMidMonthDate(): LocalDate {
         val month = YearMonth.now()

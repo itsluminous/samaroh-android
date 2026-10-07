@@ -38,6 +38,7 @@ import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchEntry
 import com.itsluminous.samaroh.core.designsystem.component.ColorSwatchPicker
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.designsystem.component.MarkerBadge
 import com.itsluminous.samaroh.core.designsystem.component.parseHexColor
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.EventType
@@ -149,17 +150,11 @@ private fun PresetRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text = preset.label, modifier = Modifier.weight(1f, fill = false))
                 if (preset.kind == EventTypeKind.MARKER) {
-                    // Subtle marker badge (ADR-041): tells markers apart in the list.
-                    Text(
-                        text = stringResource(R.string.booking_marker_badge),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier =
-                            Modifier
-                                .padding(start = 8.dp)
-                                .clip(MaterialTheme.shapes.small)
-                                .background(MaterialTheme.colorScheme.secondaryContainer)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                    // Marker badge (ADR-041, shared component ADR-096): the same flag pill
+                    // the booking form's picker shows, so markers look alike everywhere.
+                    MarkerBadge(
+                        label = stringResource(R.string.booking_event_type_marker_badge),
+                        modifier = Modifier.padding(start = 8.dp),
                     )
                 }
                 if (dotColor != null) {
