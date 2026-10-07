@@ -216,6 +216,15 @@ class SyncEngine
                 for (entry in batch) {
                     val key = entry.entityType to entry.entityId
                     if (key in heldEntities) continue
+                    // A queued op for a table that is no longer synced (ADR-095:
+                    // `payment_reminders` went device-local) has no server destination —
+                    // drop it instead of retrying an RLS-rejected push forever. Covers
+                    // both fresh and already-errored legacy items.
+                    if (SyncTables.byName(entry.entityType) == null) {
+                        outboxDao.remove(entry.id)
+                        progressed = true
+                        continue
+                    }
                     try {
                         pushEntry(remote, entry)
                         outboxDao.remove(entry.id)

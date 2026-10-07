@@ -9,8 +9,10 @@ import com.itsluminous.samaroh.core.model.EventTypeKind
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
+import com.itsluminous.samaroh.feature.booking.FakeActorProvider
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
+import com.itsluminous.samaroh.feature.booking.FakeCurrentUserProvider
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -75,8 +77,9 @@ class ReminderEngineCleanupTest {
             notifier = BookingNotifier(context, FullScreenTakeover(context)),
             prefs = BookingReminderPrefs(dataStore),
             replicaIntegrity = replicaIntegrity,
-            ledger = ReminderLedger(dataStore),
-            snoozer = ReminderSnoozer(context, ReminderLedger(dataStore), clock),
+            ledger = ReminderLedger(dataStore, FakeCurrentUserProvider()),
+            snoozer = ReminderSnoozer(context, ReminderLedger(dataStore, FakeCurrentUserProvider()), clock),
+            actorProvider = FakeActorProvider(),
             clock = clock,
         )
 

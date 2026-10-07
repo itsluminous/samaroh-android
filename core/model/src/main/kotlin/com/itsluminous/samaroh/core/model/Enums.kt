@@ -127,10 +127,10 @@ enum class EventTypeKind(
 }
 
 /**
- * What a reminder row is about (ADR-020). LOCAL-ONLY discriminator: the canonical
- * `payment_reminders` Postgres table has no such column, so the kind never enters sync
- * payloads (`@Transient` on [PaymentReminder.kind]) and pulls preserve the local value
- * (same pattern as `expense_attachments.local_cache_path`).
+ * What a reminder row is about (ADR-020). Historically a LOCAL-ONLY discriminator (the
+ * canonical `payment_reminders` Postgres table had no such column, so the kind never
+ * entered sync payloads — `@Transient` on [PaymentReminder.kind]); since ADR-095 the whole
+ * reminder row is device-local, so nothing about it syncs.
  */
 enum class ReminderKind(
     val wire: String,

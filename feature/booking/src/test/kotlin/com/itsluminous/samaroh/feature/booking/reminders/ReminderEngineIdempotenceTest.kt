@@ -15,8 +15,10 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
+import com.itsluminous.samaroh.feature.booking.FakeActorProvider
 import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
+import com.itsluminous.samaroh.feature.booking.FakeCurrentUserProvider
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
 import com.itsluminous.samaroh.feature.booking.domain.BuiltInEventType
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -71,7 +73,7 @@ class ReminderEngineIdempotenceTest {
         PreferenceDataStoreFactory.create(scope = storeScope) {
             File(tmp.root, "settings.preferences_pb")
         }
-    private val ledger = ReminderLedger(dataStore)
+    private val ledger = ReminderLedger(dataStore, FakeCurrentUserProvider())
     private val snoozer = ReminderSnoozer(context, ledger, clock)
 
     private fun engine(): ReminderEngine =
@@ -86,6 +88,7 @@ class ReminderEngineIdempotenceTest {
             replicaIntegrity = ReplicaIntegrity { true },
             ledger = ledger,
             snoozer = snoozer,
+            actorProvider = FakeActorProvider(),
             clock = clock,
         )
 

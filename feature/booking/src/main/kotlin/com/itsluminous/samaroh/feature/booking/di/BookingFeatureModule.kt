@@ -1,6 +1,7 @@
 package com.itsluminous.samaroh.feature.booking.di
 
 import com.itsluminous.samaroh.core.data.reminders.ReminderTestFirer
+import com.itsluminous.samaroh.core.data.session.SessionScopedStore
 import com.itsluminous.samaroh.core.data.sync.PostSyncHook
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -10,6 +11,7 @@ import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderTestFire
 import com.itsluminous.samaroh.feature.booking.reminders.DataStoreNotificationPromptPrefs
 import com.itsluminous.samaroh.feature.booking.reminders.NotificationPromptPrefs
 import com.itsluminous.samaroh.feature.booking.reminders.ReminderPostSyncHook
+import com.itsluminous.samaroh.feature.booking.reminders.ReminderSessionStore
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.calendar.DataStoreBookingCalendarPrefs
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormFieldPrefs
@@ -54,4 +56,9 @@ abstract class BookingFeatureModule {
     /** Settings Test button fires a sample through the real reminder pipeline (ADR-045). */
     @Binds
     abstract fun bindReminderTestFirer(impl: BookingReminderTestFirer): ReminderTestFirer
+
+    /** Sign-out wipes the per-user reminder ledger + disarms snoozes (ADR-095 on ADR-040). */
+    @Binds
+    @IntoSet
+    abstract fun bindReminderSessionStore(impl: ReminderSessionStore): SessionScopedStore
 }

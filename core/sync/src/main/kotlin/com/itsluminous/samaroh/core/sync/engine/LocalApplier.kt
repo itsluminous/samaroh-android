@@ -19,7 +19,6 @@ import com.itsluminous.samaroh.core.database.dao.NoteDao
 import com.itsluminous.samaroh.core.database.dao.NoteTagDao
 import com.itsluminous.samaroh.core.database.dao.NoteTagLinkDao
 import com.itsluminous.samaroh.core.database.dao.PartyDao
-import com.itsluminous.samaroh.core.database.dao.PaymentReminderDao
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
@@ -39,8 +38,6 @@ import com.itsluminous.samaroh.core.model.Note
 import com.itsluminous.samaroh.core.model.NoteTag
 import com.itsluminous.samaroh.core.model.NoteTagLink
 import com.itsluminous.samaroh.core.model.Party
-import com.itsluminous.samaroh.core.model.PaymentReminder
-import com.itsluminous.samaroh.core.model.ReminderKind
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -71,7 +68,6 @@ class LocalApplier
         private val eventTypeDao: EventTypeDao,
         private val dateBlockDao: DateBlockDao,
         private val bookingPaymentDao: BookingPaymentDao,
-        private val paymentReminderDao: PaymentReminderDao,
         private val partyDao: PartyDao,
         private val expenseDao: ExpenseDao,
         private val expenseAttachmentDao: ExpenseAttachmentDao,
@@ -140,12 +136,7 @@ class LocalApplier
                         bookingPaymentDao::byId,
                         bookingPaymentDao::upsert,
                     ) { it.id }
-                "payment_reminders" -> {
-                    val model = json.decodeFromJsonElement(PaymentReminder.serializer(), row)
-                    // kind is Room-only state (ADR-020); preserve it across pulled updates.
-                    val kind = paymentReminderDao.byId(model.id)?.kind ?: ReminderKind.PAYMENT
-                    upsertIfChanged(model.toEntity(kind), paymentReminderDao::byId, paymentReminderDao::upsert) { it.id }
-                }
+                // `payment_reminders` is device-local since ADR-095 — never pulled.
                 "parties" ->
                     upsertIfChanged(
                         json.decodeFromJsonElement(Party.serializer(), row).toEntity(),

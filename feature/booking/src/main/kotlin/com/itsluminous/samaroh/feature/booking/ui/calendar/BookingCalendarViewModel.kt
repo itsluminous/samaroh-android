@@ -662,6 +662,9 @@ class BookingCalendarViewModel
         /** "Not yet" on the in-app pending-confirmations card: snooze + re-remind in 7 days. */
         fun snoozeReminder(confirmation: PendingConfirmationUi) {
             viewModelScope.launch {
+                // Same gate as the card itself (record_payment) — defence in depth (ADR-095).
+                val actor = uiState.value.actor ?: return@launch
+                if (!(actor.isOwner || actor.permissions.recordPayment)) return@launch
                 val now = clock.instant()
                 bookingRepository.saveReminder(confirmation.reminder.copy(status = ReminderStatus.SNOOZED, updatedAt = now))
                 val due =
@@ -699,6 +702,8 @@ class BookingCalendarViewModel
         /** "Snooze" on a follow-up row: re-remind in [TentativeFollowUpPlanner.SNOOZE_DAYS]. */
         fun snoozeFollowUp(followUp: PendingConfirmationUi) {
             viewModelScope.launch {
+                val actor = uiState.value.actor ?: return@launch
+                if (!(actor.isOwner || actor.permissions.edit)) return@launch
                 val now = clock.instant()
                 bookingRepository.saveReminder(followUp.reminder.copy(status = ReminderStatus.SNOOZED, updatedAt = now))
                 bookingRepository.saveReminder(

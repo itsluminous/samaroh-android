@@ -3963,3 +3963,101 @@ deleteIntent carries the key and ACK blocks re-posts; changed dates re-fire; ful
 alarm armed once and not re-armed after ack; payment row posts once with the row still
 PENDING; snooze arms the alarm at the preset, blocks planning, refires once per style;
 snoozed reminders dropped on cancel/delete/paid; boot reset; prune).
+
+## ADR-095 — Reminder state is per user AND per device: `payment_reminders` goes device-local, deliveries follow permissions (2026-10-07)
+
+**Status:** accepted (owner bug + owner design requirement). Frozen-contract touches, all
+additive or narrowing: `BookingRepository.saveReminder` no longer enqueues an outbox op;
+`core:sync` drops the `payment_reminders` `SyncTableSpec` and its `LocalApplier` branch;
+`SyncEngine.push` drops queued ops for tables that are no longer synced; the Room table
+and `PaymentReminder` model are unchanged (no Room migration). Shared repo: migration
+`011_retire_payment_reminders.sql` (comment-only) + `scripts/drop-payment-reminders.sql`.
+
+**Reported.** A member with limited permissions (booking view, expenses view — no
+`booking.record_payment`) saw two permanent sync errors on his phone, "Add payment
+reminder" and "Update payment reminder": Postgres `42501 new row violates row-level
+security policy for table "payment_reminders"` (console log 2026-10-07T13:14Z).
+
+**Root cause (verified in code).** `payment_reminders` was a SYNCED business-wide table
+(RLS: SELECT needs `booking.view`, INSERT/UPDATE need `booking.record_payment`,
+`002_rls.sql`), yet the rows were PLANNED BY EVERY DEVICE: `ReminderEngine.
+runPaymentReminders` ran on each pull for whoever was signed in, created a PENDING row for
+every ended booking with `due > 0` and `saveReminder` enqueued it — a viewer device thus
+manufactured rows the server would never accept, and they sat in the outbox retrying
+forever (ADR-080's Discard is manual). The design was also wrong for the owner
+irrespective of the bug: one shared row set means the same account on two phones (and two
+different members) overwrite each other's PENDING/SNOOZED/CONFIRMED/DISMISSED state —
+"Not yet" on one phone silently moved the reminder on every other phone. Web never read
+or wrote the table (verified: zero references in `samaroh-web/src`).
+
+**What is actually shared vs per device.** The business facts a reminder is derived from
+— bookings, dates, totals, payments, tentative status — are synced rows already. The
+reminder itself (that THIS user on THIS device should be asked "Did X pay?" today, and
+whether they answered) is delivery state, exactly like the ADR-094 ledger. Nothing in a
+`payment_reminders` row needs to cross devices: "Yes, full" records a PAYMENT (synced),
+which makes every other device auto-dismiss its own row on the next pass (ADR-064 truly
+paid); "Confirm booking" on a follow-up flips the BOOKING status (synced), ditto.
+
+**Decision.**
+
+1. **Reminder rows are device-local (and therefore per user).** `payment_reminders` in
+   Room stays as is but is no longer a sync table: `saveReminder` writes Room only, there
+   is no `SyncTableSpec` (no pull, no push) and no `LocalApplier` branch. Planning,
+   chaining (+7 days), dismissal and the in-app confirmations card all keep working
+   unchanged against the local rows, which are derived from the synced bookings and
+   payments on each device (the ADR-060 consistency gate still protects the derivation).
+   Per-user follows from ADR-040: sign-out wipes Room, so the next account starts with no
+   rows. Independent state per device is now the DESIGN, not a race: two phones of the
+   same owner each keep their own pending/snoozed rows; what converges them is the synced
+   payment or status change, never the other phone's reminder row.
+2. **Legacy outbox ops are dropped automatically.** `SyncEngine.push` removes any queued
+   op whose `entity_type` has no `SyncTableSpec` (fresh or already in error) instead of
+   pushing it — the member's two stuck items disappear on the first sync after the
+   update, no manual Discard needed. Pulled server rows already in Room simply become
+   local rows; stale pull cursors for the table are left (harmless, never read).
+3. **The ledger is user-scoped and wiped on sign-out.** `ReminderLedger` keys become
+   `reminder_ledger.<userScope>.<key>` — the Supabase user id, or `local` in signed-out
+   owner mode. The scope is remembered in the same DataStore (`reminder_ledger_scope`)
+   because boot/alarm receivers run before the auth session has loaded
+   (`CurrentUserProvider` emits null while initializing) and must still find the user's
+   SNOOZED/ACKED entries. Legacy unscoped entries (0.20.0) are adopted into the current
+   scope by `prune` on the first pass, so the upgrade keeps "dismissed stays dismissed".
+   New `ReminderSessionStore` (`SessionScopedStore`, `@IntoSet` in
+   `BookingFeatureModule`) disarms every snooze alarm and clears every ledger entry + the
+   scope on sign-out — one account's acknowledgements never leak to the next on a shared
+   device; the scope is belt-and-braces for the same guarantee.
+4. **Deliveries follow the member's §3 permissions — the same gates as the surfaces they
+   lead to.** `ReminderEngine` now takes `BookingActorProvider`: payment reminders (row
+   planning AND notification) only for an owner or a member with
+   `booking.record_payment` (the confirmations card and both actions already required
+   it); tentative follow-ups only with `booking.edit` (confirming needs it); upcoming
+   event reminders with `booking.view`. A snoozed reminder re-checks the grant at fire
+   time (revoked → dropped). The payment notification masks the due amount as ₹••• when
+   `view_amounts` is off (`BookingNotifier.postPaymentReminder(maskAmount)`), matching
+   every other amount surface. The card actions `snoozeReminder`/`snoozeFollowUp` gain
+   the VM-level guard their UI gate already implied (ADR-080 parity).
+5. **Server.** `payment_reminders` is RETIRED. Shared migration 011 is a catalog comment
+   only — deliberately non-destructive so phones still on ≤ 0.20.0 (side-loaded releases
+   can lag) keep syncing until they update; `scripts/drop-payment-reminders.sql` drops
+   the table + `reminder_status` enum once every device is ≥ 0.20.1 (an older build's
+   pull of a missing table would otherwise mark its replica inconsistent and stop
+   planning, ADR-060). `seed.sql` no longer seeds reminder rows; `cleanup-data.sql`
+   guards its reminder step with `to_regclass`. Web: nothing to change (verified).
+
+**Rejected alternative.** Keeping server rows as owner/manager-written records with
+client gating (only `record_payment` devices enqueue, viewers compute locally) would have
+fixed the RLS error but kept the shared-state model the owner explicitly does not want,
+and would have needed a second code path for viewers. The device-local contract is
+strictly simpler: one path, no sync, no server rows, no RLS surface.
+
+**Consequences.** A fresh sign-in on a new device plans its own reminders from the pulled
+data (as before) but never pushes them. The Settings → Sync status screen can still
+render a legacy `payment_reminders` entry (`SyncEntryDisplay` keeps the branch) until the
+engine drops it. `BackupExporter` still includes the local rows (device data worth
+restoring). Tests: `RoomBookingRepositoryReminderTest` (no outbox op),
+`SyncEnginePushTest` (legacy reminder op dropped, not pushed or retried; `payment_reminders`
+absent from `SyncTables`), `ReminderLedgerScopeTest` (per-user namespace, remembered scope
+during auth init, local scope, legacy adoption, cross-scope prune, sign-out wipe),
+`ReminderEnginePermissionTest` (viewer gets no row/notification; `record_payment` and
+owner do; amount masked without `view_amounts`; follow-up needs `edit`; upcoming needs
+`view`; snooze re-fire dropped after revocation).

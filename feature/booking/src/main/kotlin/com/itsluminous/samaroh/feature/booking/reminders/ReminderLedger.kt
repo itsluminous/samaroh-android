@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
@@ -116,14 +117,45 @@ data class ReminderLedgerEntry(
  * device state, not synced business data, so the ledger is deliberately NOT a synced
  * row. Entries expire via [prune] (upcoming: the event's start date; rows: a generous
  * horizon) so the store never grows unbounded.
+ *
+ * Entries are additionally scoped to the SIGNED-IN USER (ADR-095): every key is
+ * `reminder_ledger.<userScope>.<encoded key>`, where the scope is the Supabase user id
+ * (or `local` for signed-out / offline-continue owner mode). The scope is remembered in
+ * the same DataStore so receivers that run before the auth session has loaded (boot,
+ * alarms — `CurrentUserProvider` emits null while initializing) still address the right
+ * entries. Sign-out wipes the whole ledger ([clearAll], via `ReminderSessionStore`), so
+ * one account's acknowledgements never leak to the next account on a shared device; the
+ * scope is belt-and-braces for the same guarantee. Legacy unscoped entries written by
+ * builds before ADR-095 are adopted into the current scope by [prune].
  */
 @Singleton
 class ReminderLedger
     @Inject
     constructor(
         @SettingsDataStore private val dataStore: DataStore<Preferences>,
+        private val currentUserProvider: CurrentUserProvider,
     ) {
-        private fun prefKey(key: ReminderLedgerKey) = stringPreferencesKey(PREFIX + key.encode())
+        /**
+         * The ledger namespace for the current session: the live user id when known,
+         * else the last remembered one, else [LOCAL_SCOPE]. A newly observed user id is
+         * remembered so later lookups during auth initialization resolve the same scope.
+         */
+        suspend fun scope(): String {
+            val live = currentUserProvider.currentUserId.first()
+            val remembered = dataStore.data.first()[SCOPE_KEY]
+            if (live != null) {
+                if (remembered != live) dataStore.edit { it[SCOPE_KEY] = live }
+                return live
+            }
+            return remembered ?: LOCAL_SCOPE
+        }
+
+        private fun prefKey(
+            scope: String,
+            key: ReminderLedgerKey,
+        ) = stringPreferencesKey(PREFIX + scope + SCOPE_SEP + key.encode())
+
+        private suspend fun prefKey(key: ReminderLedgerKey) = prefKey(scope(), key)
 
         suspend fun entry(key: ReminderLedgerKey): ReminderLedgerEntry? =
             dataStore.data.first()[prefKey(key)]?.let(ReminderLedgerEntry::decode)
@@ -136,7 +168,8 @@ class ReminderLedger
             keepUntil: LocalDate,
             snoozedUntilMillis: Long? = null,
         ) {
-            dataStore.edit { it[prefKey(key)] = ReminderLedgerEntry(state, keepUntil, snoozedUntilMillis).encode() }
+            val prefKey = prefKey(key)
+            dataStore.edit { it[prefKey] = ReminderLedgerEntry(state, keepUntil, snoozedUntilMillis).encode() }
         }
 
         /** Marks [key] acknowledged, keeping its existing horizon (or [fallbackKeepUntil] when unknown). */
@@ -144,30 +177,39 @@ class ReminderLedger
             key: ReminderLedgerKey,
             fallbackKeepUntil: LocalDate,
         ) {
+            val prefKey = prefKey(key)
             dataStore.edit { prefs ->
-                val keep = prefs[prefKey(key)]?.let(ReminderLedgerEntry::decode)?.keepUntil ?: fallbackKeepUntil
-                prefs[prefKey(key)] = ReminderLedgerEntry(ReminderFireState.ACKED, keep).encode()
+                val keep = prefs[prefKey]?.let(ReminderLedgerEntry::decode)?.keepUntil ?: fallbackKeepUntil
+                prefs[prefKey] = ReminderLedgerEntry(ReminderFireState.ACKED, keep).encode()
             }
         }
 
         suspend fun remove(key: ReminderLedgerKey) {
-            dataStore.edit { it.remove(prefKey(key)) }
+            val prefKey = prefKey(key)
+            dataStore.edit { it.remove(prefKey) }
         }
 
-        /** Every live entry, keyed — the boot pass uses it to re-arm snoozes/alarms. */
-        suspend fun all(): Map<ReminderLedgerKey, ReminderLedgerEntry> =
-            dataStore.data
+        /** Every live entry of the CURRENT scope, keyed — the boot pass uses it to re-arm snoozes/alarms. */
+        suspend fun all(): Map<ReminderLedgerKey, ReminderLedgerEntry> {
+            val scope = scope()
+            return dataStore.data
                 .first()
                 .asMap()
                 .mapNotNull { (k, v) ->
-                    if (!k.name.startsWith(PREFIX) || v !is String) return@mapNotNull null
-                    val key = ReminderLedgerKey.decode(k.name.removePrefix(PREFIX)) ?: return@mapNotNull null
+                    val parsed = parse(k.name) ?: return@mapNotNull null
+                    if (parsed.scope != scope || v !is String) return@mapNotNull null
                     val entry = ReminderLedgerEntry.decode(v) ?: return@mapNotNull null
-                    key to entry
+                    parsed.key to entry
                 }.toMap()
+        }
 
-        /** Drops entries whose relevance window ended before [today]. */
+        /**
+         * Drops entries (of every scope) whose relevance window ended before [today], and
+         * adopts legacy unscoped entries (pre-ADR-095 builds) into the current scope so an
+         * upgrade keeps "dismissed stays dismissed".
+         */
         suspend fun prune(today: LocalDate) {
+            val scope = scope()
             dataStore.edit { prefs ->
                 prefs
                     .asMap()
@@ -175,7 +217,15 @@ class ReminderLedger
                     .filter { it.name.startsWith(PREFIX) }
                     .forEach { k ->
                         val entry = (prefs[k] as? String)?.let(ReminderLedgerEntry::decode)
-                        if (entry == null || entry.keepUntil.isBefore(today)) prefs.remove(k)
+                        val parsed = parse(k.name)
+                        when {
+                            entry == null || parsed == null || entry.keepUntil.isBefore(today) -> prefs.remove(k)
+                            parsed.legacy -> {
+                                prefs.remove(k)
+                                val scoped = prefKey(scope, parsed.key)
+                                if (prefs[scoped] == null) prefs[scoped] = entry.encode()
+                            }
+                        }
                     }
             }
         }
@@ -199,8 +249,47 @@ class ReminderLedger
             }
         }
 
+        /** Sign-out (ADR-040/095): forget every entry of every scope and the remembered scope. */
+        suspend fun clearAll() {
+            dataStore.edit { prefs ->
+                prefs
+                    .asMap()
+                    .keys
+                    .filter { it.name.startsWith(PREFIX) }
+                    .forEach { prefs.remove(it) }
+                prefs.remove(SCOPE_KEY)
+            }
+        }
+
+        private class ParsedKey(
+            val scope: String,
+            val key: ReminderLedgerKey,
+            val legacy: Boolean,
+        )
+
+        /** `reminder_ledger.<scope>.<encoded>`; a pre-ADR-095 key has no scope segment. */
+        private fun parse(name: String): ParsedKey? {
+            if (!name.startsWith(PREFIX)) return null
+            val rest = name.removePrefix(PREFIX)
+            val dot = rest.indexOf(SCOPE_SEP)
+            if (dot < 0) {
+                val key = ReminderLedgerKey.decode(rest) ?: return null
+                return ParsedKey(LOCAL_SCOPE, key, legacy = true)
+            }
+            val key = ReminderLedgerKey.decode(rest.substring(dot + 1)) ?: return null
+            return ParsedKey(rest.substring(0, dot), key, legacy = false)
+        }
+
         companion object {
             const val PREFIX = "reminder_ledger."
+
+            /** Scope used while no user is (or was) signed in: offline-continue owner mode. */
+            const val LOCAL_SCOPE = "local"
+
+            private const val SCOPE_SEP = '.'
+
+            /** The remembered user scope — survives auth initialization, cleared on sign-out. */
+            val SCOPE_KEY = stringPreferencesKey("reminder_ledger_scope")
 
             /** Horizon for payment/follow-up row entries (rows chain weekly; 90 days is ample). */
             const val ROW_KEEP_DAYS = 90L

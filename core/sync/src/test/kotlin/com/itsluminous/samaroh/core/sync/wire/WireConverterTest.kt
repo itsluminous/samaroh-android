@@ -39,12 +39,15 @@ class WireConverterTest {
     }
 
     @Test
-    fun `inventory unit_price and reminder snapshot convert in place`() {
+    fun `inventory unit_price converts in place`() {
         val txn = WireConverter.toWire("inventory_transactions", """{"id":"t-1","unit_price":10000}""")
-        val reminder = WireConverter.toWire("payment_reminders", """{"id":"r-1","amount_due_snapshot":250050}""")
 
         assertThat(txn.getValue("unit_price").jsonPrimitive.content).isEqualTo("100.00")
-        assertThat(reminder.getValue("amount_due_snapshot").jsonPrimitive.content).isEqualTo("2500.50")
+    }
+
+    @Test
+    fun `payment_reminders is not a synced table (ADR-095)`() {
+        assertThat(SyncTables.byName("payment_reminders")).isNull()
     }
 
     @Test

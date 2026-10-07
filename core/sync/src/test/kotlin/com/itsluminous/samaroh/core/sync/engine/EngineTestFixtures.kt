@@ -246,7 +246,6 @@ fun syncEngine(
                 eventTypeDao = db.eventTypeDao(),
                 dateBlockDao = db.dateBlockDao(),
                 bookingPaymentDao = db.bookingPaymentDao(),
-                paymentReminderDao = db.paymentReminderDao(),
                 partyDao = db.partyDao(),
                 expenseDao = db.expenseDao(),
                 expenseAttachmentDao = db.expenseAttachmentDao(),

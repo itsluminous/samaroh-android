@@ -137,6 +137,8 @@ class BookingNotifier
             style: ReminderStyle,
             soundUri: String?,
             ledgerKey: ReminderLedgerKey? = null,
+            /** `view_amounts` off (ADR-095): the question reads "₹•••" like every other amount surface. */
+            maskAmount: Boolean = false,
         ) {
             if (!canNotify()) return
             val path = takeover.pathFor(style)
@@ -149,7 +151,7 @@ class BookingNotifier
                 context.getString(
                     R.string.booking_reminder_payment_question,
                     booking.customerName,
-                    AmountFormatter.format(duePaise),
+                    if (maskAmount) AmountFormatter.MASKED else AmountFormatter.format(duePaise),
                     eventLabel,
                 )
 

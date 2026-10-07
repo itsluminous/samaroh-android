@@ -19,7 +19,6 @@ import com.itsluminous.samaroh.core.database.entity.NoteEntity
 import com.itsluminous.samaroh.core.database.entity.NoteTagEntity
 import com.itsluminous.samaroh.core.database.entity.NoteTagLinkEntity
 import com.itsluminous.samaroh.core.database.entity.PartyEntity
-import com.itsluminous.samaroh.core.database.entity.PaymentReminderEntity
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
@@ -39,8 +38,6 @@ import com.itsluminous.samaroh.core.model.Note
 import com.itsluminous.samaroh.core.model.NoteTag
 import com.itsluminous.samaroh.core.model.NoteTagLink
 import com.itsluminous.samaroh.core.model.Party
-import com.itsluminous.samaroh.core.model.PaymentReminder
-import com.itsluminous.samaroh.core.model.ReminderKind
 
 /*
  * Mechanical model → Room-entity mapping for pulled rows. The core:data mappers are
@@ -126,20 +123,6 @@ internal fun BookingPayment.toEntity() =
         method,
         notes,
         createdBy,
-        createdAt,
-        updatedAt,
-        deletedAt,
-    )
-
-internal fun PaymentReminder.toEntity(localKind: ReminderKind) =
-    PaymentReminderEntity(
-        id,
-        bookingId,
-        businessId,
-        remindOn,
-        status,
-        amountDueSnapshotPaise,
-        localKind,
         createdAt,
         updatedAt,
         deletedAt,

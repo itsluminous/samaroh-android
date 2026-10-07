@@ -169,6 +169,12 @@ data class BookingPayment(
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
 )
 
+/**
+ * A payment / follow-up reminder row. DEVICE-LOCAL since ADR-095: planned on each device
+ * (for the signed-in user — Room is wiped on sign-out, ADR-040) from the synced bookings
+ * and payments; never pushed or pulled. The server's `payment_reminders` table is retired
+ * (shared migration 011). Still `@Serializable` for Drive backups (`docs/backup-format.md`).
+ */
 @Serializable
 data class PaymentReminder(
     val id: String,
@@ -178,9 +184,9 @@ data class PaymentReminder(
     val status: ReminderStatus = ReminderStatus.PENDING,
     @SerialName("amount_due_snapshot") val amountDueSnapshotPaise: Long,
     /**
-     * LOCAL-ONLY reminder kind (ADR-020): payment confirmation vs tentative-booking
-     * follow-up. `@Transient` keeps it out of outbox/sync payloads — the canonical
-     * Postgres table has no such column.
+     * Reminder kind (ADR-020): payment confirmation vs tentative-booking follow-up.
+     * `@Transient` keeps it out of the serialized form (historically the sync payload;
+     * since ADR-095 only backups) — backups restore it as PAYMENT.
      */
     @Transient val kind: ReminderKind = ReminderKind.PAYMENT,
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,

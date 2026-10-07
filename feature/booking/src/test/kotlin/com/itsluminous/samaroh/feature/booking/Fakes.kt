@@ -7,6 +7,7 @@ import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.BookingPermissions
@@ -263,6 +264,14 @@ class FakeActorProvider(
         ),
 ) : BookingActorProvider {
     override suspend fun actorFor(business: Business): BookingActor = actor
+}
+
+/** Signed-in user source for the per-user reminder ledger (ADR-095); null = signed out. */
+class FakeCurrentUserProvider(
+    userId: String? = "test-user",
+) : CurrentUserProvider {
+    val userId = MutableStateFlow(userId)
+    override val currentUserId: Flow<String?> = this.userId
 }
 
 /** Fake of the frozen InvoiceGenerator contract (ADR-006) — real impl is W1-E. */

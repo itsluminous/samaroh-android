@@ -121,12 +121,10 @@ object SyncTables {
                 moneyFields = mapOf("amountPaise" to "amount"),
                 enumFields = setOf("method"),
             ),
-            SyncTableSpec(
-                "payment_reminders",
-                businessScoped = true,
-                moneyFields = mapOf("amount_due_snapshot" to "amount_due_snapshot"),
-                enumFields = setOf("status"),
-            ),
+            // `payment_reminders` is DELIBERATELY absent (ADR-095): reminder rows are
+            // per-user, per-device state derived from the synced bookings + payments
+            // and never cross the wire any more — no pull, no push. A legacy outbox op
+            // for it (queued by an older build) is dropped by the engine, not pushed.
             SyncTableSpec("parties", businessScoped = true),
             SyncTableSpec(
                 "expenses",

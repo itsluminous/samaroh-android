@@ -72,6 +72,9 @@ interface BookingRepository {
     /*
      * Payment-reminder persistence + reminder-engine queries (§4.1) — additive W1-A
      * extension of the frozen contract, recorded in docs/decisions.md ADR-007.
+     * Reminder rows are DEVICE-LOCAL since ADR-095: derived per device (and per signed-in
+     * user — Room is wiped on sign-out, ADR-040) from the synced bookings + payments;
+     * they never enter the outbox and are never pulled.
      */
 
     /** Live pending reminders due on or before [onOrBefore] — the in-app confirmations card. */
@@ -91,7 +94,7 @@ interface BookingRepository {
 
     suspend fun reminder(id: String): PaymentReminder?
 
-    /** Upserts locally and enqueues an outbox push. */
+    /** Upserts locally — Room only, no outbox op (device-local row, ADR-095). */
     suspend fun saveReminder(reminder: PaymentReminder)
 
     /** Non-cancelled live bookings that ended strictly before [date] — reminder candidates. */

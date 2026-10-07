@@ -149,13 +149,11 @@ class RoomBookingRepository
         override suspend fun reminder(id: String): PaymentReminder? = reminderDao.byId(id)?.toModel()
 
         override suspend fun saveReminder(reminder: PaymentReminder) {
+            // Device-local state (ADR-095): no outbox op. The row is planned on every
+            // device from the synced bookings + payments; a viewer device must never
+            // try to push one (RLS requires booking.record_payment) and two devices of
+            // the same user keep independent reminder state by design.
             reminderDao.upsert(reminder.toEntity())
-            outboxWriter.enqueue(
-                "payment_reminders",
-                reminder.id,
-                OutboxOperation.UPSERT,
-                json.encodeToString(PaymentReminder.serializer(), reminder),
-            )
         }
 
         override suspend fun bookingsEndedBefore(

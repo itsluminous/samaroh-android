@@ -289,4 +289,32 @@ class SyncEnginePushTest {
             val row = remote.upserts.single().second
             assertThat(row.keys).doesNotContain("image_path")
         }
+
+    @Test
+    fun `legacy payment_reminders ops are dropped, never pushed or retried (ADR-095)`() =
+        runTest {
+            // Queued by an older build (reminder rows used to sync); on a viewer device
+            // the push had already died with RLS 42501 and sat in error forever.
+            val stuck =
+                OutboxEntity(
+                    entityType = "payment_reminders",
+                    entityId = "r-legacy",
+                    operation = "upsert",
+                    payloadJson =
+                        """{"id":"r-legacy","booking_id":"b-1","business_id":"${Fixtures.BUSINESS_ID}","remind_on":"2026-08-20",""" +
+                            """"status":"PENDING","amount_due_snapshot":100000,""" +
+                            """"created_at":"2026-08-25T10:00:00Z","updated_at":"2026-08-25T10:00:00Z","deleted_at":null}""",
+                    createdAt = FIXED_NOW,
+                )
+            val stuckId = db.outboxDao().enqueue(stuck)
+            db.outboxDao().recordFailure(stuckId, "new row violates row-level security policy for table \"payment_reminders\"")
+            db.outboxDao().enqueue(bookingOutboxEntry(Fixtures.booking(id = "b-after")))
+
+            val outcome = syncEngine(db, remote).runSync()
+
+            assertThat(remote.upserts.map { it.first }).containsExactly("bookings")
+            assertThat(outcome.itemErrorCount).isEqualTo(0)
+            assertThat(outcome.pushedCount).isEqualTo(1)
+            assertThat(db.outboxDao().nextBatch()).isEmpty()
+        }
 }

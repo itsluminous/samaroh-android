@@ -81,6 +81,11 @@ data class BookingPaymentEntity(
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
 )
 
+/**
+ * DEVICE-LOCAL table since ADR-095 (same Room schema as before — no migration): rows are
+ * planned per device from the synced bookings/payments, never enter the outbox and are
+ * never pulled. Wiped with the rest of Room on sign-out (ADR-040), so it is per user too.
+ */
 @Entity(
     tableName = "payment_reminders",
     indices = [Index(value = ["booking_id"]), Index(value = ["business_id", "remind_on"])],

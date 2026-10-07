@@ -59,6 +59,8 @@ to images — never the image bytes themselves:
   restore needs; device-only columns (`local_cache_path`, `image_path`) appear in the
   row JSON as plain strings but are meaningless off-device (they never sync — the
   server tables do not carry them; drop them when seeding Postgres).
+  `payment_reminders.json` is likewise device state since ADR-095 (the server table is
+  retired): it restores THIS device's reminder rows and must not be seeded into Postgres.
 - **The business logo is the sole exception.** `businesses.logo_path` points at a file
   that is *not* Drive-mirrored (a device file on Android; the `logos` Storage bucket
   copy is what web reads for invoices) — the one asset a total-loss disaster would otherwise destroy. When
