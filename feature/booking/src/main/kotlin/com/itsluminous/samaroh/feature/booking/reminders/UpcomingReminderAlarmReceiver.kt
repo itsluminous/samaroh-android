@@ -37,7 +37,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             ReminderStyle.fromWire(intent.getStringExtra(EXTRA_STYLE)).takeIf { it != ReminderStyle.NOTIFICATION }
                 ?: ReminderStyle.FULLSCREEN
         val key = ReminderLedgerKey.decode(intent.getStringExtra(EXTRA_LEDGER_KEY)) as? ReminderLedgerKey.Upcoming
-        val deps = reminderDeps(context)
+        val deps = reminderDeps(context) ?: return
         runAsync {
             if (key != null) {
                 val entry = deps.ledger().entry(key)

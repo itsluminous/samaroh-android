@@ -115,6 +115,10 @@ class SnoozeChooserActivity : ComponentActivity() {
             return
         }
         val deps = reminderDeps(this)
+        if (deps == null) {
+            finish()
+            return
+        }
         setContent {
             SamarohTheme {
                 SnoozeChooserDialog(

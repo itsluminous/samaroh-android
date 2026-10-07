@@ -154,7 +154,7 @@ class FullScreenReminderActivity : ComponentActivity() {
         val key = ledgerKey ?: return
         if (ackHandled) return
         ackHandled = true
-        val deps = reminderDeps(this)
+        val deps = reminderDeps(this) ?: return
         deps.snoozer().cancel(key)
         lifecycleScope.launch { deps.ledger().ack(key, fallbackKeepUntil = defaultKeepUntil(key)) }
     }
@@ -164,7 +164,7 @@ class FullScreenReminderActivity : ComponentActivity() {
         val key = ledgerKey ?: return
         ackHandled = true
         stopLoop()
-        val deps = reminderDeps(this)
+        val deps = reminderDeps(this) ?: return
         lifecycleScope.launch {
             val fireAt = deps.snoozer().snooze(key, preset, keepUntil = defaultKeepUntil(key))
             cancelPairedNotification()

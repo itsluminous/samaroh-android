@@ -26,8 +26,18 @@ interface ReminderReceiverDependencies {
     fun notifier(): BookingNotifier
 }
 
-internal fun reminderDeps(context: Context): ReminderReceiverDependencies =
-    EntryPointAccessors.fromApplication(context.applicationContext, ReminderReceiverDependencies::class.java)
+/**
+ * Resolves the Hilt graph, or null when no component exists yet. Production always has
+ * one (the application creates it in `onCreate`, before any receiver runs), but the
+ * instrumented suite's `HiltTestApplication` only builds it inside `HiltAndroidRule` —
+ * and installing the test APK fires `MY_PACKAGE_REPLACED` into [ReminderBootReceiver]
+ * first, which crashed the test process before a single test started (nightly CI since
+ * v0.20.0). A receiver with no graph has nothing to do and simply returns.
+ */
+internal fun reminderDeps(context: Context): ReminderReceiverDependencies? =
+    runCatching {
+        EntryPointAccessors.fromApplication(context.applicationContext, ReminderReceiverDependencies::class.java)
+    }.getOrNull()
 
 /** Runs [block] on IO with the receiver kept alive via `goAsync` (ADR-094 receivers all persist state). */
 internal fun BroadcastReceiver.runAsync(block: suspend () -> Unit) {
@@ -52,7 +62,7 @@ class ReminderSnoozeAlarmReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         val key = ReminderLedgerKey.decode(intent.getStringExtra(EXTRA_LEDGER_KEY)) ?: return
-        val deps = reminderDeps(context)
+        val deps = reminderDeps(context) ?: return
         runAsync { deps.engine().refire(key) }
     }
 
@@ -74,7 +84,7 @@ class ReminderAckReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         val key = ReminderLedgerKey.decode(intent.getStringExtra(EXTRA_LEDGER_KEY)) ?: return
-        val deps = reminderDeps(context)
+        val deps = reminderDeps(context) ?: return
         runAsync {
             deps.snoozer().cancel(key)
             deps.ledger().ack(key, fallbackKeepUntil = LocalDate.now().plusDays(ReminderLedger.ROW_KEEP_DAYS))
@@ -100,7 +110,7 @@ class ReminderBootReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        val deps = reminderDeps(context)
+        val deps = reminderDeps(context) ?: return
         runAsync {
             val ledger = deps.ledger()
             if (intent.action == Intent.ACTION_BOOT_COMPLETED) ledger.resetFiredForBoot()
