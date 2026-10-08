@@ -18,6 +18,9 @@ import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.PaymentReminderPlanner
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import com.itsluminous.samaroh.feature.booking.domain.UpcomingReminderPlanner
+import com.itsluminous.samaroh.feature.booking.domain.canReceiveFollowUps
+import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
+import com.itsluminous.samaroh.feature.booking.domain.canReceiveUpcomingReminders
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import java.time.Clock
@@ -49,13 +52,17 @@ import javax.inject.Singleton
  * (SNOOZED) the planner never touches it again. Only a changed key (edited booking
  * dates, changed lead-day setting, a chained successor row) fires anew.
  *
- * Reminders follow the signed-in member's §3 permissions (ADR-095) — the same gates as
- * the in-app surfaces they lead to: payment reminders ("Did X pay?") only for an owner
- * or a member with `booking.record_payment` (the card and both actions need it; the
- * due amount is masked when `view_amounts` is off); tentative follow-ups only with
- * `booking.edit` (confirming a booking needs it); upcoming-event reminders with
- * `booking.view`. A member without the permission gets no row, no notification and no
- * alarm — reminder rows are device-local since ADR-095, so nothing is synced either way.
+ * Reminders follow the signed-in member's §3 permissions (ADR-095/ADR-097) — the same
+ * gates as the in-app surfaces they lead to: payment reminders ("Did X pay?") only for
+ * an owner or a member holding BOTH `booking.record_payment` AND `booking.view_amounts`
+ * ([canReceivePaymentReminders] — a nudge to act on a due is for people who can see and
+ * record it; there is no masked variant); tentative follow-ups only with `booking.edit`
+ * (confirming a booking needs it); upcoming-event reminders with `booking.view`. A
+ * member without the permission gets no row, no notification and no alarm — reminder
+ * rows are device-local since ADR-095, so nothing is synced either way. When a payment
+ * grant is REVOKED, the next planning pass retracts what this device already delivered
+ * ([retractPaymentReminders]): posted payment notifications are cancelled, armed snoozes
+ * disarmed and their ledger entries dropped, so nothing lingers in the shade or rings.
  */
 @Singleton
 class ReminderEngine
@@ -85,7 +92,11 @@ class ReminderEngine
             for (business in businesses) {
                 val actor = actorProvider.actorFor(business)
                 if (planningSafe) {
-                    if (actor.canReceivePaymentReminders) runPaymentReminders(business.id, today, settings, actor)
+                    if (actor.canReceivePaymentReminders) {
+                        runPaymentReminders(business.id, today, settings)
+                    } else {
+                        retractPaymentReminders(business.id)
+                    }
                     if (actor.canReceiveFollowUps) runFollowUpReminders(business.id, today, settings)
                 }
                 if (actor.canReceiveUpcomingReminders) runUpcomingReminders(business.id, today, settings)
@@ -134,11 +145,10 @@ class ReminderEngine
                     }
                     checkNotNull(reminder)
                     checkNotNull(booking)
-                    checkNotNull(actor)
                     if (key.followUp) {
                         postFollowUp(reminder, booking, settings)
                     } else {
-                        postPayment(reminder, booking, due, settings, actor)
+                        postPayment(reminder, booking, due, settings)
                     }
                 }
             }
@@ -155,7 +165,6 @@ class ReminderEngine
             businessId: String,
             today: LocalDate,
             settings: UpcomingReminderPrefs,
-            actor: BookingActor,
         ) {
             // Marker bookings (ADR-041/ADR-044) never enter payment planning: they have
             // no money by construction (the form forces 0 amounts), and even an edge-case
@@ -211,7 +220,27 @@ class ReminderEngine
                 val booking = bookingById[reminder.bookingId] ?: continue
                 val key = rowKey(reminder)
                 if (ledger.entry(key)?.blocksPlanning == true) continue
-                postPayment(reminder, booking, dueByBooking[booking.id] ?: reminder.amountDueSnapshotPaise, settings, actor)
+                postPayment(reminder, booking, dueByBooking[booking.id] ?: reminder.amountDueSnapshotPaise, settings)
+            }
+        }
+
+        /**
+         * Permission revoked (ADR-097): the member no longer qualifies for payment
+         * reminders, so everything this device already delivered for the business is
+         * taken back — every payment-row ledger entry is walked, its notification
+         * cancelled (an app-side cancel, deliberately NOT an ACK), its armed snooze
+         * disarmed and the entry dropped. The device-local rows themselves are left
+         * untouched (the card filters them, ADR-097 §3); if the grant comes back the
+         * next pass delivers them afresh. Follow-up and upcoming entries are not touched.
+         */
+        private suspend fun retractPaymentReminders(businessId: String) {
+            for ((key, _) in ledger.all()) {
+                if (key !is ReminderLedgerKey.Row || key.followUp) continue
+                val reminder = bookingRepository.reminder(key.reminderId) ?: continue
+                if (reminder.businessId != businessId) continue
+                notifier.cancelPaymentReminder(reminder.id)
+                snoozer.cancel(key)
+                ledger.remove(key)
             }
         }
 
@@ -220,7 +249,6 @@ class ReminderEngine
             booking: Booking,
             duePaise: Long,
             settings: UpcomingReminderPrefs,
-            actor: BookingActor,
         ) {
             val key = rowKey(reminder)
             notifier.postPaymentReminder(
@@ -231,7 +259,6 @@ class ReminderEngine
                 style = settings.style,
                 soundUri = settings.soundUri,
                 ledgerKey = key,
-                maskAmount = !actor.canViewAmounts,
             )
             ledger.mark(key, ReminderFireState.FIRED, keepUntil = rowKeepUntil())
         }
@@ -342,24 +369,3 @@ class ReminderEngine
 
         private fun rowKeepUntil(): LocalDate = LocalDate.now(clock).plusDays(ReminderLedger.ROW_KEEP_DAYS)
     }
-
-/*
- * Reminder delivery gates (ADR-095) — mirror the in-app surfaces each reminder leads to.
- * Owners bypass the permission object (§3); signed-out/offline users are owner-mode.
- */
-
-/** "Did X pay?" — the confirmations card and its Yes/Not-yet actions need `record_payment`. */
-internal val BookingActor.canReceivePaymentReminders: Boolean
-    get() = isOwner || permissions.recordPayment
-
-/** Tentative follow-ups — confirming the booking needs `booking.edit`. */
-internal val BookingActor.canReceiveFollowUps: Boolean
-    get() = isOwner || permissions.edit
-
-/** "N days before" event reminders — anyone who can see the calendar. */
-internal val BookingActor.canReceiveUpcomingReminders: Boolean
-    get() = isOwner || permissions.view
-
-/** Due amounts in payment reminders are masked (₹•••) when `view_amounts` is off. */
-internal val BookingActor.canViewAmounts: Boolean
-    get() = isOwner || permissions.viewAmounts

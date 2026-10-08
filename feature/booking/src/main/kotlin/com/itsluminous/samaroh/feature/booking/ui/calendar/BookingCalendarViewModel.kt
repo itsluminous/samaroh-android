@@ -28,6 +28,7 @@ import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.domain.PaymentReminderPlanner
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
+import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -371,9 +372,11 @@ class BookingCalendarViewModel
                 moneyLive.sumOf { booking ->
                     DueCalculator.duePaise(booking, paymentsByBooking[booking.id].orEmpty().sumOf { it.amountPaise })
                 }
+            // Payment rows exist only for someone who may both see and record dues
+            // (ADR-097) — same predicate as the engine, so card and notification agree.
             val confirmations =
                 data.reminders
-                    .filter { it.kind == ReminderKind.PAYMENT }
+                    .filter { it.kind == ReminderKind.PAYMENT && actor?.canReceivePaymentReminders == true }
                     .mapNotNull { reminder ->
                         val booking =
                             data.bookings.firstOrNull { it.id == reminder.bookingId }
@@ -662,9 +665,10 @@ class BookingCalendarViewModel
         /** "Not yet" on the in-app pending-confirmations card: snooze + re-remind in 7 days. */
         fun snoozeReminder(confirmation: PendingConfirmationUi) {
             viewModelScope.launch {
-                // Same gate as the card itself (record_payment) — defence in depth (ADR-095).
+                // Same gate as the card itself (ADR-097: record_payment AND view_amounts)
+                // — defence in depth (ADR-095).
                 val actor = uiState.value.actor ?: return@launch
-                if (!(actor.isOwner || actor.permissions.recordPayment)) return@launch
+                if (!actor.canReceivePaymentReminders) return@launch
                 val now = clock.instant()
                 bookingRepository.saveReminder(confirmation.reminder.copy(status = ReminderStatus.SNOOZED, updatedAt = now))
                 val due =

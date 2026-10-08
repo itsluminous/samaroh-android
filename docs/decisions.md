@@ -4104,3 +4104,72 @@ marker row, selecting a marker row flips `isMarkerType`, empty presets) and the 
 `BookingFlowTest.eventTypePicker_badgesMarkers_andExplainsSelection` (en + hi: two badged
 rows in the open picker from the seeded template, hint shown and Total amount gone after
 picking Lagan).
+
+## ADR-097 — Payment reminders need BOTH `booking.record_payment` AND `booking.view_amounts`; revocation retracts delivered reminders (2026-10-08)
+
+**Status:** accepted (owner's final rule, "Option B"). `feature:booking` only — no schema,
+wire, string or repository-contract change. Supersedes ADR-095 §4's payment clause (the
+`record_payment`-only gate and the ₹••• masked notification); follow-up and
+upcoming-event gates from ADR-095 are unchanged.
+
+**Context.** ADR-095 delivered "Did X pay ₹N for Y?" to any member holding
+`booking.record_payment`, masking the amount as ₹••• when `booking.view_amounts` was
+off. That mirrored the amount surfaces, but it produced a nudge the recipient cannot
+reason about: the reminder exists to prompt an ACTION on a specific due, and a member who
+may not see dues has no way to tell whether "₹•••" is ₹500 or ₹50,000, nor to judge a
+partial payment. Conversely a member who may see amounts but not record payments can do
+nothing about the prompt. Both are noise; for the amount-blind member it is also a side
+channel (the card and notification confirm that SOME due exists).
+
+**Decision.**
+
+1. **One predicate, three surfaces.** `BookingActor.canReceivePaymentReminders` (now in
+   `domain/BookingActor.kt`, alongside `canReceiveFollowUps` / `canReceiveUpcomingReminders`)
+   is `isOwner || (permissions.recordPayment && permissions.viewAmounts)` — keys
+   `record_payment` and `view_amounts` of `BookingPermissions` in `core:model`
+   (`view_amounts` absent = true, so legacy permission objects are unaffected). It gates:
+   - `ReminderEngine.runDailyPass` — payment planning (row creation, notification, the
+     full-screen notification + alarm path) runs only when the predicate holds;
+   - `ReminderEngine.refire` — a snoozed payment reminder re-checks the predicate at fire
+     time; revoked (either key) → dropped, ledger entry removed, nothing posts;
+   - `BookingCalendarViewModel.buildState` — `pendingConfirmations` is EMPTY unless the
+     predicate holds, and `snoozeReminder` keeps the same VM-level guard;
+   - `BookingCalendarScreen` — the pending-confirmations card shell is gated on the same
+     predicate (`canSeePaymentReminders`), so the VM filter and the UI gate can never
+     disagree.
+   Lacking either key therefore yields NO payment reminder anywhere: no notification, no
+   popup, no snooze re-fire, no card rows.
+2. **No masked variant.** `BookingNotifier.postPaymentReminder` loses `maskAmount`; the
+   card row always renders the formatted due. Nothing else used the masked reminder path
+   (verified: `maskAmount` had a single call site).
+3. **Revocation retracts.** When a planning pass finds the member no longer qualifies
+   (`retractPaymentReminders`), every payment-row ledger entry of the current user scope
+   belonging to that business is walked: the posted notification is cancelled (an
+   app-side cancel — deliberately NOT an ACK), its armed snooze alarm is disarmed and the
+   ledger entry removed. The device-local `payment_reminders` rows are left as they are
+   (PENDING stays PENDING — ADR-064's "never dismiss unless paid/cancelled/deleted"
+   holds; the card filter hides them). Re-granting both keys makes the next pass deliver
+   the same row afresh (no duplicate rows — the planner reuses the pending row). The
+   retraction runs under the same ADR-060 consistency gate as planning, so a half-pulled
+   `business_members` row (which resolves to a view-only actor) cannot retract and
+   re-post a reminder spuriously. Follow-up and upcoming entries are not touched.
+4. **Unchanged.** Recording a payment from the booking card / payment sheet is governed by
+   `record_payment` alone (as before — a member who may record but not see amounts can
+   still be told an amount in person and enter it). Tentative follow-ups (`booking.edit`)
+   and upcoming-event reminders (`booking.view`) keep their ADR-095 gates.
+
+**Rationale.** A reminder prompts an action; only people who can both see the due and
+record its settlement should be nudged. Anyone else either cannot act (no
+`record_payment`) or cannot evaluate what they are acting on (no `view_amounts`).
+
+**Consequences.** Web has no payment-reminder or pending-dues card/list (verified:
+`samaroh-web/src` has no reminder surface; `payment_reminders` was never read, ADR-095),
+so nothing to mirror. Tests: `ReminderEnginePermissionTest` (record_payment without
+view_amounts → no row, no notification, no alarm, also under the full-screen style;
+view_amounts without record_payment → same; both → posted with the real amount and no
+₹•••; owner → posted; snooze re-fire dropped after revoking either key; revoking
+view_amounts cancels the posted notification and clears the ledger entry while the row
+stays PENDING; revoking record_payment disarms a pending snooze; retraction leaves
+follow-up/upcoming deliveries alone; re-grant delivers the same row again),
+`BookingCalendarViewModelTest` (card empty for either single key, populated for both and
+for the owner; `snoozeReminder` no-op without view_amounts).

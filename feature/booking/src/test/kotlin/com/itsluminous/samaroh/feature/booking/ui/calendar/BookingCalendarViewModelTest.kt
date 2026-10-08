@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.booking.ui.calendar
 
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.BusinessMember
@@ -537,6 +538,86 @@ class BookingCalendarViewModelTest {
             viewModel().uiState.test {
                 val state = awaitItemMatching { it.loaded && it.grid != null }
                 assertThat(state.pendingConfirmations).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    // ---- pending-confirmations card follows the ADR-097 payment-reminder rule ----
+
+    private fun memberActor(permissions: BookingPermissions) =
+        FakeActorProvider(BookingActor(userId = "member-user", displayName = "member", isOwner = false, permissions = permissions))
+
+    private fun seedDuePaymentReminder(): Pair<Booking, PaymentReminder> {
+        val booking = Fixtures.booking(startDate = today.minusDays(5), endDate = today.minusDays(2))
+        repository.bookings.value = listOf(booking)
+        val reminder = pendingReminder(booking.id)
+        repository.reminders.value = listOf(reminder)
+        return booking to reminder
+    }
+
+    @Test
+    fun `card shows no payment rows for record_payment WITHOUT view_amounts`() =
+        runTest {
+            seedDuePaymentReminder()
+
+            viewModel(memberActor(BookingPermissions(view = true, recordPayment = true, viewAmounts = false))).uiState.test {
+                val state = awaitItemMatching { it.loaded && it.grid != null && it.actor != null }
+                assertThat(state.pendingConfirmations).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `card shows no payment rows for view_amounts WITHOUT record_payment`() =
+        runTest {
+            seedDuePaymentReminder()
+
+            viewModel(memberActor(BookingPermissions(view = true, viewAmounts = true))).uiState.test {
+                val state = awaitItemMatching { it.loaded && it.grid != null && it.actor != null }
+                assertThat(state.pendingConfirmations).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `card shows payment rows for record_payment AND view_amounts`() =
+        runTest {
+            val (_, reminder) = seedDuePaymentReminder()
+
+            viewModel(memberActor(BookingPermissions(view = true, recordPayment = true, viewAmounts = true))).uiState.test {
+                val state = awaitItemMatching { it.loaded && it.grid != null && it.actor != null }
+                assertThat(state.pendingConfirmations.map { it.reminder.id }).containsExactly(reminder.id)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `card shows payment rows for the owner`() =
+        runTest {
+            val (_, reminder) = seedDuePaymentReminder()
+
+            viewModel().uiState.test {
+                val state = awaitItemMatching { it.loaded && it.grid != null && it.actor != null }
+                assertThat(state.pendingConfirmations.map { it.reminder.id }).containsExactly(reminder.id)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `snoozeReminder is a no-op without view_amounts even with record_payment`() =
+        runTest {
+            val (booking, reminder) = seedDuePaymentReminder()
+            val vm = viewModel(memberActor(BookingPermissions(view = true, recordPayment = true, viewAmounts = false)))
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+
+                vm.snoozeReminder(PendingConfirmationUi(reminder, booking))
+
+                assertThat(
+                    repository.reminders.value
+                        .single()
+                        .status,
+                ).isEqualTo(ReminderStatus.PENDING)
                 cancelAndIgnoreRemainingEvents()
             }
         }

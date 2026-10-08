@@ -22,6 +22,32 @@ data class BookingActor(
     val permissions: BookingPermissions,
 )
 
+/*
+ * Reminder delivery gates (ADR-095, payment rule tightened by ADR-097) — ONE definition
+ * shared by the engine (planning + snooze re-fire), the calendar ViewModel (card rows)
+ * and the calendar screen (card visibility), so a notification can never be posted for
+ * a member whose card would be empty, or vice versa. Owners bypass the permission
+ * object (§3); signed-out/offline users are owner-mode.
+ */
+
+/**
+ * "Did X pay?" payment reminders (ADR-097): a reminder is a nudge to ACT on a due, so it
+ * goes only to people who can both SEE the due (`booking.view_amounts`) and RECORD the
+ * payment (`booking.record_payment`). Lacking either → no notification, no popup, no
+ * snooze re-fire, no card rows. Recording a payment from the booking card itself stays
+ * governed by `record_payment` alone.
+ */
+val BookingActor.canReceivePaymentReminders: Boolean
+    get() = isOwner || (permissions.recordPayment && permissions.viewAmounts)
+
+/** Tentative follow-ups — confirming the booking needs `booking.edit`. */
+val BookingActor.canReceiveFollowUps: Boolean
+    get() = isOwner || permissions.edit
+
+/** "N days before" event reminders — anyone who can see the calendar. */
+val BookingActor.canReceiveUpcomingReminders: Boolean
+    get() = isOwner || permissions.view
+
 interface BookingActorProvider {
     suspend fun actorFor(business: Business): BookingActor
 }

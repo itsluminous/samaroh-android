@@ -67,6 +67,7 @@ import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.feature.booking.domain.BookingCardActions
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
+import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
@@ -135,6 +136,9 @@ fun BookingCalendarScreen(
     // Invoice needs booking.view_amounts too (an invoice IS the amounts, ADR-039).
     val canViewAmounts = actor?.let { it.isOwner || it.permissions.viewAmounts } ?: true
     val canInvoice = (actor?.let { it.isOwner || it.permissions.generateInvoice } ?: false) && canViewAmounts
+    // Payment reminders need record_payment AND view_amounts (ADR-097) — the VM already
+    // yields no rows otherwise; the gate here is the same predicate, for the card shell.
+    val canSeePaymentReminders = actor?.canReceivePaymentReminders ?: false
 
     Scaffold(
         floatingActionButton = {
@@ -262,9 +266,9 @@ fun BookingCalendarScreen(
                 }
 
                 // ★ In-app pending-confirmations card — the reliable reminder path (§4.1).
-                // §3 gate: every action here records a payment, so the card is hidden
-                // entirely without booking.record_payment.
-                if (state.pendingConfirmations.isNotEmpty() && canRecordPayment) {
+                // §3 gate (ADR-097): a payment reminder is shown only to someone who can
+                // both see the due and record the payment; otherwise the card is absent.
+                if (state.pendingConfirmations.isNotEmpty() && canSeePaymentReminders) {
                     SamarohCard {
                         Text(
                             text = stringResource(R.string.booking_reminder_pending_card_title),
@@ -278,7 +282,7 @@ fun BookingCalendarScreen(
                                     stringResource(
                                         R.string.booking_reminder_payment_question,
                                         confirmation.booking.customerName,
-                                        if (canViewAmounts) AmountFormatter.format(due) else AmountFormatter.MASKED,
+                                        AmountFormatter.format(due),
                                         eventTypeLabel(eventTypes, confirmation.booking.eventType),
                                     ),
                                 style = MaterialTheme.typography.bodyMedium,
