@@ -163,7 +163,11 @@ abstract class BookingFlowTest(
         compose.onAllNodesWithText(badge).assertCountEquals(2)
 
         // Pick Lagan: the hint explains the missing amount fields (ADR-044 blackout).
-        compose.onNode(hasText(string(R.string.booking_event_type_lagan), substring = true)).performClick()
+        // The row prints the SEEDED label — English under both locales (ADR-032 §3/§5),
+        // so match on `seededPresetLabel`, not the run-locale catalog string.
+        compose
+            .onNode(hasText(seededPresetLabel(R.string.booking_event_type_lagan), substring = true))
+            .performClick()
         waitForText(string(R.string.booking_event_type_marker_hint))
         compose.onAllNodesWithText(string(R.string.booking_form_total_amount)).assertCountEquals(0)
     }

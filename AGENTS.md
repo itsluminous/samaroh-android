@@ -220,7 +220,10 @@ in-app switcher once W1-F lands.
   and the custom `SamarohTestRunner`. Every acceptance flow runs TWICE via `En`/`Hi`
   subclass pairs of `LocalizedE2eTest` — assertions resolve expected strings from the
   app's own resources under the run's locale, so tests catch localization regressions
-  without hardcoding either language.
+  without hardcoding either language. **Exception — seeded event-type presets:** their
+  labels are stored in ENGLISH (ADR-032 §3) and rendered verbatim, so assert on them with
+  `seededPresetLabel(R.string.…)`, never `string(…)` (the `hi` run otherwise looks for
+  "लगन" where the row says "Lagan" — the Oct 2026 nightly break).
 - Tests are hermetic: `TestSyncModule` pins the sync remote to "unconfigured" (nothing
   is pushed to a live backend even when `local.properties` has real credentials), and
   the DataStore test modules keep one process-wide instance per preferences file

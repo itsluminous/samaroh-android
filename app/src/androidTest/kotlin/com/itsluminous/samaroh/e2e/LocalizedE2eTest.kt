@@ -189,6 +189,27 @@ abstract class LocalizedE2eTest(
         vararg args: Any,
     ): String = localized.resources.getQuantityString(id, count, *args)
 
+    /** App context forced to English — the locale the seed template is resolved in. */
+    private val english: Context by lazy {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val config = Configuration(app.resources.configuration)
+        config.setLocales(LocaleList(Locale.ENGLISH))
+        app.createConfigurationContext(config)
+    }
+
+    /**
+     * The label a SEEDED event-type preset carries in Room, as the UI renders it.
+     *
+     * ADR-032 §3 seeds presets from the catalog under an English-forced configuration
+     * (cross-client uniformity with the server migration rows), and the booking form /
+     * picker / card print `preset.label` verbatim (§5 snapshot semantics) — so under the
+     * `hi` run the row still reads "Lagan", never "लगन". Use this instead of [string] for
+     * any assertion on a seeded preset's name; [string] is only for catalog UI chrome.
+     */
+    protected fun seededPresetLabel(
+        @StringRes id: Int,
+    ): String = english.getString(id)
+
     /** Mirrors `feature:booking` Formatting.formatDate (MEDIUM style, app locale). */
     protected fun formatDate(date: LocalDate): String =
         date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(testLocale))
