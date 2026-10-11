@@ -126,9 +126,18 @@ class ReminderEngine
                     val daysAway = ChronoUnit.DAYS.between(today, booking.startDate).toInt()
                     val title = upcomingTitle(booking)
                     when (settings.style) {
-                        ReminderStyle.NOTIFICATION -> notifier.postUpcomingReminder(booking.id, title, daysAway, key)
+                        ReminderStyle.NOTIFICATION ->
+                            notifier.postUpcomingReminder(booking.id, title, daysAway, key, booking.businessId)
                         ReminderStyle.FULLSCREEN, ReminderStyle.FULLSCREEN_ALWAYS ->
-                            notifier.postFullScreenUpcomingReminder(booking.id, title, daysAway, settings.soundUri, settings.style, key)
+                            notifier.postFullScreenUpcomingReminder(
+                                booking.id,
+                                title,
+                                daysAway,
+                                settings.soundUri,
+                                settings.style,
+                                key,
+                                booking.businessId,
+                            )
                     }
                     ledger.mark(key, ReminderFireState.FIRED, keepUntil = booking.startDate)
                 }
@@ -336,7 +345,7 @@ class ReminderEngine
                 val title = upcomingTitle(booking)
                 when (settings.style) {
                     ReminderStyle.NOTIFICATION -> {
-                        notifier.postUpcomingReminder(booking.id, title, upcoming.daysAway, key)
+                        notifier.postUpcomingReminder(booking.id, title, upcoming.daysAway, key, booking.businessId)
                         ledger.mark(key, ReminderFireState.FIRED, keepUntil = booking.startDate)
                     }
                     // Both full-screen styles travel the exact-alarm path; the style
@@ -352,6 +361,7 @@ class ReminderEngine
                             style = settings.style,
                             clock = clock,
                             ledgerKey = key,
+                            businessId = booking.businessId,
                         )
                         ledger.mark(key, ReminderFireState.SCHEDULED, keepUntil = booking.startDate)
                     }

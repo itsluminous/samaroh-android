@@ -25,12 +25,14 @@ import com.itsluminous.samaroh.feature.booking.FakeInvoiceGenerator
 import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.presetFixture
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
 import java.time.Clock
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneOffset
 
 /**
@@ -910,6 +912,134 @@ class BookingCalendarViewModelTest {
                 ).isNull()
                 cancelAndIgnoreRemainingEvents()
             }
+        }
+
+    // ---- reminder deep link (ADR-098): same card as a calendar tap, graceful fallbacks ----
+
+    @Test
+    fun `reminder deep link shows the booking's month and opens its card`() =
+        runTest {
+            val far = Fixtures.booking(id = "b-far", startDate = LocalDate.of(2026, 11, 20))
+            repository.bookings.value = listOf(far)
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openFromReminder(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
+                assertThat(awaitItemMatching { it != null }?.booking?.id).isEqualTo("b-far")
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(vm.uiState.value.month).isEqualTo(YearMonth.of(2026, 11))
+            assertThat(vm.agendaScrollTarget.value).isEqualTo(LocalDate.of(2026, 11, 20))
+        }
+
+    @Test
+    fun `reminder deep link opens a cancelled booking's card like the calendar does`() =
+        runTest {
+            val cancelled = Fixtures.booking(id = "b-c", startDate = LocalDate.of(2026, 8, 30), status = BookingStatus.CANCELLED)
+            repository.bookings.value = listOf(cancelled)
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openFromReminder(BookingDeepLink("b-c", Fixtures.BUSINESS_ID))
+                assertThat(awaitItemMatching { it != null }?.booking?.status).isEqualTo(BookingStatus.CANCELLED)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `reminder deep link to a deleted booking lands on its date with no card`() =
+        runTest {
+            val deleted = Fixtures.booking(id = "b-del", startDate = LocalDate.of(2026, 12, 5)).copy(deletedAt = Fixtures.NOW)
+            repository.bookings.value = listOf(deleted)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded }
+                vm.openFromReminder(BookingDeepLink("b-del", Fixtures.BUSINESS_ID))
+                assertThat(awaitItemMatching { it.month == YearMonth.of(2026, 12) }.month).isEqualTo(YearMonth.of(2026, 12))
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(vm.detail.value).isNull()
+            assertThat(vm.agendaScrollTarget.value).isEqualTo(LocalDate.of(2026, 12, 5))
+        }
+
+    @Test
+    fun `reminder deep link for another business shows nothing`() =
+        runTest {
+            val foreign = Fixtures.booking(id = "b-x", businessId = "other-business", startDate = LocalDate.of(2026, 12, 5))
+            repository.bookings.value = listOf(foreign)
+
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded }
+                vm.openFromReminder(BookingDeepLink("b-x", "other-business"))
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(vm.detail.value).isNull()
+            assertThat(vm.uiState.value.month).isEqualTo(YearMonth.of(2026, 8))
+            assertThat(vm.agendaScrollTarget.value).isNull()
+        }
+
+    @Test
+    fun `reminder deep link without booking view permission shows nothing`() =
+        runTest {
+            val booking = Fixtures.booking(id = "b-1", startDate = LocalDate.of(2026, 12, 5))
+            repository.bookings.value = listOf(booking)
+            val noView =
+                FakeActorProvider(
+                    BookingActor(
+                        userId = "member",
+                        displayName = "Member",
+                        isOwner = false,
+                        permissions = BookingPermissions(view = false),
+                    ),
+                )
+
+            val vm = viewModel(noView)
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+                vm.openFromReminder(BookingDeepLink("b-1", Fixtures.BUSINESS_ID))
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(vm.detail.value).isNull()
+            assertThat(vm.uiState.value.month).isEqualTo(YearMonth.of(2026, 8))
+        }
+
+    @Test
+    fun `reminder deep link to an unknown booking shows nothing`() =
+        runTest {
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded }
+                vm.openFromReminder(BookingDeepLink("ghost", Fixtures.BUSINESS_ID))
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(vm.detail.value).isNull()
+        }
+
+    @Test
+    fun `reminder deep link grows the events window to cover the booking's date`() =
+        runTest {
+            // Initial window: Jun 2026 .. Dec 2026 around today (Aug 25); the booking is in Mar 2027.
+            val far = Fixtures.booking(id = "b-far", startDate = LocalDate.of(2027, 3, 3))
+            repository.bookings.value = listOf(far)
+            calendarPrefs.setEventsView(true)
+
+            val vm = viewModel()
+            vm.eventsAgenda.test {
+                awaitItemMatching { it.loaded }
+                vm.openFromReminder(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
+                val grown = awaitItemMatching { it.window?.to?.isAfter(LocalDate.of(2027, 3, 1)) == true }
+                assertThat(grown.days.map { it.date }).contains(LocalDate.of(2027, 3, 3))
+                cancelAndIgnoreRemainingEvents()
+            }
+            vm.onAgendaScrolled()
+            assertThat(vm.agendaScrollTarget.value).isNull()
         }
 }
 

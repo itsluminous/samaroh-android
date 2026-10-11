@@ -123,4 +123,32 @@ class EventsAgendaTest {
         assertThat(EventsAgenda.hasMorePast(window, null)).isFalse()
         assertThat(EventsAgenda.hasMoreFuture(window, null)).isFalse()
     }
+
+    // ---- reminder deep link (ADR-098) ----
+
+    @Test
+    fun `windowCovering grows to whole months only when the date lies outside`() {
+        val window = EventsAgenda.initialWindow(today) // 2026-06-01 .. 2026-12-31
+
+        assertThat(EventsAgenda.windowCovering(window, LocalDate.parse("2026-09-15"))).isEqualTo(window)
+        assertThat(EventsAgenda.windowCovering(window, LocalDate.parse("2027-03-03")))
+            .isEqualTo(window.copy(to = LocalDate.parse("2027-03-31")))
+        assertThat(EventsAgenda.windowCovering(window, LocalDate.parse("2025-11-20")))
+            .isEqualTo(window.copy(from = LocalDate.parse("2025-11-01")))
+    }
+
+    @Test
+    fun `flatIndexOfDate lands on the date's group or the next one`() {
+        val days =
+            EventsAgenda.groupByDate(
+                listOf(booking("b1", "2026-08-20"), booking("b2", "2026-08-20"), booking("b3", "2026-09-01")),
+            )
+
+        // 1 header + 2 rows precede the Sep 1 group.
+        assertThat(EventsAgenda.flatIndexOfDate(days, LocalDate.parse("2026-09-01"))).isEqualTo(3)
+        // A deleted booking's date has no group → the next group.
+        assertThat(EventsAgenda.flatIndexOfDate(days, LocalDate.parse("2026-08-25"))).isEqualTo(3)
+        assertThat(EventsAgenda.flatIndexOfDate(days, LocalDate.parse("2026-08-01"))).isEqualTo(0)
+        assertThat(EventsAgenda.flatIndexOfDate(emptyList(), today)).isEqualTo(-1)
+    }
 }

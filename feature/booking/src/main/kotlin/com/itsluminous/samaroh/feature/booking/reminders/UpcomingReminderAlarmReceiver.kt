@@ -37,13 +37,14 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             ReminderStyle.fromWire(intent.getStringExtra(EXTRA_STYLE)).takeIf { it != ReminderStyle.NOTIFICATION }
                 ?: ReminderStyle.FULLSCREEN
         val key = ReminderLedgerKey.decode(intent.getStringExtra(EXTRA_LEDGER_KEY)) as? ReminderLedgerKey.Upcoming
+        val businessId = intent.getStringExtra(EXTRA_BUSINESS_ID)
         val deps = reminderDeps(context) ?: return
         runAsync {
             if (key != null) {
                 val entry = deps.ledger().entry(key)
                 if (entry != null && entry.blocksPlanning) return@runAsync
             }
-            deps.notifier().postFullScreenUpcomingReminder(bookingId, title, daysAway, soundUri, style, key)
+            deps.notifier().postFullScreenUpcomingReminder(bookingId, title, daysAway, soundUri, style, key, businessId)
             if (key != null) deps.ledger().mark(key, ReminderFireState.FIRED, keepUntil = key.startDate)
         }
     }
@@ -69,6 +70,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             style: ReminderStyle,
             clock: Clock,
             ledgerKey: ReminderLedgerKey.Upcoming? = null,
+            businessId: String? = null,
         ) {
             val zone = ZoneId.systemDefault()
             val triggerAt =
@@ -81,7 +83,7 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
                     .toInstant()
                     .toEpochMilli()
                     .coerceAtLeast(System.currentTimeMillis() + 1_000)
-            scheduleExactAt(context, bookingId, title, daysAway, soundUri, style, triggerAt, ledgerKey)
+            scheduleExactAt(context, bookingId, title, daysAway, soundUri, style, triggerAt, ledgerKey, businessId)
         }
 
         /**
@@ -101,11 +103,13 @@ class UpcomingReminderAlarmReceiver : BroadcastReceiver() {
             style: ReminderStyle,
             triggerAtMillis: Long,
             ledgerKey: ReminderLedgerKey.Upcoming? = null,
+            businessId: String? = null,
         ) {
             val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
             val intent =
                 Intent(context, UpcomingReminderAlarmReceiver::class.java).apply {
                     putExtra(EXTRA_BOOKING_ID, bookingId)
+                    putExtra(EXTRA_BUSINESS_ID, businessId)
                     putExtra(EXTRA_TITLE, title)
                     putExtra(EXTRA_DAYS_AWAY, daysAway)
                     putExtra(EXTRA_SOUND_URI, soundUri)

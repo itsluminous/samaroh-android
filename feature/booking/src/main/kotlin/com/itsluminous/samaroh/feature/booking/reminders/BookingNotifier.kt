@@ -23,9 +23,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Extra used on launch intents so W2 integration can deep-link to the booking. */
-const val EXTRA_BOOKING_ID = "com.itsluminous.samaroh.booking.EXTRA_BOOKING_ID"
-
 /**
  * Builds and posts the booking notifications (§4.1). Notifications are best-effort —
  * the in-app Pending-confirmations card is the reliable path; posting silently no-ops
@@ -176,7 +173,10 @@ class BookingNotifier
                     notificationTag = PAYMENT_NOTIFICATION_TAG,
                     notificationId = reminder.id.hashCode(),
                     ledgerKey = ledgerKey,
+                    businessId = booking.businessId,
                 )
+            val openBooking =
+                openBookingIntent(booking.id, booking.businessId, ledgerKey, PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode())
             // Three actions is the platform cap: Yes-full / Partial… / Not-yet stay —
             // "Not yet" IS this reminder's snooze (re-chains at +7 days); the popup
             // path still offers the short-term Snooze chooser (ADR-094).
@@ -187,7 +187,7 @@ class BookingNotifier
                     .setContentTitle(context.getString(R.string.booking_reminder_payment_title))
                     .setContentText(question)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(question))
-                    .setContentIntent(launchAppIntent(booking.id))
+                    .setContentIntent(openBooking)
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true) // a re-post (snooze re-fire) updates silently (ADR-024)
                     .applyAck(ledgerKey)
@@ -198,7 +198,9 @@ class BookingNotifier
                     ).addAction(
                         0,
                         context.getString(R.string.booking_reminder_action_partial),
-                        launchAppIntent(booking.id),
+                        // Partial… opens the booking card (Record payment lives there);
+                        // an action tap does not auto-cancel, so the open path acks + clears.
+                        openBooking,
                     ).addAction(
                         0,
                         context.getString(R.string.booking_reminder_action_not_yet),
@@ -258,6 +260,7 @@ class BookingNotifier
                     notificationTag = PAYMENT_NOTIFICATION_TAG,
                     notificationId = reminder.id.hashCode(),
                     ledgerKey = ledgerKey,
+                    businessId = booking.businessId,
                 )
             val notification =
                 NotificationCompat
@@ -266,8 +269,9 @@ class BookingNotifier
                     .setContentTitle(context.getString(R.string.booking_reminder_follow_up_title))
                     .setContentText(question)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(question))
-                    .setContentIntent(launchAppIntent(booking.id))
-                    .setAutoCancel(true)
+                    .setContentIntent(
+                        openBookingIntent(booking.id, booking.businessId, ledgerKey, PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode()),
+                    ).setAutoCancel(true)
                     .setOnlyAlertOnce(true) // a re-post (snooze re-fire) updates silently (ADR-024)
                     .applyAck(ledgerKey)
                     .applySnoozeAction(ledgerKey, PAYMENT_NOTIFICATION_TAG, reminder.id.hashCode())
@@ -290,6 +294,7 @@ class BookingNotifier
             title: String,
             daysAway: Int,
             ledgerKey: ReminderLedgerKey? = null,
+            businessId: String? = null,
         ) {
             if (!canNotify()) return
             val notification =
@@ -298,7 +303,7 @@ class BookingNotifier
                     .setSmallIcon(android.R.drawable.ic_menu_my_calendar)
                     .setContentTitle(title)
                     .setContentText(daysAwayText(daysAway))
-                    .setContentIntent(launchAppIntent(bookingId))
+                    .setContentIntent(openBookingIntent(bookingId, businessId, ledgerKey, UPCOMING_NOTIFICATION_TAG, bookingId.hashCode()))
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true) // a re-post (snooze re-fire) updates silently (ADR-024)
                     .applyAck(ledgerKey)
@@ -325,6 +330,7 @@ class BookingNotifier
             soundUri: String?,
             style: ReminderStyle = ReminderStyle.FULLSCREEN,
             ledgerKey: ReminderLedgerKey? = null,
+            businessId: String? = null,
         ) {
             if (!canNotify()) return
             val effectiveSound = ReminderSoundPolicy.effectiveSoundUri(soundUri).toString()
@@ -338,6 +344,7 @@ class BookingNotifier
                     notificationTag = UPCOMING_NOTIFICATION_TAG,
                     notificationId = bookingId.hashCode(),
                     ledgerKey = ledgerKey,
+                    businessId = businessId,
                 )
             val fullScreenIntent =
                 PendingIntent.getActivity(
@@ -354,7 +361,7 @@ class BookingNotifier
                     .setContentText(daysAwayText(daysAway))
                     .setPriority(NotificationCompat.PRIORITY_MAX)
                     .setCategory(NotificationCompat.CATEGORY_ALARM)
-                    .setContentIntent(launchAppIntent(bookingId))
+                    .setContentIntent(openBookingIntent(bookingId, businessId, ledgerKey, UPCOMING_NOTIFICATION_TAG, bookingId.hashCode()))
                     .setAutoCancel(true)
                     .applyAck(ledgerKey)
                     .applySnoozeAction(ledgerKey, UPCOMING_NOTIFICATION_TAG, bookingId.hashCode())
@@ -448,18 +455,26 @@ class BookingNotifier
         private fun Notification.applyInsistent(enabled: Boolean): Notification =
             apply { if (enabled) flags = flags or Notification.FLAG_INSISTENT }
 
-        /** Opens the app (launcher activity) carrying the booking id for later deep-link wiring (W2). */
-        private fun launchAppIntent(bookingId: String): PendingIntent {
-            val launch =
-                context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-                    putExtra(EXTRA_BOOKING_ID, bookingId)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                } ?: Intent()
-            return PendingIntent.getActivity(
+        /**
+         * Tap target of every reminder (ADR-098): opens the app on THIS booking's card —
+         * the same [BookingDeepLink] the full-screen popup's View button sends. The
+         * notification tag/id ride along so an action tap (no auto-cancel) can clear it.
+         */
+        private fun openBookingIntent(
+            bookingId: String,
+            businessId: String?,
+            ledgerKey: ReminderLedgerKey?,
+            notificationTag: String,
+            notificationId: Int,
+        ): PendingIntent =
+            BookingDeepLinks.pendingIntent(
                 context,
-                bookingId.hashCode(),
-                launch,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                BookingDeepLink(
+                    bookingId = bookingId,
+                    businessId = businessId,
+                    ledgerKey = ledgerKey,
+                    notificationTag = notificationTag,
+                    notificationId = notificationId,
+                ),
             )
-        }
     }

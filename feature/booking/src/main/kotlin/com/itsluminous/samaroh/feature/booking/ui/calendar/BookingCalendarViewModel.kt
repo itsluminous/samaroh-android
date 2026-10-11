@@ -22,6 +22,7 @@ import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
+import com.itsluminous.samaroh.feature.booking.domain.BookingDeepLinkResolver
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -29,6 +30,8 @@ import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.domain.PaymentReminderPlanner
 import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
+import com.itsluminous.samaroh.feature.booking.domain.canReceiveUpcomingReminders
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -175,6 +178,14 @@ class BookingCalendarViewModel
         /** Loaded date window of the events (full agenda) view — grows on edge scroll. */
         private val agendaWindow = MutableStateFlow(EventsAgenda.initialWindow(LocalDate.now(clock)))
 
+        /** One-shot events-view scroll target set by a reminder deep link (ADR-098); the list consumes it. */
+        private val _agendaScrollTarget = MutableStateFlow<LocalDate?>(null)
+        val agendaScrollTarget: StateFlow<LocalDate?> = _agendaScrollTarget
+
+        fun onAgendaScrolled() {
+            _agendaScrollTarget.value = null
+        }
+
         /** Month grid ⇄ events list toggle, persisted per device (DataStore). */
         val eventsView: StateFlow<Boolean> =
             calendarPrefs.eventsView.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
@@ -304,6 +315,8 @@ class BookingCalendarViewModel
             /** True when bookings exist before/after the loaded window (edge scroll loads them). */
             val hasMorePast: Boolean = false,
             val hasMoreFuture: Boolean = false,
+            /** The date window [days] was loaded for — a deep-link scroll waits until it covers its date (ADR-098). */
+            val window: EventsAgenda.Window? = null,
         )
 
         /** Only queried while the events view is active — the month view costs nothing extra. */
@@ -327,6 +340,7 @@ class BookingCalendarViewModel
                                                 days = EventsAgenda.groupByDate(bookings.filter { it.deletedAt == null }),
                                                 hasMorePast = EventsAgenda.hasMorePast(window, bounds),
                                                 hasMoreFuture = EventsAgenda.hasMoreFuture(window, bounds),
+                                                window = window,
                                             )
                                         }
                                 }
@@ -454,6 +468,41 @@ class BookingCalendarViewModel
 
         fun openBooking(id: String) {
             selectedBookingId.value = id
+        }
+
+        /**
+         * Reminder deep link (ADR-098): land on the booking's start date in whichever view
+         * is active (month shown / agenda window grown + scrolled) and open its card —
+         * the same card a calendar tap opens. [BookingDeepLinkResolver] decides the
+         * fallbacks (unknown or foreign-business booking, no `booking.view` → nothing;
+         * deleted → date only; cancelled → card, as the calendar would).
+         */
+        fun openFromReminder(link: BookingDeepLink) {
+            viewModelScope.launch {
+                val business = businessFlow.first()
+                val actor = business?.let { actorProvider.actorFor(it) }
+                val landing =
+                    BookingDeepLinkResolver.resolve(
+                        linkBusinessId = link.businessId,
+                        activeBusinessId = business?.id,
+                        booking = bookingRepository.booking(link.bookingId),
+                        canView = actor?.canReceiveUpcomingReminders == true,
+                    )
+                when (landing) {
+                    BookingDeepLinkResolver.Landing.Calendar -> Unit
+                    is BookingDeepLinkResolver.Landing.Date -> landOn(landing.date)
+                    is BookingDeepLinkResolver.Landing.Card -> {
+                        landOn(landing.date)
+                        selectedBookingId.value = landing.bookingId
+                    }
+                }
+            }
+        }
+
+        private fun landOn(date: LocalDate) {
+            month.value = YearMonth.from(date)
+            agendaWindow.update { window -> EventsAgenda.windowCovering(window, date) }
+            _agendaScrollTarget.value = date
         }
 
         fun dismissBookingCard() {

@@ -15,7 +15,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.applink.AppLink
 import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
-import com.itsluminous.samaroh.feature.booking.reminders.EXTRA_BOOKING_ID
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinks
 import com.itsluminous.samaroh.share.ShareIntents
 import com.itsluminous.samaroh.ui.MainViewModel
 import com.itsluminous.samaroh.ui.SamarohApp
@@ -29,8 +30,9 @@ import javax.inject.Inject
  * AppCompat activity to recreate on language change.
  *
  * Wave-1 wiring: theme prefs from the shared settings DataStore feed [SamarohTheme];
- * booking-reminder notifications relaunch this activity with [EXTRA_BOOKING_ID] and the
- * shell routes to that booking's card (§4.1 deep link). Android App Links (ADR-033):
+ * booking-reminder notifications (and the full-screen popup's View) relaunch this activity
+ * with a [BookingDeepLink] and the shell routes to that booking's card (§4.1 deep link,
+ * ADR-098) — arrival also acknowledges the delivery (ADR-094). Android App Links (ADR-033):
  * `https://samaroh-web.vercel.app/…` VIEW intents are parsed into an [AppLink] the shell
  * routes on, both cold start ([onCreate]) and warm ([onNewIntent], `singleTask`).
  */
@@ -41,8 +43,8 @@ class MainActivity : AppCompatActivity() {
     /** Parks the share-sheet payload for the unified chooser (ADR-086). */
     @Inject lateinit var shareIntakeHolder: ShareIntakeHolder
 
-    /** Booking id from the latest launch/new intent, cleared once the feature opened it. */
-    private var pendingBookingId by mutableStateOf<String?>(null)
+    /** Reminder deep link from the latest launch/new intent, cleared once the feature opened it. */
+    private var pendingBookingLink by mutableStateOf<BookingDeepLink?>(null)
 
     /** Web App-Link destination from the latest VIEW intent, cleared once routed. */
     private var pendingAppLink by mutableStateOf<AppLink?>(null)
@@ -56,7 +58,7 @@ class MainActivity : AppCompatActivity() {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        pendingBookingId = intent?.getStringExtra(EXTRA_BOOKING_ID)
+        consumeBookingDeepLink(intent)
         pendingAppLink = appLinkFrom(intent)
         consumeShareTarget(intent)
         setContent {
@@ -71,8 +73,8 @@ class MainActivity : AppCompatActivity() {
                 dynamicColor = themePrefs.dynamicColor,
             ) {
                 SamarohApp(
-                    pendingBookingId = pendingBookingId,
-                    onBookingDeepLinkConsumed = { pendingBookingId = null },
+                    pendingBookingLink = pendingBookingLink,
+                    onBookingDeepLinkConsumed = { pendingBookingLink = null },
                     pendingAppLink = pendingAppLink,
                     onAppLinkConsumed = { pendingAppLink = null },
                     pendingShare = pendingShare,
@@ -84,9 +86,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getStringExtra(EXTRA_BOOKING_ID)?.let { pendingBookingId = it }
+        consumeBookingDeepLink(intent)
         appLinkFrom(intent)?.let { pendingAppLink = it }
         consumeShareTarget(intent)
+    }
+
+    /**
+     * Reminder tap / popup View (ADR-098): parks the link for the shell and acknowledges
+     * the delivery on arrival (ADR-094 — idempotent with the notification's deleteIntent
+     * ack; covers the action tap that leaves the notification in the shade).
+     */
+    private fun consumeBookingDeepLink(intent: Intent?) {
+        val link = BookingDeepLink.from(intent) ?: return
+        BookingDeepLinks.acknowledgeOpened(this, link)
+        pendingBookingLink = link
     }
 
     /** Parses a VIEW intent's data URI into its [AppLink]; null for non-link intents. */

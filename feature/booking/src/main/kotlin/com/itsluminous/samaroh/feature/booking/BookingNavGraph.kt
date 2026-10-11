@@ -8,6 +8,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarScreen
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormScreen
 import java.time.LocalDate
@@ -28,35 +29,37 @@ private fun formRoute(
  * self-contained — it hosts its own internal NavHost; the Wave-0 `bookingGraph()` call
  * signature is preserved via default parameters.
  *
- * @param bookingIdToOpen booking to open directly (reminder-notification deep link,
- *   §4.1); the shell clears it through [onBookingOpened] once consumed.
+ * @param bookingToOpen reminder deep link (§4.1, ADR-098): the calendar lands on that
+ *   booking's date and opens its card — the same card a calendar tap opens, never the
+ *   edit form; the shell clears it through [onBookingOpened] once consumed.
  */
 fun NavGraphBuilder.bookingGraph(
-    bookingIdToOpen: String? = null,
+    bookingToOpen: BookingDeepLink? = null,
     onBookingOpened: () -> Unit = {},
 ) {
     composable(BOOKING_ROUTE) {
-        BookingFeatureHost(bookingIdToOpen = bookingIdToOpen, onBookingOpened = onBookingOpened)
+        BookingFeatureHost(bookingToOpen = bookingToOpen, onBookingOpened = onBookingOpened)
     }
 }
 
 @Composable
 private fun BookingFeatureHost(
-    bookingIdToOpen: String?,
+    bookingToOpen: BookingDeepLink?,
     onBookingOpened: () -> Unit,
 ) {
     val navController = rememberNavController()
-    LaunchedEffect(bookingIdToOpen) {
-        if (bookingIdToOpen != null) {
-            navController.navigate(formRoute(bookingId = bookingIdToOpen))
-            onBookingOpened()
-        }
+    // A warm deep link may arrive while the add/edit form is open: return to the
+    // calendar first so the card has a host; the calendar screen then consumes the link.
+    LaunchedEffect(bookingToOpen) {
+        if (bookingToOpen != null) navController.popBackStack(CALENDAR_ROUTE, inclusive = false)
     }
     NavHost(navController = navController, startDestination = CALENDAR_ROUTE) {
         composable(CALENDAR_ROUTE) {
             BookingCalendarScreen(
                 onAddBooking = { date -> navController.navigate(formRoute(date = date)) },
                 onEditBooking = { bookingId -> navController.navigate(formRoute(bookingId = bookingId)) },
+                deepLink = bookingToOpen,
+                onDeepLinkConsumed = onBookingOpened,
             )
         }
         composable(

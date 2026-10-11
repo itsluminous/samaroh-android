@@ -231,14 +231,31 @@ class FullScreenReminderActivity : ComponentActivity() {
         loopPlayer = null
     }
 
+    /**
+     * View (ADR-098): the SAME target as tapping the notification body — the shell opens
+     * this booking's card on the Booking tab. The popup already acked and cancelled its
+     * paired notification, so the link carries the key only for the (idempotent) shell ack.
+     */
     private fun openBooking(bookingId: String?) {
         stopLoop()
         acknowledge()
-        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
-            bookingId?.let { launch.putExtra(EXTRA_BOOKING_ID, it) }
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            startActivity(launch)
-        }
+        val link =
+            bookingId?.let {
+                BookingDeepLink(
+                    bookingId = it,
+                    businessId = intent.getStringExtra(EXTRA_BUSINESS_ID),
+                    ledgerKey = ledgerKey,
+                    notificationTag = intent.getStringExtra(EXTRA_NOTIFICATION_TAG),
+                    notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0),
+                )
+            }
+        val launch =
+            if (link != null) {
+                BookingDeepLinks.launchIntent(this, link)
+            } else {
+                packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        launch?.let(::startActivity)
         finish()
     }
 
@@ -261,9 +278,11 @@ class FullScreenReminderActivity : ComponentActivity() {
             notificationTag: String? = null,
             notificationId: Int = 0,
             ledgerKey: ReminderLedgerKey? = null,
+            businessId: String? = null,
         ): Intent =
             Intent(context, FullScreenReminderActivity::class.java).apply {
                 putExtra(EXTRA_BOOKING_ID, bookingId)
+                putExtra(EXTRA_BUSINESS_ID, businessId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_DAYS_AWAY, daysAway)
                 putExtra(EXTRA_SOUND_URI, soundUri)
@@ -283,9 +302,11 @@ class FullScreenReminderActivity : ComponentActivity() {
             notificationTag: String? = null,
             notificationId: Int = 0,
             ledgerKey: ReminderLedgerKey? = null,
+            businessId: String? = null,
         ): Intent =
             Intent(context, FullScreenReminderActivity::class.java).apply {
                 putExtra(EXTRA_BOOKING_ID, bookingId)
+                putExtra(EXTRA_BUSINESS_ID, businessId)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_BODY, body)
                 putExtra(EXTRA_SOUND_URI, soundUri)

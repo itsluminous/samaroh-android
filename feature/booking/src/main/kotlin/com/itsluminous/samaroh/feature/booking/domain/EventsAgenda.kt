@@ -102,9 +102,33 @@ object EventsAgenda {
     fun flatAnchorIndex(
         days: List<Day>,
         today: LocalDate,
+    ): Int = flatIndexOfDate(days, today)
+
+    /**
+     * Flat LazyColumn index of the first group on/after [date] (else the last group) —
+     * the reminder deep link's scroll target (ADR-098) uses the same anchoring rule as
+     * today's initial anchor. -1 when empty.
+     */
+    fun flatIndexOfDate(
+        days: List<Day>,
+        date: LocalDate,
     ): Int {
-        val dayIndex = todayAnchorIndex(days, today)
+        val dayIndex = todayAnchorIndex(days, date)
         if (dayIndex < 0) return -1
         return days.take(dayIndex).sumOf { 1 + it.bookings.size }
     }
+
+    /**
+     * Grows [window] (whole months, like every expansion) just enough to include [date];
+     * unchanged when it already does. A reminder deep link (ADR-098) lands on bookings
+     * outside the today-centred initial window, which must be loaded before scrolling.
+     */
+    fun windowCovering(
+        window: Window,
+        date: LocalDate,
+    ): Window =
+        Window(
+            from = if (date < window.from) YearMonth.from(date).atDay(1) else window.from,
+            to = if (date > window.to) YearMonth.from(date).atEndOfMonth() else window.to,
+        )
 }

@@ -68,6 +68,7 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingCardActions
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
@@ -81,11 +82,16 @@ import java.time.LocalDate
  * Booking tab home (§4.1): month calendar with status pills, month summary card,
  * pending-confirmations card, agenda list, booking card sheet, record-payment sheet,
  * block-dates flow. Swipe left/right changes month; header opens the year/month picker.
+ *
+ * @param deepLink reminder "open this booking" request (ADR-098) handed down by the shell;
+ *   lands on the booking's date and opens its card, then [onDeepLinkConsumed] clears it.
  */
 @Composable
 fun BookingCalendarScreen(
     onAddBooking: (LocalDate?) -> Unit,
     onEditBooking: (String) -> Unit,
+    deepLink: BookingDeepLink? = null,
+    onDeepLinkConsumed: () -> Unit = {},
     viewModel: BookingCalendarViewModel = hiltViewModel(),
     eventTypes: EventTypeCatalog = viewModel.eventTypesProvider,
     bookingColors: BookingColorCatalog = viewModel.bookingColorsProvider,
@@ -96,6 +102,7 @@ fun BookingCalendarScreen(
     val iconWatermarkAlpha by viewModel.iconWatermarkAlpha.collectAsState()
     val eventsView by viewModel.eventsView.collectAsState()
     val eventsAgenda by viewModel.eventsAgenda.collectAsState()
+    val agendaScrollTarget by viewModel.agendaScrollTarget.collectAsState()
     val presets by viewModel.presets.collectAsState()
     val restoreConflict by viewModel.restoreConflict.collectAsState()
 
@@ -111,6 +118,15 @@ fun BookingCalendarScreen(
     // initialized in plain unit tests, hence the runCatching guard.
     LaunchedEffect(Unit) {
         runCatching { BookingReminderWorker.ensureScheduled(context) }
+    }
+
+    // Reminder deep link (ADR-098): resolved by the ViewModel (date + card, or a graceful
+    // fallback); consumed at once so a recomposition never replays it.
+    LaunchedEffect(deepLink) {
+        if (deepLink != null) {
+            viewModel.openFromReminder(deepLink)
+            onDeepLinkConsumed()
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -192,6 +208,8 @@ fun BookingCalendarScreen(
                     onOpenBooking = viewModel::openBooking,
                     onLoadOlder = viewModel::loadOlderEvents,
                     onLoadNewer = viewModel::loadNewerEvents,
+                    scrollTarget = agendaScrollTarget,
+                    onScrolled = viewModel::onAgendaScrolled,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -613,8 +631,12 @@ private fun EventsAgendaList(
     onLoadOlder: () -> Unit,
     onLoadNewer: () -> Unit,
     modifier: Modifier = Modifier,
+    scrollTarget: LocalDate? = null,
+    onScrolled: () -> Unit = {},
 ) {
     if (agenda.loaded && agenda.days.isEmpty()) {
+        // Nothing to scroll to: consume a pending deep-link target instead of parking it.
+        LaunchedEffect(scrollTarget) { if (scrollTarget != null) onScrolled() }
         EmptyStateCompact(
             icon = Icons.Filled.EventAvailable,
             title = stringResource(R.string.booking_calendar_events_empty),
@@ -633,6 +655,18 @@ private fun EventsAgendaList(
             if (index >= 0) listState.scrollToItem(index)
             anchored = true
         }
+    }
+    // Reminder deep link (ADR-098): once the (possibly grown) window covering the date
+    // has loaded, jump to its group — or the nearest later one when the booking was
+    // deleted and its date has no group.
+    LaunchedEffect(scrollTarget, agenda.window, agenda.days) {
+        val target = scrollTarget ?: return@LaunchedEffect
+        val window = agenda.window ?: return@LaunchedEffect
+        if (target < window.from || target > window.to) return@LaunchedEffect
+        val index = EventsAgenda.flatIndexOfDate(agenda.days, target)
+        if (index >= 0) listState.scrollToItem(index)
+        anchored = true
+        onScrolled()
     }
     // Edge triggers: keys keep the viewport stable when older items are PREPENDED.
     LaunchedEffect(listState, agenda.hasMorePast, agenda.hasMoreFuture) {

@@ -78,6 +78,7 @@ import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.booking.bookingGraph
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import com.itsluminous.samaroh.feature.expenses.EXPENSES_ROUTE
 import com.itsluminous.samaroh.feature.expenses.expensesGraph
 import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
@@ -125,9 +126,10 @@ private val topLevelDestinations =
  * completion flag is set; afterwards the module-tab scaffold hosts the feature graphs with
  * the §4.5 app bar (cloud sync indicator + Menu kebab, ADR-087) and offline banner.
  *
- * @param pendingBookingId booking id from a reminder-notification launch intent — routes
- *   to the Booking tab and opens that booking's card (§4.1 deep link).
- * @param onBookingDeepLinkConsumed clears the pending id once handed to the feature.
+ * @param pendingBookingLink reminder deep link from a notification tap or the popup's View
+ *   (ADR-098) — routes to the Booking tab (when the member may view it) and the booking
+ *   graph lands on that booking's date and opens its card (§4.1 deep link).
+ * @param onBookingDeepLinkConsumed clears the pending link once handed to the feature.
  * @param pendingAppLink destination parsed from a `https://samaroh-web.vercel.app` VIEW
  *   intent (ADR-033) — routes to the matching tab; ledger/masterlist/settings sub-targets
  *   are handed to the feature graphs, which consume them via [onAppLinkConsumed].
@@ -138,7 +140,7 @@ private val topLevelDestinations =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SamarohApp(
-    pendingBookingId: String?,
+    pendingBookingLink: BookingDeepLink?,
     onBookingDeepLinkConsumed: () -> Unit,
     pendingAppLink: AppLink? = null,
     onAppLinkConsumed: () -> Unit = {},
@@ -199,14 +201,20 @@ fun SamarohApp(
         }
     }
 
-    // Reminder-notification deep link: land on the Booking tab (§4.1); the booking graph
-    // opens the specific card via [pendingBookingId] below.
-    LaunchedEffect(pendingBookingId, onboarded) {
-        if (pendingBookingId != null && onboarded) {
-            navController.navigate(BOOKING_ROUTE) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
+    // Reminder deep link (§4.1, ADR-098): land on the Booking tab; the booking graph lands
+    // on the date and opens the card via [pendingBookingLink] below. A member who lost
+    // `booking.view` has no Booking tab at all — the link is dropped on the spot and
+    // nothing booking-related is shown (§3 gate, nothing sensitive).
+    LaunchedEffect(pendingBookingLink, onboarded, visibleTabs) {
+        if (pendingBookingLink != null && onboarded) {
+            if (BOOKING_ROUTE !in visibleTabs) {
+                onBookingDeepLinkConsumed()
+            } else {
+                navController.navigate(BOOKING_ROUTE) {
+                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
             }
         }
     }
@@ -423,7 +431,7 @@ fun SamarohApp(
                 popExitTransition = { SamarohMotion.screenExit(reducedMotion) },
             ) {
                 bookingGraph(
-                    bookingIdToOpen = pendingBookingId,
+                    bookingToOpen = pendingBookingLink,
                     onBookingOpened = onBookingDeepLinkConsumed,
                 )
                 expensesGraph(

@@ -4173,3 +4173,83 @@ stays PENDING; revoking record_payment disarms a pending snooze; retraction leav
 follow-up/upcoming deliveries alone; re-grant delivers the same row again),
 `BookingCalendarViewModelTest` (card empty for either single key, populated for both and
 for the owner; `snoozeReminder` no-op without view_amounts).
+
+## ADR-098 — Tapping a reminder opens THAT booking's card (notification tap, Partial… action, popup View) (2026-10-11)
+
+**Status:** accepted (owner request). `feature:booking` + `app` shell only; no schema, wire,
+string or repository-contract change.
+
+**Context (verified in code).** Every reminder notification (upcoming-event, "Did X pay?",
+tentative follow-up) and the full-screen popup's View button relaunched the app with a bare
+`EXTRA_BOOKING_ID`, and the shell handed that id to `bookingGraph(bookingIdToOpen)`, which
+navigated to the **edit form** (`booking/form?bookingId=…`) — not the booking card the
+calendar opens on tap. The content `PendingIntent` used `bookingId.hashCode()` as its request
+code, so two reminders for one booking (upcoming + payment) shared one PendingIntent and the
+last post's extras won (`filterEquals` ignores extras). The payment notification's "Partial…"
+action also opened the app without acknowledging the delivery (an action tap does not
+auto-cancel, so the ADR-094 `deleteIntent` ack never fired).
+
+**Decision.**
+
+1. **One link, every surface.** `BookingDeepLink(bookingId, businessId, ledgerKey,
+   notificationTag, notificationId)` (`feature:booking/reminders/BookingDeepLink.kt`) is the
+   intent contract: `applyTo(intent)` / `from(intent)` round-trip the extras
+   (`EXTRA_BOOKING_ID` kept wire-compatible — a legacy intent with only the id still decodes;
+   new `EXTRA_BUSINESS_ID`, `EXTRA_LEDGER_KEY`, `EXTRA_OPEN_NOTIFICATION_TAG/ID`).
+   `BookingDeepLinks.launchIntent` builds the launcher intent (`NEW_TASK | CLEAR_TOP`;
+   `MainActivity` is `singleTask`, so a warm app receives it in `onNewIntent`, a dead process
+   cold-starts with it) and `pendingIntent` wraps it IMMUTABLE + `FLAG_UPDATE_CURRENT` with a
+   **per-delivery request code** (`"open:" + ledgerKey.encode()`, else the booking id) — so
+   concurrent reminders for one booking keep distinct content intents. The notification
+   body tap, the payment notification's Partial… action and `FullScreenReminderActivity`'s
+   View all build this same link; `postUpcomingReminder` / `postFullScreenUpcomingReminder` /
+   `UpcomingReminderAlarmReceiver.scheduleExact*` / `FullScreenReminderActivity.intent` gain
+   an ADDITIVE `businessId` parameter the engine fills from the booking.
+2. **Shell routing.** `MainActivity` decodes the link (cold `onCreate`, warm `onNewIntent`)
+   into `pendingBookingLink`; `SamarohApp` navigates to the Booking tab ONLY if it is in the
+   member's visible tabs (a member without `booking.view` has no Booking tab — the link is
+   consumed and nothing booking-related is shown), then `bookingGraph(bookingToOpen)` →
+   `BookingFeatureHost` pops its internal stack back to the calendar (a warm link may arrive
+   over the form) → `BookingCalendarScreen` hands the link to
+   `BookingCalendarViewModel.openFromReminder` and consumes it at once.
+3. **Landing = what a calendar tap does.** The pure `BookingDeepLinkResolver` decides:
+   live or **cancelled** booking of the active business with `booking.view` →
+   `Card(id, startDate)`: the month view shows the booking's month, the events view grows
+   its window to cover the date (`EventsAgenda.windowCovering`) and scrolls to that date
+   group (`flatIndexOfDate`; one-shot `agendaScrollTarget` consumed by the list once the
+   window covering the date has loaded), and `selectedBookingId` opens the SAME
+   `BookingCardSheet` the calendar opens. **Deleted since** (tombstoned row) → `Date`: land
+   on its date, no card. Unknown id, or no `booking.view` → `Calendar`: nothing changes.
+4. **Other business: v1 has nothing to switch.** `ActiveBusinessProvider` (ADR-017) defines
+   the active business as the FIRST live local business; eleven consumers across every
+   module share that deterministic rule and NO business switcher exists. A reminder whose
+   `businessId` (or whose booking's `business_id`) differs from the active business
+   therefore lands as `Calendar` — Booking tab, no card, nothing of the other business shown.
+   The link carries `businessId` precisely so a future switcher ADR can add a "select then
+   continue" step here without touching the notification wire. (Today the engine does plan
+   reminders for every local business, so the case is reachable only for a device holding
+   two memberships; before this ADR such a tap opened the FOREIGN booking's edit form.)
+5. **Tap = ACK, on every route.** Body tap keeps the auto-cancel → `deleteIntent` →
+   `ReminderAckReceiver` path (ADR-094). In addition `MainActivity` calls
+   `BookingDeepLinks.acknowledgeOpened` on arrival: it cancels the notification the link
+   names (the Partial… action leaves it in the shade otherwise) and marks the ledger key
+   ACKED — idempotent with the deleteIntent ack, and with the popup's own ack
+   (`FullScreenReminderActivity` still acks + cancels its paired notification before
+   launching the link, and `finish()`es, so the takeover is dismissed).
+
+**Consequences.** The edit form is no longer a deep-link target (the card's Edit action
+remains one tap away). `bookingGraph`'s parameter is `bookingToOpen: BookingDeepLink?`
+(app-only caller). `EventsAgendaState` gains `window` (the loaded range) so the UI can tell a
+stale list from the grown one. Web: notifications are Android-only; `samaroh-web` has only the
+`/{locale}/booking` calendar route and no "open booking by id" URL — nothing to mirror, and
+the App Link parser (ADR-033) stays unchanged. Tests: `BookingDeepLinkTest` (round-trip,
+legacy intent, distinct request codes per key, launcher flags; the upcoming, full-screen
+upcoming + popup, payment body + Partial…, and follow-up posts all carry the link; two
+reminders for one booking keep distinct content intents), `BookingDeepLinkResolverTest`
+(card / cancelled card / deleted → date / unknown / foreign business / legacy id / no view /
+no business), `EventsAgendaTest` (`windowCovering`, `flatIndexOfDate`),
+`BookingCalendarViewModelTest` (month + card + scroll target; cancelled card; deleted → date,
+no card; foreign business, no permission, unknown → nothing; events window grows to the
+date), e2e `ReminderDeepLinkTest` en/hi (real posted notification's content intent fired →
+card on the booking's month; cold launch with the intent → card; deleted booking → month
+shown, no card).
