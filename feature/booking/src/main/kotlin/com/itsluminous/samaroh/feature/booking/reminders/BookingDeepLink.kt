@@ -7,7 +7,11 @@ import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /** Launch-intent extra: the booking a reminder is about (§4.1 deep link, ADR-098). */
 const val EXTRA_BOOKING_ID = "com.itsluminous.samaroh.booking.EXTRA_BOOKING_ID"
@@ -126,3 +130,35 @@ object BookingDeepLinks {
         }
     }
 }
+
+/**
+ * Parks the pending "open this booking" request OUTSIDE Compose state (ADR-098, same
+ * shape as the ADR-086 `ShareIntakeHolder`). The shell must not thread the link through
+ * the root `NavHost` builder: the builder lambda captures it, every change rebuilds the
+ * graph, and navigation-compose re-creates the Booking feature host — the calendar
+ * ViewModel that had just received the link is dropped with it (verified on-device).
+ * Instead `MainActivity` sets the link here, the calendar ViewModel collects it, applies
+ * the landing and [consume]s it only once its own state reflects it, so a ViewModel
+ * recreated mid-way simply re-applies the still-pending link.
+ */
+@Singleton
+class BookingDeepLinkHolder
+    @Inject
+    constructor() {
+        private val _pending = MutableStateFlow<BookingDeepLink?>(null)
+
+        /** The link waiting to be applied; null when nothing is pending. */
+        val pending: StateFlow<BookingDeepLink?> = _pending
+
+        fun set(link: BookingDeepLink) {
+            _pending.value = link
+        }
+
+        /** Clears [link] if it is still the pending one (a newer link is left alone). */
+        fun consume(link: BookingDeepLink) {
+            _pending.compareAndSet(link, null)
+        }
+    }
+
+/** The app-wide [BookingDeepLinkHolder], or null when no Hilt graph exists (see [reminderDeps]). */
+fun reminderDeepLinks(context: Context): BookingDeepLinkHolder? = reminderDeps(context)?.deepLinks()

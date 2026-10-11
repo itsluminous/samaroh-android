@@ -26,6 +26,7 @@ import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.presetFixture
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinkHolder
 import com.itsluminous.samaroh.feature.booking.seededPresetFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -53,6 +54,7 @@ class BookingCalendarViewModelTest {
     private val eventTypeRepository = FakeEventTypeRepository(seededPresetFixtures())
     private val invoiceGenerator = FakeInvoiceGenerator()
     private val calendarPrefs = FakeBookingCalendarPrefs()
+    private val deepLinks = BookingDeepLinkHolder()
 
     private fun viewModel(actorProvider: FakeActorProvider = FakeActorProvider()) =
         BookingCalendarViewModel(
@@ -66,6 +68,7 @@ class BookingCalendarViewModelTest {
             bookingColorsProvider = FakeBookingColorCatalog(),
             calendarPrefs = calendarPrefs,
             clock = clock,
+            deepLinks = deepLinks,
         )
 
     private fun pendingReminder(
@@ -925,12 +928,29 @@ class BookingCalendarViewModelTest {
             val vm = viewModel()
             vm.detail.test {
                 assertThat(awaitItem()).isNull()
-                vm.openFromReminder(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
+                deepLinks.set(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
                 assertThat(awaitItemMatching { it != null }?.booking?.id).isEqualTo("b-far")
                 cancelAndIgnoreRemainingEvents()
             }
             assertThat(vm.uiState.value.month).isEqualTo(YearMonth.of(2026, 11))
             assertThat(vm.agendaScrollTarget.value).isEqualTo(LocalDate.of(2026, 11, 20))
+            // Consumed only once the card content was emitted (a recreated VM would otherwise lose it).
+            assertThat(deepLinks.pending.value).isNull()
+        }
+
+    @Test
+    fun `a link parked before the ViewModel exists is applied by the new instance`() =
+        runTest {
+            val far = Fixtures.booking(id = "b-far", startDate = LocalDate.of(2026, 11, 20))
+            repository.bookings.value = listOf(far)
+            deepLinks.set(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
+
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItemMatching { it != null }?.booking?.id).isEqualTo("b-far")
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(deepLinks.pending.value).isNull()
         }
 
     @Test
@@ -942,7 +962,7 @@ class BookingCalendarViewModelTest {
             val vm = viewModel()
             vm.detail.test {
                 assertThat(awaitItem()).isNull()
-                vm.openFromReminder(BookingDeepLink("b-c", Fixtures.BUSINESS_ID))
+                deepLinks.set(BookingDeepLink("b-c", Fixtures.BUSINESS_ID))
                 assertThat(awaitItemMatching { it != null }?.booking?.status).isEqualTo(BookingStatus.CANCELLED)
                 cancelAndIgnoreRemainingEvents()
             }
@@ -957,12 +977,13 @@ class BookingCalendarViewModelTest {
             val vm = viewModel()
             vm.uiState.test {
                 awaitItemMatching { it.loaded }
-                vm.openFromReminder(BookingDeepLink("b-del", Fixtures.BUSINESS_ID))
+                deepLinks.set(BookingDeepLink("b-del", Fixtures.BUSINESS_ID))
                 assertThat(awaitItemMatching { it.month == YearMonth.of(2026, 12) }.month).isEqualTo(YearMonth.of(2026, 12))
                 cancelAndIgnoreRemainingEvents()
             }
             assertThat(vm.detail.value).isNull()
             assertThat(vm.agendaScrollTarget.value).isEqualTo(LocalDate.of(2026, 12, 5))
+            assertThat(deepLinks.pending.value).isNull()
         }
 
     @Test
@@ -974,13 +995,14 @@ class BookingCalendarViewModelTest {
             val vm = viewModel()
             vm.uiState.test {
                 awaitItemMatching { it.loaded }
-                vm.openFromReminder(BookingDeepLink("b-x", "other-business"))
+                deepLinks.set(BookingDeepLink("b-x", "other-business"))
                 expectNoEvents()
                 cancelAndIgnoreRemainingEvents()
             }
             assertThat(vm.detail.value).isNull()
             assertThat(vm.uiState.value.month).isEqualTo(YearMonth.of(2026, 8))
             assertThat(vm.agendaScrollTarget.value).isNull()
+            assertThat(deepLinks.pending.value).isNull()
         }
 
     @Test
@@ -1001,7 +1023,7 @@ class BookingCalendarViewModelTest {
             val vm = viewModel(noView)
             vm.uiState.test {
                 awaitItemMatching { it.loaded && it.actor != null }
-                vm.openFromReminder(BookingDeepLink("b-1", Fixtures.BUSINESS_ID))
+                deepLinks.set(BookingDeepLink("b-1", Fixtures.BUSINESS_ID))
                 expectNoEvents()
                 cancelAndIgnoreRemainingEvents()
             }
@@ -1015,7 +1037,7 @@ class BookingCalendarViewModelTest {
             val vm = viewModel()
             vm.uiState.test {
                 awaitItemMatching { it.loaded }
-                vm.openFromReminder(BookingDeepLink("ghost", Fixtures.BUSINESS_ID))
+                deepLinks.set(BookingDeepLink("ghost", Fixtures.BUSINESS_ID))
                 expectNoEvents()
                 cancelAndIgnoreRemainingEvents()
             }
@@ -1033,7 +1055,7 @@ class BookingCalendarViewModelTest {
             val vm = viewModel()
             vm.eventsAgenda.test {
                 awaitItemMatching { it.loaded }
-                vm.openFromReminder(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
+                deepLinks.set(BookingDeepLink("b-far", Fixtures.BUSINESS_ID))
                 val grown = awaitItemMatching { it.window?.to?.isAfter(LocalDate.of(2027, 3, 1)) == true }
                 assertThat(grown.days.map { it.date }).contains(LocalDate.of(2027, 3, 3))
                 cancelAndIgnoreRemainingEvents()

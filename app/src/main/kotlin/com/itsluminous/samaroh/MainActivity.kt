@@ -16,6 +16,7 @@ import com.itsluminous.samaroh.applink.AppLink
 import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinkHolder
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinks
 import com.itsluminous.samaroh.share.ShareIntents
 import com.itsluminous.samaroh.ui.MainViewModel
@@ -43,8 +44,8 @@ class MainActivity : AppCompatActivity() {
     /** Parks the share-sheet payload for the unified chooser (ADR-086). */
     @Inject lateinit var shareIntakeHolder: ShareIntakeHolder
 
-    /** Reminder deep link from the latest launch/new intent, cleared once the feature opened it. */
-    private var pendingBookingLink by mutableStateOf<BookingDeepLink?>(null)
+    /** Parks the reminder deep link for the Booking feature (ADR-098) — never Compose state, see the holder. */
+    @Inject lateinit var bookingDeepLinks: BookingDeepLinkHolder
 
     /** Web App-Link destination from the latest VIEW intent, cleared once routed. */
     private var pendingAppLink by mutableStateOf<AppLink?>(null)
@@ -73,8 +74,6 @@ class MainActivity : AppCompatActivity() {
                 dynamicColor = themePrefs.dynamicColor,
             ) {
                 SamarohApp(
-                    pendingBookingLink = pendingBookingLink,
-                    onBookingDeepLinkConsumed = { pendingBookingLink = null },
                     pendingAppLink = pendingAppLink,
                     onAppLinkConsumed = { pendingAppLink = null },
                     pendingShare = pendingShare,
@@ -99,7 +98,7 @@ class MainActivity : AppCompatActivity() {
     private fun consumeBookingDeepLink(intent: Intent?) {
         val link = BookingDeepLink.from(intent) ?: return
         BookingDeepLinks.acknowledgeOpened(this, link)
-        pendingBookingLink = link
+        bookingDeepLinks.set(link)
     }
 
     /** Parses a VIEW intent's data URI into its [AppLink]; null for non-link intents. */

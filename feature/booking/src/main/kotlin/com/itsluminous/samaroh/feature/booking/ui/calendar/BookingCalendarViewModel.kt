@@ -32,6 +32,7 @@ import com.itsluminous.samaroh.feature.booking.domain.TentativeFollowUpPlanner
 import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
 import com.itsluminous.samaroh.feature.booking.domain.canReceiveUpcomingReminders
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinkHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -39,7 +40,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -167,6 +170,7 @@ class BookingCalendarViewModel
         val bookingColorsProvider: BookingColorCatalog,
         private val calendarPrefs: BookingCalendarPrefs,
         private val clock: Clock,
+        private val deepLinks: BookingDeepLinkHolder,
     ) : ViewModel() {
         private val month = MutableStateFlow(YearMonth.now(clock))
         private val selectedBookingId = MutableStateFlow<String?>(null)
@@ -476,27 +480,35 @@ class BookingCalendarViewModel
          * the same card a calendar tap opens. [BookingDeepLinkResolver] decides the
          * fallbacks (unknown or foreign-business booking, no `booking.view` → nothing;
          * deleted → date only; cancelled → card, as the calendar would).
+         *
+         * The link is CONSUMED only once this ViewModel's own state reflects the landing
+         * (card content emitted / month switched): the shell re-creates feature hosts on
+         * recomposition, and a ViewModel cleared mid-way must leave the link for its
+         * successor to re-apply instead of losing it.
          */
-        fun openFromReminder(link: BookingDeepLink) {
-            viewModelScope.launch {
-                val business = businessFlow.first()
-                val actor = business?.let { actorProvider.actorFor(it) }
-                val landing =
-                    BookingDeepLinkResolver.resolve(
-                        linkBusinessId = link.businessId,
-                        activeBusinessId = business?.id,
-                        booking = bookingRepository.booking(link.bookingId),
-                        canView = actor?.canReceiveUpcomingReminders == true,
-                    )
-                when (landing) {
-                    BookingDeepLinkResolver.Landing.Calendar -> Unit
-                    is BookingDeepLinkResolver.Landing.Date -> landOn(landing.date)
-                    is BookingDeepLinkResolver.Landing.Card -> {
-                        landOn(landing.date)
-                        selectedBookingId.value = landing.bookingId
-                    }
+        internal suspend fun openFromReminder(link: BookingDeepLink) {
+            val business = businessFlow.first()
+            val actor = business?.let { actorProvider.actorFor(it) }
+            val landing =
+                BookingDeepLinkResolver.resolve(
+                    linkBusinessId = link.businessId,
+                    activeBusinessId = business?.id,
+                    booking = bookingRepository.booking(link.bookingId),
+                    canView = actor?.canReceiveUpcomingReminders == true,
+                )
+            when (landing) {
+                BookingDeepLinkResolver.Landing.Calendar -> Unit
+                is BookingDeepLinkResolver.Landing.Date -> {
+                    landOn(landing.date)
+                    uiState.first { it.month == YearMonth.from(landing.date) }
+                }
+                is BookingDeepLinkResolver.Landing.Card -> {
+                    landOn(landing.date)
+                    selectedBookingId.value = landing.bookingId
+                    detail.first { it?.booking?.id == landing.bookingId }
                 }
             }
+            deepLinks.consume(link)
         }
 
         private fun landOn(date: LocalDate) {
@@ -826,6 +838,14 @@ class BookingCalendarViewModel
                         onSuccess = { events.trySend(BookingEvent.ShareText(it)) },
                         onFailure = { events.trySend(BookingEvent.InvoiceFailed) },
                     )
+            }
+        }
+
+        // Reminder deep link collector (ADR-098) — declared last so every property above is
+        // initialised before a link already parked in the holder is applied.
+        init {
+            viewModelScope.launch {
+                deepLinks.pending.filterNotNull().collectLatest { link -> openFromReminder(link) }
             }
         }
     }

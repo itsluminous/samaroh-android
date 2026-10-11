@@ -24,6 +24,9 @@ interface ReminderReceiverDependencies {
     fun snoozer(): ReminderSnoozer
 
     fun notifier(): BookingNotifier
+
+    /** Pending reminder deep link (ADR-098) — read by the booking feature host. */
+    fun deepLinks(): BookingDeepLinkHolder
 }
 
 /**

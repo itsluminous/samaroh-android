@@ -4205,13 +4205,30 @@ auto-cancel, so the ADR-094 `deleteIntent` ack never fired).
    View all build this same link; `postUpcomingReminder` / `postFullScreenUpcomingReminder` /
    `UpcomingReminderAlarmReceiver.scheduleExact*` / `FullScreenReminderActivity.intent` gain
    an ADDITIVE `businessId` parameter the engine fills from the booking.
-2. **Shell routing.** `MainActivity` decodes the link (cold `onCreate`, warm `onNewIntent`)
-   into `pendingBookingLink`; `SamarohApp` navigates to the Booking tab ONLY if it is in the
-   member's visible tabs (a member without `booking.view` has no Booking tab — the link is
-   consumed and nothing booking-related is shown), then `bookingGraph(bookingToOpen)` →
-   `BookingFeatureHost` pops its internal stack back to the calendar (a warm link may arrive
-   over the form) → `BookingCalendarScreen` hands the link to
-   `BookingCalendarViewModel.openFromReminder` and consumes it at once.
+2. **Shell routing — the link never travels through Compose state.** `MainActivity`
+   decodes the link (cold `onCreate`, warm `onNewIntent`) and parks it in the singleton
+   `BookingDeepLinkHolder` (`StateFlow`, same shape as ADR-086's `ShareIntakeHolder`).
+   `SamarohApp` only WATCHES the holder: it navigates to the Booking tab if the tab is in
+   the member's visible tabs and is not already current (a member without `booking.view`
+   has no Booking tab — the link is consumed and nothing booking-related is shown).
+   `bookingGraph()` takes no deep-link parameter any more; `BookingFeatureHost` watches the
+   holder to pop its internal stack back to the calendar (a warm link may arrive over the
+   form); `BookingCalendarViewModel` collects the holder, applies the landing and
+   **consumes the link only once its own state reflects it** (card detail emitted / month
+   switched; `Calendar` landings consume at once).
+   *Why (verified on the emulator, 2026-10-11):* the first cut threaded the link through
+   `SamarohApp → bookingGraph(bookingToOpen)` like ADR-033's sub-targets. It worked warm
+   and failed cold: the root `NavHost` builder lambda captures unstable shell state, so
+   EVERY recomposition of `SamarohApp` yields a new builder → a new `NavGraph` →
+   `NavController.setGraph` in-place sync, after which navigation-compose 2.8.5
+   re-creates the Booking feature host (fresh inner `NavHostController`, fresh
+   `hiltViewModel`). A dummy state tick reproduced it; a `remember`ed builder did not.
+   Consuming the link was itself such a recomposition, so the ViewModel that had just
+   selected the card was dropped ~100 ms later. The holder keeps the link out of the
+   graph builder, and consume-on-applied lets a successor ViewModel re-apply a link whose
+   first applier was cleared mid-way. The pre-existing shell behaviour (feature hosts
+   re-created on shell recomposition — inner nav stack and ViewModels lost) is NOT fixed
+   here; it is recorded in `docs/backlog.md` as a follow-up.
 3. **Landing = what a calendar tap does.** The pure `BookingDeepLinkResolver` decides:
    live or **cancelled** booking of the active business with `booking.view` →
    `Card(id, startDate)`: the month view shows the booking's month, the events view grows
@@ -4238,8 +4255,10 @@ auto-cancel, so the ADR-094 `deleteIntent` ack never fired).
    launching the link, and `finish()`es, so the takeover is dismissed).
 
 **Consequences.** The edit form is no longer a deep-link target (the card's Edit action
-remains one tap away). `bookingGraph`'s parameter is `bookingToOpen: BookingDeepLink?`
-(app-only caller). `EventsAgendaState` gains `window` (the loaded range) so the UI can tell a
+remains one tap away). `bookingGraph()` loses its `bookingIdToOpen` parameter (app-only
+caller); `BookingCalendarViewModel` gains a `BookingDeepLinkHolder` constructor dependency
+(tests updated); `ReminderReceiverDependencies` and the app's `ShellEntryPoints` expose the
+holder. `EventsAgendaState` gains `window` (the loaded range) so the UI can tell a
 stale list from the grown one. Web: notifications are Android-only; `samaroh-web` has only the
 `/{locale}/booking` calendar route and no "open booking by id" URL — nothing to mirror, and
 the App Link parser (ADR-033) stays unchanged. Tests: `BookingDeepLinkTest` (round-trip,
@@ -4248,8 +4267,9 @@ upcoming + popup, payment body + Partial…, and follow-up posts all carry the l
 reminders for one booking keep distinct content intents), `BookingDeepLinkResolverTest`
 (card / cancelled card / deleted → date / unknown / foreign business / legacy id / no view /
 no business), `EventsAgendaTest` (`windowCovering`, `flatIndexOfDate`),
-`BookingCalendarViewModelTest` (month + card + scroll target; cancelled card; deleted → date,
-no card; foreign business, no permission, unknown → nothing; events window grows to the
-date), e2e `ReminderDeepLinkTest` en/hi (real posted notification's content intent fired →
+`BookingCalendarViewModelTest` (month + card + scroll target + link consumed only after the
+card emitted; a link parked before the ViewModel exists is applied by the new instance;
+cancelled card; deleted → date, no card; foreign business, no permission, unknown →
+nothing; events window grows to the date), e2e `ReminderDeepLinkTest` en/hi (real posted notification's content intent fired →
 card on the booking's month; cold launch with the intent → card; deleted booking → month
 shown, no card).

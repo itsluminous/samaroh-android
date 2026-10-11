@@ -68,7 +68,6 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingCardActions
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.domain.EventsAgenda
 import com.itsluminous.samaroh.feature.booking.domain.canReceivePaymentReminders
-import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import com.itsluminous.samaroh.feature.booking.reminders.BookingReminderWorker
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
@@ -82,16 +81,13 @@ import java.time.LocalDate
  * Booking tab home (§4.1): month calendar with status pills, month summary card,
  * pending-confirmations card, agenda list, booking card sheet, record-payment sheet,
  * block-dates flow. Swipe left/right changes month; header opens the year/month picker.
- *
- * @param deepLink reminder "open this booking" request (ADR-098) handed down by the shell;
- *   lands on the booking's date and opens its card, then [onDeepLinkConsumed] clears it.
+ * A reminder deep link (ADR-098) is applied by the ViewModel from the app-wide holder:
+ * the booking's date is shown (month / agenda) and its card opens.
  */
 @Composable
 fun BookingCalendarScreen(
     onAddBooking: (LocalDate?) -> Unit,
     onEditBooking: (String) -> Unit,
-    deepLink: BookingDeepLink? = null,
-    onDeepLinkConsumed: () -> Unit = {},
     viewModel: BookingCalendarViewModel = hiltViewModel(),
     eventTypes: EventTypeCatalog = viewModel.eventTypesProvider,
     bookingColors: BookingColorCatalog = viewModel.bookingColorsProvider,
@@ -118,15 +114,6 @@ fun BookingCalendarScreen(
     // initialized in plain unit tests, hence the runCatching guard.
     LaunchedEffect(Unit) {
         runCatching { BookingReminderWorker.ensureScheduled(context) }
-    }
-
-    // Reminder deep link (ADR-098): resolved by the ViewModel (date + card, or a graceful
-    // fallback); consumed at once so a recomposition never replays it.
-    LaunchedEffect(deepLink) {
-        if (deepLink != null) {
-            viewModel.openFromReminder(deepLink)
-            onDeepLinkConsumed()
-        }
     }
 
     LaunchedEffect(viewModel) {

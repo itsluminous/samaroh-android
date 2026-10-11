@@ -78,7 +78,7 @@ import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.booking.bookingGraph
-import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
+import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinkHolder
 import com.itsluminous.samaroh.feature.expenses.EXPENSES_ROUTE
 import com.itsluminous.samaroh.feature.expenses.expensesGraph
 import com.itsluminous.samaroh.feature.expenses.sharetarget.ShareTargetHolder
@@ -126,10 +126,10 @@ private val topLevelDestinations =
  * completion flag is set; afterwards the module-tab scaffold hosts the feature graphs with
  * the §4.5 app bar (cloud sync indicator + Menu kebab, ADR-087) and offline banner.
  *
- * @param pendingBookingLink reminder deep link from a notification tap or the popup's View
- *   (ADR-098) — routes to the Booking tab (when the member may view it) and the booking
- *   graph lands on that booking's date and opens its card (§4.1 deep link).
- * @param onBookingDeepLinkConsumed clears the pending link once handed to the feature.
+ * A reminder deep link (ADR-098) is NOT a parameter: it lives in the singleton
+ * [BookingDeepLinkHolder] (set by `MainActivity`, consumed by the calendar ViewModel once
+ * applied); the shell only watches it to switch to the Booking tab — or to drop it when
+ * the member has no Booking tab (no `booking.view`), so nothing booking-related shows.
  * @param pendingAppLink destination parsed from a `https://samaroh-web.vercel.app` VIEW
  *   intent (ADR-033) — routes to the matching tab; ledger/masterlist/settings sub-targets
  *   are handed to the feature graphs, which consume them via [onAppLinkConsumed].
@@ -140,8 +140,6 @@ private val topLevelDestinations =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SamarohApp(
-    pendingBookingLink: BookingDeepLink?,
-    onBookingDeepLinkConsumed: () -> Unit,
     pendingAppLink: AppLink? = null,
     onAppLinkConsumed: () -> Unit = {},
     pendingShare: Boolean = false,
@@ -201,20 +199,24 @@ fun SamarohApp(
         }
     }
 
-    // Reminder deep link (§4.1, ADR-098): land on the Booking tab; the booking graph lands
-    // on the date and opens the card via [pendingBookingLink] below. A member who lost
-    // `booking.view` has no Booking tab at all — the link is dropped on the spot and
-    // nothing booking-related is shown (§3 gate, nothing sensitive).
+    // Reminder deep link (§4.1, ADR-098): switch to the Booking tab; the calendar
+    // ViewModel lands on the date and opens the card from the holder. A member who lost
+    // `booking.view` has no Booking tab at all — the link is dropped on the spot (§3 gate).
+    // Only navigate when NOT already on the Booking tab: a singleTop re-navigation to the
+    // current destination re-creates its back-stack entry for nothing.
+    val bookingDeepLinks = remember(activityContext) { ShellEntryPoints.of(activityContext).bookingDeepLinks() }
+    val pendingBookingLink by bookingDeepLinks.pending.collectAsStateWithLifecycle()
     LaunchedEffect(pendingBookingLink, onboarded, visibleTabs) {
-        if (pendingBookingLink != null && onboarded) {
-            if (BOOKING_ROUTE !in visibleTabs) {
-                onBookingDeepLinkConsumed()
-            } else {
-                navController.navigate(BOOKING_ROUTE) {
-                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
+        val link = pendingBookingLink ?: return@LaunchedEffect
+        if (!onboarded) return@LaunchedEffect
+        val onBooking = navController.currentDestination?.hierarchy?.any { it.route == BOOKING_ROUTE } == true
+        if (BOOKING_ROUTE !in visibleTabs) {
+            bookingDeepLinks.consume(link)
+        } else if (!onBooking) {
+            navController.navigate(BOOKING_ROUTE) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
             }
         }
     }
@@ -430,10 +432,7 @@ fun SamarohApp(
                 popEnterTransition = { SamarohMotion.screenEnter(reducedMotion) },
                 popExitTransition = { SamarohMotion.screenExit(reducedMotion) },
             ) {
-                bookingGraph(
-                    bookingToOpen = pendingBookingLink,
-                    onBookingOpened = onBookingDeepLinkConsumed,
-                )
+                bookingGraph()
                 expensesGraph(
                     partyIdToOpen = (pendingAppLink as? AppLink.Expenses)?.partyId,
                     onPartyDeepLinkConsumed = onAppLinkConsumed,
@@ -664,6 +663,9 @@ interface ShellEntryPoints {
     fun shareIntakeHolder(): ShareIntakeHolder
 
     fun invoiceShareHolder(): ShareTargetHolder
+
+    /** Pending reminder deep link (ADR-098). */
+    fun bookingDeepLinks(): BookingDeepLinkHolder
 
     companion object {
         fun of(context: android.content.Context): ShellEntryPoints =
