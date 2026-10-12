@@ -1,11 +1,15 @@
 package com.itsluminous.samaroh.e2e
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.LocaleList
+import android.os.SystemClock
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.app.AppLocalesMetadataHolderService
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
@@ -51,6 +55,10 @@ import javax.inject.Inject
 
 /** Default wait for reactive UI state (Room flows, nav transitions) to land on screen. */
 const val UI_TIMEOUT_MS = 15_000L
+
+/** Upper bound for the framework to apply a per-app locale to the test process. */
+private const val LOCALE_APPLY_TIMEOUT_MS = 5_000L
+private const val LOCALE_POLL_MS = 25L
 
 /**
  * Base class of the e2e suite (spec §11 W2-B): every acceptance flow runs TWICE — an
@@ -107,9 +115,61 @@ abstract class LocalizedE2eTest(
             database.clearAllTables()
             settings.edit { it.clear() }
         }
+        disarmAppCompatLocaleSync()
         applyPerAppLocale()
+        awaitProcessLocale()
         runBlocking { seed() }
         scenario = ActivityScenario.launch(MainActivity::class.java)
+    }
+
+    /**
+     * Makes the per-app locale survive the FIRST AppCompat activity of the process.
+     *
+     * With `autoStoreLocales` opted in (manifest), the first `AppCompatActivity` of a process
+     * on API 33+ runs AppCompat's one-time "androidx → framework locale sync"
+     * (`AppCompatDelegate.syncLocalesToFramework`) on a worker thread from
+     * `attachBaseContext`. That job treats the ENABLED state of
+     * [AppLocalesMetadataHolderService] as its "already synced" marker; the manifest declares
+     * the service `enabled="false"`, and the suite reinstalls the APK every run, so the
+     * marker is unset for the first activity of every run. The job then asks
+     * `AppCompatDelegate.getApplicationLocales()`, which on 33+ resolves the framework
+     * `LocaleManager` through the ACTIVE delegates — and the delegate is only registered in
+     * `onCreate`, AFTER the job was queued. Losing that race, it reads "no app locale", finds
+     * nothing in AppCompat's own storage either, and pushes an EMPTY locale list to the
+     * framework: the per-app locale set by [applyPerAppLocale] is wiped, the process flips
+     * back to the system locale and the freshly-resumed activity is recreated in English
+     * (observed: `ReminderDeepLinkHiTest.warm_…` failing whenever a `Hi` class is the first
+     * to launch an activity; harmless for `En`, so the full suite masked it behind the
+     * alphabetical `En` classes). Setting the marker ourselves — exactly what the sync does
+     * on success — makes the job a no-op, so the outcome no longer depends on class order or
+     * scheduler luck. Production is unaffected (there the storage and the framework agree).
+     */
+    private fun disarmAppCompatLocaleSync() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        app.packageManager.setComponentEnabledSetting(
+            ComponentName(app, AppLocalesMetadataHolderService::class.java),
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+    }
+
+    /**
+     * Blocks until the framework has pushed the requested per-app locale into THIS process's
+     * configuration (`LocaleManager.setApplicationLocales` is an IPC whose effect lands
+     * asynchronously), so the activity launched next is created under [testLocale] instead of
+     * starting in the previous locale and being recreated mid-test. Fails loudly on timeout —
+     * a vague "could not find text" later would hide the real cause.
+     */
+    private fun awaitProcessLocale() {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val deadline = SystemClock.uptimeMillis() + LOCALE_APPLY_TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            val locales = app.resources.configuration.locales
+            if (!locales.isEmpty && locales[0].language == testLocale.language) return
+            Thread.sleep(LOCALE_POLL_MS)
+        }
+        error("per-app locale '$localeTag' did not reach the process configuration within ${LOCALE_APPLY_TIMEOUT_MS}ms")
     }
 
     /**
