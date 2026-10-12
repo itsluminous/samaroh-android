@@ -174,6 +174,10 @@ dependencies {
     // Share-intent parsing needs a ContentResolver (ADR-086) — Robolectric like the feature modules.
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core.ktx)
+    // Shell nav-graph stability (ADR-099) is pinned by a Robolectric Compose test.
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.compose.ui.test.manifest)
+    testImplementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // End-to-end instrumented suite (spec §11 W2-B): Compose UI tests + Hilt + intents.
     androidTestImplementation(platform(libs.compose.bom))

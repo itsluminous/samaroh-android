@@ -38,10 +38,3 @@ never reference third-party products (see the legal-hygiene rule in AGENTS.md).
   translation-only work by design.
 - **Realtime sync channels** — push-based updates in addition to periodic pull (§8 notes
   periodic pull is sufficient for v1).
-- **Stable shell nav graph** — `SamarohApp`'s root `NavHost` builder lambda captures unstable
-  state (`pendingAppLink`, `pendingItemPhoto`, …), so every shell recomposition rebuilds the
-  `NavGraph` and navigation-compose re-creates each feature host (inner nav stack and
-  ViewModels lost — found while shipping ADR-098, reproduced with a dummy state tick). Fix by
-  building the graph once (`remember`ed, stable `State` inputs) and have feature graphs read
-  one-shot targets from holders like `BookingDeepLinkHolder`; then the ADR-033 sub-target
-  parameters (`partyIdToOpen`, `openMasterlist`, `openSettings`) can migrate too.

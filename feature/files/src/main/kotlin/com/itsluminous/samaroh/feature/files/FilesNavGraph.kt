@@ -1,5 +1,8 @@
 package com.itsluminous.samaroh.feature.files
 
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.itsluminous.samaroh.feature.files.ui.FilesScreen
@@ -13,15 +16,17 @@ const val FILES_ROUTE = "files"
  *
  * @param saveToFilesRequested the unified share chooser picked Save to Files (ADR-086):
  *   the screen shows the destination-folder picker over the parked payload; cleared via
- *   [onSaveToFilesConsumed].
+ *   [onSaveToFilesConsumed]. A [State] read at composition time (ADR-099: the shell's
+ *   root graph is built once).
  */
 fun NavGraphBuilder.filesGraph(
-    saveToFilesRequested: Boolean = false,
+    saveToFilesRequested: State<Boolean> = mutableStateOf(false),
     onSaveToFilesConsumed: () -> Unit = {},
 ) {
     composable(FILES_ROUTE) {
+        val requested by saveToFilesRequested
         FilesScreen(
-            saveToFilesRequested = saveToFilesRequested,
+            saveToFilesRequested = requested,
             onSaveToFilesConsumed = onSaveToFilesConsumed,
         )
     }

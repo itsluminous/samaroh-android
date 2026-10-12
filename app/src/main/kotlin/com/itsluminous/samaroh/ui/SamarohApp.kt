@@ -44,9 +44,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -126,6 +128,10 @@ private val topLevelDestinations =
  * completion flag is set; afterwards the module-tab scaffold hosts the feature graphs with
  * the §4.5 app bar (cloud sync indicator + Menu kebab, ADR-087) and offline banner.
  *
+ * The root NavGraph is built ONCE (ADR-099, [rememberStableNavGraph]); every one-shot the
+ * feature graphs must observe reaches them as a `State` or a holder, never as a value the
+ * graph builder captured.
+ *
  * A reminder deep link (ADR-098) is NOT a parameter: it lives in the singleton
  * [BookingDeepLinkHolder] (set by `MainActivity`, consumed by the calendar ViewModel once
  * applied); the shell only watches it to switch to the Booking tab — or to drop it when
@@ -162,9 +168,14 @@ fun SamarohApp(
     val shareContext by viewModel.shareContext.collectAsStateWithLifecycle()
     val shareIntakeHolder = remember(activityContext) { ShellEntryPoints.of(activityContext).shareIntakeHolder() }
     val invoiceShareHolder = remember(activityContext) { ShellEntryPoints.of(activityContext).invoiceShareHolder() }
-    var pendingShareInvoice by remember { mutableStateOf(false) }
-    var pendingItemPhoto by remember { mutableStateOf<android.net.Uri?>(null) }
-    var pendingSaveToFiles by remember { mutableStateOf(false) }
+    // The share-chooser one-shots are kept as State OBJECTS too: the root graph is built
+    // once (ADR-099), so the feature graphs receive these States and read them live.
+    val pendingShareInvoiceState = remember { mutableStateOf(false) }
+    var pendingShareInvoice by pendingShareInvoiceState
+    val pendingItemPhotoState = remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingItemPhoto by pendingItemPhotoState
+    val pendingSaveToFilesState = remember { mutableStateOf(false) }
+    var pendingSaveToFiles by pendingSaveToFilesState
     // Saveable so activity recreation (locale/theme change) keeps the SAME nav graph —
     // a changed startDestination breaks NavController state restoration. The completion
     // navigation (not a graph swap) moves the user on; a process restart re-reads the flag.
@@ -190,6 +201,14 @@ fun SamarohApp(
     // Re-read on every back-stack change (backStackEntry above is the State that
     // recomposes us): whether the Menu home should offer a back arrow (ADR-087).
     val menuHasParent = backStackEntry != null && navController.previousBackStackEntry != null
+    // ADR-099: everything the ONCE-built root graph must observe later goes through a
+    // State — parameters and derived shell values alike; the graph builder below captures
+    // only these stable references, never the values.
+    val pendingAppLinkState = rememberUpdatedState(pendingAppLink)
+    val onAppLinkConsumedState = rememberUpdatedState(onAppLinkConsumed)
+    val onboardedState = rememberUpdatedState(onboarded)
+    val visibleTabsNow = rememberUpdatedState(visibleTabs)
+    val menuHasParentState = rememberUpdatedState(menuHasParent)
     LaunchedEffect(visibleTabs, currentTab) {
         if (currentTab != null && currentTab !in visibleTabs) {
             navController.navigate(NavPermissions.startDestination(visibleTabs)) {
@@ -424,73 +443,81 @@ fun SamarohApp(
             // Nav-level motion (§6 polish): consistent fade-through from the shared spec,
             // disabled entirely when the user has reduced motion on.
             val reducedMotion = rememberReducedMotion()
+            // ADR-099: the graph is built ONCE (stable builder) — shell recompositions
+            // (sync badge, banners, deep-link consumption) no longer rebuild it, so the
+            // feature hosts keep their inner nav stacks and ViewModels. One-shot targets
+            // reach the feature graphs as States / holders, never as captured values.
+            val graph =
+                rememberStableNavGraph(navController, startDestination) {
+                    bookingGraph()
+                    expensesGraph(
+                        partyIdToOpen = derivedStateOf { (pendingAppLinkState.value as? AppLink.Expenses)?.partyId },
+                        onPartyDeepLinkConsumed = { onAppLinkConsumedState.value() },
+                        shareTargetRequested = derivedStateOf { pendingShareInvoiceState.value && onboardedState.value },
+                        onShareTargetConsumed = { pendingShareInvoiceState.value = false },
+                    )
+                    inventoryGraph(
+                        openMasterlist = derivedStateOf { (pendingAppLinkState.value as? AppLink.Inventory)?.masterlist == true },
+                        onMasterlistDeepLinkConsumed = { onAppLinkConsumedState.value() },
+                        sharedPhotoUri = pendingItemPhotoState,
+                        onSharedPhotoConsumed = { pendingItemPhotoState.value = null },
+                    )
+                    notesGraph()
+                    // FILES tab (ADR-085); the share chooser's Save to Files lands here (ADR-086).
+                    filesGraph(
+                        saveToFilesRequested = derivedStateOf { pendingSaveToFilesState.value && onboardedState.value },
+                        onSaveToFilesConsumed = { pendingSaveToFilesState.value = false },
+                    )
+                    // Menu graph (ADR-042/087): the Menu screens PLUS its root-level
+                    // subscreens (Reports, Sync status) nest under one graph route; the
+                    // kebab pushes it over the current tab, back pops it.
+                    navigation(route = MENU_TAB_ROUTE, startDestination = MENU_ROUTE) {
+                        menuGraph(
+                            // Back arrow on the Menu home: only when a tab lies beneath it
+                            // (a member with no module starts ON the Menu — nothing to pop to).
+                            canGoBack = menuHasParentState,
+                            onBack = { navController.popBackStack() },
+                            onOpenReports = { navController.navigate(reportsRoute()) },
+                            // Menu-search report result (ADR-075): deep link to the detail.
+                            onOpenReportDetail = { reportArg -> navController.navigate(reportsRoute(reportArg)) },
+                            openSettings = derivedStateOf { (pendingAppLinkState.value as? AppLink.Menu)?.settings == true },
+                            onSettingsDeepLinkConsumed = { onAppLinkConsumedState.value() },
+                            // Sign-out (ADR-040): session dropped + local data wiped — land on the
+                            // onboarding SIGN-IN step (language already chosen) with the whole
+                            // back stack cleared so back cannot return to the signed-in UI.
+                            onSignedOut = {
+                                navController.navigate(ONBOARDING_SIGN_IN_ROUTE) {
+                                    popUpTo(0) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                            // Identity row "Sign in" while signed out (ADR-089).
+                            onSignIn = ::openSignIn,
+                        )
+                        reportsGraph()
+                        syncStatusGraph(onBack = { navController.popBackStack() }, onSignIn = ::openSignIn)
+                    }
+                    onboardingGraph(
+                        onOnboardingComplete = {
+                            viewModel.completeOnboarding()
+                            // First visible tab (§3): Booking unless the member lacks booking.view;
+                            // no module at all → the Menu (ADR-087). Read LIVE from the State —
+                            // the builder ran once, long before onboarding completes.
+                            navController.navigate(NavPermissions.startDestination(visibleTabsNow.value)) {
+                                popUpTo(ONBOARDING_ROUTE) { inclusive = true }
+                            }
+                        },
+                        onConnectGoogle = { viewModel.connectGoogle(activityContext) },
+                    )
+                }
             NavHost(
                 navController = navController,
-                startDestination = startDestination,
+                graph = graph,
                 enterTransition = { SamarohMotion.screenEnter(reducedMotion) },
                 exitTransition = { SamarohMotion.screenExit(reducedMotion) },
                 popEnterTransition = { SamarohMotion.screenEnter(reducedMotion) },
                 popExitTransition = { SamarohMotion.screenExit(reducedMotion) },
-            ) {
-                bookingGraph()
-                expensesGraph(
-                    partyIdToOpen = (pendingAppLink as? AppLink.Expenses)?.partyId,
-                    onPartyDeepLinkConsumed = onAppLinkConsumed,
-                    shareTargetRequested = pendingShareInvoice && onboarded,
-                    onShareTargetConsumed = { pendingShareInvoice = false },
-                )
-                inventoryGraph(
-                    openMasterlist = (pendingAppLink as? AppLink.Inventory)?.masterlist == true,
-                    onMasterlistDeepLinkConsumed = onAppLinkConsumed,
-                    sharedPhotoUri = pendingItemPhoto,
-                    onSharedPhotoConsumed = { pendingItemPhoto = null },
-                )
-                notesGraph()
-                // FILES tab (ADR-085); the share chooser's Save to Files lands here (ADR-086).
-                filesGraph(
-                    saveToFilesRequested = pendingSaveToFiles && onboarded,
-                    onSaveToFilesConsumed = { pendingSaveToFiles = false },
-                )
-                // Menu graph (ADR-042/087): the Menu screens PLUS its root-level
-                // subscreens (Reports, Sync status) nest under one graph route; the
-                // kebab pushes it over the current tab, back pops it.
-                navigation(route = MENU_TAB_ROUTE, startDestination = MENU_ROUTE) {
-                    menuGraph(
-                        // Back arrow on the Menu home: only when a tab lies beneath it
-                        // (a member with no module starts ON the Menu — nothing to pop to).
-                        onBack = if (menuHasParent) ({ navController.popBackStack() }) else null,
-                        onOpenReports = { navController.navigate(reportsRoute()) },
-                        // Menu-search report result (ADR-075): deep link to the detail.
-                        onOpenReportDetail = { reportArg -> navController.navigate(reportsRoute(reportArg)) },
-                        openSettings = (pendingAppLink as? AppLink.Menu)?.settings == true,
-                        onSettingsDeepLinkConsumed = onAppLinkConsumed,
-                        // Sign-out (ADR-040): session dropped + local data wiped — land on the
-                        // onboarding SIGN-IN step (language already chosen) with the whole
-                        // back stack cleared so back cannot return to the signed-in UI.
-                        onSignedOut = {
-                            navController.navigate(ONBOARDING_SIGN_IN_ROUTE) {
-                                popUpTo(0) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        },
-                        // Identity row "Sign in" while signed out (ADR-089).
-                        onSignIn = ::openSignIn,
-                    )
-                    reportsGraph()
-                    syncStatusGraph(onBack = { navController.popBackStack() }, onSignIn = ::openSignIn)
-                }
-                onboardingGraph(
-                    onOnboardingComplete = {
-                        viewModel.completeOnboarding()
-                        // First visible tab (§3): Booking unless the member lacks booking.view;
-                        // no module at all → the Menu (ADR-087).
-                        navController.navigate(NavPermissions.startDestination(visibleTabs)) {
-                            popUpTo(ONBOARDING_ROUTE) { inclusive = true }
-                        }
-                    },
-                    onConnectGoogle = { viewModel.connectGoogle(activityContext) },
-                )
-            }
+            )
         }
     }
 }

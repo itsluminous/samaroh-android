@@ -2,6 +2,9 @@ package com.itsluminous.samaroh.feature.menu
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -44,33 +47,39 @@ fun NavGraphBuilder.syncStatusGraph(
  * is wired by the app once `feature:reports` lands (W2-A).
  *
  * @param openSettings lands on the Settings screen (web App-Link `/menu/settings…`,
- *   ADR-033); consumed via [onSettingsDeepLinkConsumed].
+ *   ADR-033); consumed via [onSettingsDeepLinkConsumed]. A [State] (ADR-099: the shell's
+ *   root graph is built once, so one-shot inputs are read at composition time).
  * @param onSettingsDeepLinkConsumed clears the pending settings target once handled.
  * @param onSignedOut sign-out completed on the Menu home identity row (ADR-040) — the
  *   app shell routes to the onboarding sign-in step with a cleared back stack.
  * @param onOpenReportDetail a Menu-search result picked a specific report (ADR-075):
  *   the argument is `feature:reports`' `ReportType.routeArg` wire value, which the app
  *   shell turns into a reports deep link (feature modules never depend on each other).
- * @param onBack the Menu is pushed over a tab by the title-bar kebab (ADR-087): the Menu
- *   home shows a back arrow that pops it; null when the Menu is the start destination
- *   (a member with no viewable module) — nothing lies beneath it then.
+ * @param canGoBack the Menu is pushed over a tab by the title-bar kebab (ADR-087): the Menu
+ *   home shows a back arrow that pops it via [onBack]; false when the Menu is the start
+ *   destination (a member with no viewable module) — nothing lies beneath it then. A
+ *   [State] because it follows the root back stack (ADR-099).
+ * @param onBack pops the Menu back to the tab beneath it.
  * @param onSignIn the identity row's "Sign in" while the device has no session (ADR-089)
  *   — the app shell opens the sign-in step on top of the current screen, data intact.
  */
 fun NavGraphBuilder.menuGraph(
-    onBack: (() -> Unit)? = null,
+    canGoBack: State<Boolean> = mutableStateOf(false),
+    onBack: () -> Unit = {},
     onOpenReports: () -> Unit = {},
-    openSettings: Boolean = false,
+    openSettings: State<Boolean> = mutableStateOf(false),
     onSettingsDeepLinkConsumed: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onOpenReportDetail: (String) -> Unit = {},
     onSignIn: () -> Unit = {},
 ) {
     composable(MENU_ROUTE) {
+        val hasParent by canGoBack
+        val settingsRequested by openSettings
         MenuTabHost(
-            onBack = onBack,
+            onBack = if (hasParent) onBack else null,
             onOpenReports = onOpenReports,
-            openSettings = openSettings,
+            openSettings = settingsRequested,
             onSettingsDeepLinkConsumed = onSettingsDeepLinkConsumed,
             onSignedOut = onSignedOut,
             onOpenReportDetail = onOpenReportDetail,

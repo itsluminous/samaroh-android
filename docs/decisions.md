@@ -4273,3 +4273,59 @@ cancelled card; deleted → date, no card; foreign business, no permission, unkn
 nothing; events window grows to the date), e2e `ReminderDeepLinkTest` en/hi (real posted notification's content intent fired →
 card on the booking's month; cold launch with the intent → card; deleted booking → month
 shown, no card).
+
+## ADR-099 — The shell's root nav graph is built ONCE; feature graphs take `State` inputs (2026-10-12)
+
+**Context.** `SamarohApp` declared its root graph inline: `NavHost(navController, startDestination)
+{ bookingGraph(); expensesGraph(partyIdToOpen = …) … }`. `NavHost` remembers the graph keyed on
+the builder lambda, and the lambda captured shell VALUES — `pendingAppLink`, `onboarded`,
+`visibleTabs`, `menuHasParent` (flips whenever the Menu is pushed or popped), the share one-shots.
+Whenever one of them changed, the builder was a new instance → `createGraph` ran again →
+`NavController.setGraph` found a structurally equal graph and re-synced the back stack in place,
+replacing EVERY destination node (and its `content` lambda) on every such recomposition. ADR-098
+hit the consequence while threading a reminder deep link through the builder (the Booking host
+lost the ViewModel that had just opened the card) and worked around it with a holder; the
+backlog kept the structural fix.
+
+**Decision.**
+1. **One graph per (controller, start destination).** `app/ui/StableNavGraph.kt` →
+   `rememberStableNavGraph(navController, startDestination) { … }` = `remember(controller,
+   start) { controller.createGraph(...) }`; `SamarohApp` passes the result to
+   `NavHost(navController, graph = …)`. The builder runs once per shell composition and may
+   capture only stable references: the controller, the Hilt `MainViewModel`, `State`s,
+   holders (`BookingDeepLinkHolder`, ADR-098).
+2. **Feature graphs read one-shot targets as `State`.** Signature change (additive in
+   meaning, source-breaking for the single app caller): `expensesGraph(partyIdToOpen:
+   State<String?>, shareTargetRequested: State<Boolean>, …)`, `inventoryGraph(openMasterlist:
+   State<Boolean>, sharedPhotoUri: State<Uri?>, …)`, `filesGraph(saveToFilesRequested:
+   State<Boolean>, …)`, `menuGraph(canGoBack: State<Boolean>, onBack: () -> Unit,
+   openSettings: State<Boolean>, …)` (was `onBack: (() -> Unit)?`). Each destination's content
+   reads the State at composition time, so the ADR-033 / ADR-086 one-shots keep working with
+   the once-built graph. The shell derives them with `rememberUpdatedState` + `derivedStateOf`
+   (`pendingAppLink as? AppLink.Expenses`, `pendingShareInvoice && onboarded`, …); callbacks
+   that close over parameters go through `rememberUpdatedState` too
+   (`onAppLinkConsumedState.value()`), and the onboarding-complete landing reads
+   `visibleTabs` live from its State instead of the first-composition snapshot.
+3. **Holders stay the preferred mechanism** for cross-process one-shots (ADR-098's
+   `BookingDeepLinkHolder`): nothing here changes it, and the `State` parameters are the
+   stepping stone the backlog named for migrating `partyIdToOpen` / `openMasterlist` /
+   `openSettings` to holders if they ever need to survive the shell.
+
+**Test.** `app/src/test/.../ui/StableNavGraphTest` (Robolectric Compose): a shell mirroring
+`SamarohApp` (root NavHost with transitions, a tab destination hosting an inner
+`NavHostController` + ViewModel, a nested `navigation()` graph) ticks a shell value five
+times → the `feature` destination node is the SAME instance throughout, the host is composed
+once (one inner controller, one ViewModel), a `State` one-shot set afterwards is observed,
+and a Menu push/pop with a value change in between leaves the node identity intact. Measured
+with the plain `NavHost(startDestination) { … }` builder capturing the value: 5 ticks → 5
+distinct node instances (5 back-stack re-syncs). Note for the record: in this harness the
+re-sync alone did NOT re-create the host composable or its ViewModel (navigation-compose
+2.8.5 keeps the back-stack entry, so the entry-scoped ViewModelStore and the saveable inner
+controller survive); the ADR-098 field observation of a dropped ViewModel is therefore pinned
+here by the node-identity assertion, not by a host-recreation count.
+
+**Consequences.** Shell recompositions (sync badge, offline/signed-out banners, deep-link
+consumption, Menu push/pop) no longer touch the NavGraph at all. Any future shell input a
+feature graph must observe MUST be passed as a `State`/holder — a value captured by the
+builder is frozen at first composition (documented on `rememberStableNavGraph`). Web:
+nothing to mirror (no shell NavHost).

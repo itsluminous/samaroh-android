@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,6 +41,8 @@ private enum class InventoryScreen {
  * Masterlist screen live under one destination and swap via the contextual top-bar
  * toggle — mirroring the reference navigation pattern without leaving the tab.
  * Tapping a stock row pushes the per-item detail destination (transaction history).
+ * One-shot targets are [State]s read at composition time (ADR-099: the shell's root
+ * graph is built once).
  *
  * @param openMasterlist switches the toggle to the Masterlist screen (web App Link,
  *   ADR-033); consumed via [onMasterlistDeepLinkConsumed].
@@ -49,16 +52,18 @@ private enum class InventoryScreen {
  *   [onSharedPhotoConsumed].
  */
 fun NavGraphBuilder.inventoryGraph(
-    openMasterlist: Boolean = false,
+    openMasterlist: State<Boolean> = mutableStateOf(false),
     onMasterlistDeepLinkConsumed: () -> Unit = {},
-    sharedPhotoUri: Uri? = null,
+    sharedPhotoUri: State<Uri?> = mutableStateOf(null),
     onSharedPhotoConsumed: () -> Unit = {},
 ) {
     composable(INVENTORY_ROUTE) {
+        val masterlist by openMasterlist
+        val photoUri by sharedPhotoUri
         InventoryHost(
-            openMasterlist = openMasterlist || sharedPhotoUri != null,
+            openMasterlist = masterlist || photoUri != null,
             onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
-            sharedPhotoUri = sharedPhotoUri,
+            sharedPhotoUri = photoUri,
             onSharedPhotoConsumed = onSharedPhotoConsumed,
         )
     }
