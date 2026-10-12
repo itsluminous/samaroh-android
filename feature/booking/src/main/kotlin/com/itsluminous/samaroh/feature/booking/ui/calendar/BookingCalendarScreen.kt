@@ -59,7 +59,6 @@ import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.SamarohCard
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
-import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
@@ -252,26 +251,19 @@ fun BookingCalendarScreen(
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.semantics { heading() },
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(
-                            text =
-                                stringResource(
-                                    R.string.booking_summary_received,
-                                    if (canViewAmounts) AmountFormatter.format(state.receivedPaise) else AmountFormatter.MASKED,
-                                ),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = SamarohTheme.semanticColors.moneyIn,
-                        )
-                        Text(
-                            text =
-                                stringResource(
-                                    R.string.booking_summary_pending,
-                                    if (canViewAmounts) AmountFormatter.format(state.pendingPaise) else AmountFormatter.MASKED,
-                                ),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = SamarohTheme.semanticColors.moneyOut,
-                        )
-                    }
+                    // ADR-103: one line each, shrink-to-fit — never wraps the card taller.
+                    MonthSummaryRow(
+                        receivedText =
+                            stringResource(
+                                R.string.booking_summary_received,
+                                if (canViewAmounts) AmountFormatter.format(state.receivedPaise) else AmountFormatter.MASKED,
+                            ),
+                        pendingText =
+                            stringResource(
+                                R.string.booking_summary_pending,
+                                if (canViewAmounts) AmountFormatter.format(state.pendingPaise) else AmountFormatter.MASKED,
+                            ),
+                    )
                 }
 
                 // ★ In-app pending-confirmations card — the reliable reminder path (§4.1).

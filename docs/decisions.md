@@ -4478,3 +4478,24 @@ red + tentative → tomato with the outline; tentative only → none with the ou
 red + real sage → sage; status-agnostic choice; unknown keys rank after the palette and
 before the default; same-type pair shares the type default. Web: pills stay per-booking;
 the function is the rule if web ever paints a per-day colour.
+
+## ADR-103 — Booking tab month summary: two cells, one line each, shrink-to-fit (2026-10-12)
+
+**Context.** The Booking tab's summary card (`Received ₹X · Pending ₹Y`, §4.1) laid the two
+amounts out in a plain `Row` of wrapping `Text`s. With Hindi labels and lakh-scale amounts on
+a 360dp phone the pending text wrapped onto a second line (card grew taller) or was pushed
+past the card's edge.
+
+**Decision.** `ui/calendar/MonthSummaryRow(receivedText, pendingText)`: each cell takes half
+the row (`weight(1f)`) and renders with the design-system `AutoShrinkText` (ADR-091 money-cell
+convention): ONE line, font shrinks between the style size and
+`AUTO_SHRINK_MIN_FONT_SCALE` (0.6) to fit, ellipsis below the floor; colours unchanged
+(moneyIn / moneyOut). The strings (`booking.summary.received/pending`) and the
+`view_amounts` masking are untouched. The remaining width behaviour (narrow → smaller type,
+never a second line) matches the Expenses summary tiles.
+
+**Test.** `MonthSummaryRowTest` (Robolectric Compose): in a 240dp box with long Hindi
+label + 8-digit amounts both cells are displayed, each `TextLayoutResult.lineCount == 1`,
+the pending cell ends inside the box and starts after the received cell; widening to 800dp
+yields a cell no shorter than the narrow one (shrink, not wrap). `feature:booking` gains the
+Compose UI-test dependencies for unit tests.
