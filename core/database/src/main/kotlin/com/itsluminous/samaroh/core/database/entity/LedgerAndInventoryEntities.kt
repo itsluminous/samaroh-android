@@ -43,6 +43,8 @@ data class ExpenseEntity(
     @ColumnInfo(name = "created_at") val createdAt: Instant,
     @ColumnInfo(name = "updated_at") val updatedAt: Instant,
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
+    /** Linked event (ADR-101); nullable, additive (v14). */
+    @ColumnInfo(name = "booking_id") val bookingId: String? = null,
 )
 
 /**

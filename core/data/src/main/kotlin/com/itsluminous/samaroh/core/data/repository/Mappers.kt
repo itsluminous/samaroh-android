@@ -100,10 +100,23 @@ internal fun PartyEntity.toModel() = Party(id, businessId, name, phone, notes, c
 internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt, businessRelated)
 
 internal fun ExpenseEntity.toModel() =
-    Expense(id, businessId, partyId, direction, amountPaise, expenseDate, notes, createdBy, createdAt, updatedAt, deletedAt)
+    Expense(id, businessId, partyId, direction, amountPaise, expenseDate, notes, createdBy, createdAt, updatedAt, deletedAt, bookingId)
 
 internal fun Expense.toEntity() =
-    ExpenseEntity(id, businessId, partyId, direction, amountPaise, expenseDate, notes, createdBy, createdAt, updatedAt, deletedAt)
+    ExpenseEntity(
+        id,
+        businessId,
+        partyId,
+        direction,
+        amountPaise,
+        expenseDate,
+        notes,
+        createdBy,
+        createdAt,
+        updatedAt,
+        deletedAt,
+        bookingId,
+    )
 
 internal fun MasterItemEntity.toModel() = MasterItem(id, businessId, name, unit, imagePath, driveImageId, createdAt, updatedAt, deletedAt)
 

@@ -151,6 +151,11 @@ class FakeExpensesRepository : ExpensesRepository {
 
     override suspend fun deleteParty(id: String) = throw UnsupportedOperationException()
 
+    override suspend fun liveParty(
+        businessId: String,
+        name: String,
+    ): Party? = null
+
     override fun entriesForParty(partyId: String): Flow<List<Expense>> = MutableStateFlow(emptyList())
 
     override suspend fun saveExpense(expense: Expense) = throw UnsupportedOperationException()

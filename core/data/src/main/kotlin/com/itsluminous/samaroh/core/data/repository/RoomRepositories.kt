@@ -203,6 +203,11 @@ class RoomExpensesRepository
             outboxWriter.enqueue("parties", id, OutboxOperation.DELETE, tombstonePayload(id, now))
         }
 
+        override suspend fun liveParty(
+            businessId: String,
+            name: String,
+        ): Party? = partyDao.liveByExactName(businessId, name)?.toModel()
+
         override fun entriesForParty(partyId: String): Flow<List<Expense>> =
             expenseDao.entriesForParty(partyId).map { list -> list.map { it.toModel() } }
 

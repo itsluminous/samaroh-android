@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -14,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.itsluminous.samaroh.core.model.ExpenseDirection
+import com.itsluminous.samaroh.feature.expenses.addentry.ARG_BOOKING_ID
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_DIRECTION
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_EXPENSE_ID
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_FROM_SHARE
@@ -35,6 +37,15 @@ private const val ROUTE_ADD_ENTRY =
 
 /** Create-invoice share-target party picker (ADR-078). */
 private const val ROUTE_SHARE_PICK = "expenses/share_pick"
+
+/**
+ * Add-entry form opened FROM a booking card (ADR-101): no party in the route — the
+ * customer's party is resolved/created on save. The booking id is an argument so two
+ * requests for different bookings are distinct destinations (singleTop dedups by args).
+ */
+private const val ROUTE_ADD_BOOKING_ENTRY = "expenses/entry_for_booking/{$ARG_BOOKING_ID}"
+
+private fun addBookingEntryRoute(bookingId: String) = "expenses/entry_for_booking/$bookingId"
 
 private fun ledgerRoute(partyId: String) = "expenses/ledger/$partyId"
 
@@ -107,6 +118,17 @@ private fun ExpensesTabNavHost(
             onShareTargetConsumed()
         }
     }
+    // Record expense from a booking card (ADR-101): the draft waits in the core:data
+    // holder; the add-entry ViewModel consumes it once it has copied the fields into its
+    // saved state. Home stays underneath so Back/Save land on the party list.
+    val pendingBookingDraft by deepLinkViewModel.pendingBookingDraft.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingBookingDraft?.bookingId) {
+        val bookingId = pendingBookingDraft?.bookingId ?: return@LaunchedEffect
+        navController.navigate(addBookingEntryRoute(bookingId)) {
+            popUpTo(ROUTE_HOME)
+            launchSingleTop = true
+        }
+    }
     NavHost(
         navController = navController,
         startDestination = ROUTE_HOME,
@@ -159,6 +181,16 @@ private fun ExpensesTabNavHost(
         ) {
             AddEntryScreen(
                 onDone = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = ROUTE_ADD_BOOKING_ENTRY,
+            arguments = listOf(navArgument(ARG_BOOKING_ID) { type = NavType.StringType }),
+        ) {
+            AddEntryScreen(
+                // Saved: show the new row (with its event chip) on the resolved party's ledger.
+                onDone = { partyId -> navController.navigate(ledgerRoute(partyId)) { popUpTo(ROUTE_HOME) } },
                 onBack = { navController.popBackStack() },
             )
         }

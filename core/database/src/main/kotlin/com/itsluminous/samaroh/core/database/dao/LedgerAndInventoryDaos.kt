@@ -67,6 +67,22 @@ interface PartyDao {
         limit: Int = 10,
     ): List<PartyEntity>
 
+    /**
+     * The LIVE party whose trimmed, lower-cased name equals [name]'s (ADR-101 party
+     * resolution): tombstones never match; several matches → earliest `created_at`.
+     */
+    @Query(
+        """
+        SELECT * FROM parties
+        WHERE business_id = :businessId AND deleted_at IS NULL AND lower(trim(name)) = lower(trim(:name))
+        ORDER BY created_at ASC LIMIT 1
+        """,
+    )
+    suspend fun liveByExactName(
+        businessId: String,
+        name: String,
+    ): PartyEntity?
+
     @Query("UPDATE parties SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,

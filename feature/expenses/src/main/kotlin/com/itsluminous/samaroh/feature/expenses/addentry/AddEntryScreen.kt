@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -77,11 +78,16 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-/** Add-entry screen (§4.2): plain numeric amount, date (default today), notes, attachments. */
+/**
+ * Add-entry screen (§4.2): plain numeric amount, date (default today), notes, attachments.
+ *
+ * @param onDone the entry was saved; receives the party it belongs to (in the
+ *   record-from-booking mode, ADR-101, that party is only known after save).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddEntryScreen(
-    onDone: () -> Unit,
+    onDone: (partyId: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AddEntryViewModel = hiltViewModel(),
@@ -97,10 +103,19 @@ fun AddEntryScreen(
     val linkFailedText = stringResource(R.string.expenses_google_prompt_link_failed)
     val scope = rememberCoroutineScope()
 
+    // ADR-101: a booking-draft route with nothing to pre-fill (stale back stack) — leave.
+    LaunchedEffect(state.unusable) {
+        if (state.unusable) onBack()
+    }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
-                AddEntryEvent.Saved -> onDone()
+                is AddEntryEvent.Saved -> onDone(event.partyId)
+                // ADR-101 §2: blocking, nothing saved — the member cannot add the customer as a party.
+                is AddEntryEvent.PartyCreateForbidden ->
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.expenses_entry_party_create_forbidden, event.customerName),
+                    )
                 AddEntryEvent.AttachmentLimitReached -> snackbarHostState.showSnackbar(limitText)
                 AddEntryEvent.AttachmentFailed -> snackbarHostState.showSnackbar(failedText)
                 AddEntryEvent.AttachmentTooLarge -> snackbarHostState.showSnackbar(tooLargeText)
@@ -184,6 +199,15 @@ fun AddEntryScreen(
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Record-from-booking mode (ADR-101): the route carries no party, so name the
+                // customer the entry will be recorded against (resolved/created on save).
+                state.bookingCustomerName?.let { customer ->
+                    Text(
+                        text = customer,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.testTag("entry_booking_customer"),
+                    )
+                }
                 OutlinedTextField(
                     value = state.amountText,
                     onValueChange = viewModel::onAmountChange,

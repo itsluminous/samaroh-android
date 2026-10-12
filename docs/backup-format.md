@@ -143,6 +143,13 @@ mechanically mirror the canonical Postgres schema — keys are the **schema colu
 **Tombstones are included** (`deleted_at != null`) — a restore must preserve them so sync
 convergence and audit history survive the disaster.
 
+**Additive columns ride along automatically** — rows are `SELECT *` snapshots, so a column
+added by a later schema version appears in newer archives and is simply absent from older
+ones; a restore treats an absent column as `NULL`. Known case: `expenses.booking_id`
+(ADR-101 / shared migration 012, Room v14) — the event an expense was recorded against;
+older archives have no such key → unlinked. Load `bookings` before `expenses` (manifest
+order already does) so the FK (`on delete set null`) resolves.
+
 ## Restore procedure (manual, v1)
 
 1. Unzip; read `manifest.json`, check `format_version == 1`.

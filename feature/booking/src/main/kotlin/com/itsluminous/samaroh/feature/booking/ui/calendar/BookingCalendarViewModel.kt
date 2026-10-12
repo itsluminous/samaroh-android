@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.invoice.InvoiceGenerator
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
@@ -171,6 +173,7 @@ class BookingCalendarViewModel
         private val calendarPrefs: BookingCalendarPrefs,
         private val clock: Clock,
         private val deepLinks: BookingDeepLinkHolder,
+        private val expenseDrafts: BookingExpenseDraftHolder,
     ) : ViewModel() {
         private val month = MutableStateFlow(YearMonth.now(clock))
         private val selectedBookingId = MutableStateFlow<String?>(null)
@@ -519,6 +522,16 @@ class BookingCalendarViewModel
 
         fun dismissBookingCard() {
             selectedBookingId.value = null
+        }
+
+        /**
+         * Record expense (ADR-101): hands the pre-fill to the Expenses module through the
+         * core:data holder and closes the card. Nothing is written here — the party is
+         * resolved and the row inserted only when the user saves the add-entry form.
+         */
+        fun recordExpense(draft: BookingExpenseDraft) {
+            expenseDrafts.set(draft)
+            dismissBookingCard()
         }
 
         // ---- mutations ----

@@ -225,6 +225,12 @@ data class Expense(
     @SerialName("created_at") @Serializable(InstantSerializer::class) val createdAt: Instant,
     @SerialName("updated_at") @Serializable(InstantSerializer::class) val updatedAt: Instant,
     @SerialName("deleted_at") @Serializable(InstantSerializer::class) val deletedAt: Instant? = null,
+    /**
+     * The event (booking) this expense was recorded against, or null (ADR-101, shared
+     * migration 012). Navigation back-reference only — reports ignore it; the server FK
+     * is `on delete set null`. Defaulted so rows from pre-012 servers/backups decode.
+     */
+    @SerialName("booking_id") val bookingId: String? = null,
 )
 
 @Serializable

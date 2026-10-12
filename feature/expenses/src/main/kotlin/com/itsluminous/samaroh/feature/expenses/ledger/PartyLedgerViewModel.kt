@@ -6,13 +6,17 @@ import android.content.Intent
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.itsluminous.samaroh.core.data.navigation.BookingCardOpener
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
+import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
+import com.itsluminous.samaroh.core.i18n.EventTypeLabels
+import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentContentResolver
@@ -31,6 +35,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -42,12 +48,51 @@ import javax.inject.Inject
 /** Route argument name for the party id (shared by ledger and add-entry destinations). */
 const val ARG_PARTY_ID = "partyId"
 
+/**
+ * The event an entry was recorded against (ADR-101 §3), rendered as a small chip
+ * `Event: {label}`. [bookingId]/[businessId] are null when the booking is not resolvable
+ * locally (tombstoned / not pulled yet) and the label came from the notes fallback —
+ * such a chip is not tappable.
+ */
+data class EventChip(
+    /** The booking customer's first name (`BookingTitleFormatter.firstName` convention). */
+    val customerFirstName: String? = null,
+    /** The stored `bookings.event_type`; the UI localizes it (`EventTypeLabels`). */
+    val eventType: String? = null,
+    /** Notes-derived label when the booking is unresolvable: the first `·` segment of the notes. */
+    val fallbackLabel: String? = null,
+    val bookingId: String? = null,
+    val businessId: String? = null,
+) {
+    /** Tappable only when the booking resolved locally (ADR-101 §3). */
+    val resolvable: Boolean get() = bookingId != null && businessId != null
+
+    companion object {
+        /** `{eventType} · {dates}` / `{first name} · {event type}` separator (shared contract §1/§3). */
+        const val SEPARATOR = " · "
+
+        /**
+         * Fallback for an unresolvable booking: the notes' first segment IF they still have
+         * the `booking_notes_default` shape (`{eventType} · {dates}`), else null (no chip).
+         */
+        fun fallbackLabel(notes: String?): String? {
+            val text = notes?.trim().orEmpty()
+            if (!text.contains(SEPARATOR)) return null
+            return text.substringBefore(SEPARATOR).trim().ifEmpty { null }
+        }
+    }
+}
+
 data class PartyLedgerState(
     val party: Party? = null,
     /** Newest-first entries annotated with the balance after each (§4.2). */
     val rows: List<LedgerRow> = emptyList(),
     /** expenseId → its live attachments (thumbnails + pending badges). */
     val attachmentsByExpense: Map<String, List<AttachmentWithLocalState>> = emptyMap(),
+    /** expenseId → the event chip of entries recorded against a booking (ADR-101). */
+    val eventChips: Map<String, EventChip> = emptyMap(),
+    /** `booking.view` (ADR-101 §3): the chip opens the booking card only when true; shown regardless. */
+    val canOpenBookings: Boolean = true,
     /** Net balance = the newest row's balance-after (0 when no entries). */
     val netBalancePaise: Long = 0,
     /** Drives the PermissionGate around edit/delete (`expenses.edit`, owner-mode default). */
@@ -123,6 +168,8 @@ class PartyLedgerViewModel
         private val attachmentResolver: AttachmentContentResolver,
         private val attachmentDeleter: AttachmentDeleter,
         private val syncScheduler: SyncScheduler,
+        private val bookingRepository: BookingRepository,
+        private val bookingCardOpener: BookingCardOpener,
         private val clock: Clock,
     ) : ViewModel() {
         val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
@@ -152,23 +199,38 @@ class PartyLedgerViewModel
                 },
                 session.canViewAmounts,
                 googleAccountLinker.linkState,
-            ) { base, viewAmounts, link ->
-                base.copy(viewAmounts = viewAmounts, googleUnlinked = link is GoogleLinkState.NotLinked)
+                session.canViewBookings,
+            ) { base, viewAmounts, link, viewBookings ->
+                base.copy(viewAmounts = viewAmounts, googleUnlinked = link is GoogleLinkState.NotLinked, viewBookings = viewBookings)
             }
+
+        private val entries = expensesRepository.entriesForParty(partyId)
+
+        /**
+         * Event chips (ADR-101 §3), resolved per distinct `booking_id` whenever the entries
+         * change: live booking → `{first name} · {event type}`; unresolvable (tombstoned, not
+         * pulled) → the notes' first segment when they still have the default shape, else no
+         * chip. Never a bare id, never a crash.
+         */
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        private val eventChips: kotlinx.coroutines.flow.Flow<Map<String, EventChip>> =
+            entries.flatMapLatest { list -> flow { emit(resolveEventChips(list)) } }
 
         val state: StateFlow<PartyLedgerState> =
             combine(
                 partyRefresh.map { ledgerRepository.party(partyId) },
-                expensesRepository.entriesForParty(partyId),
+                combine(entries, eventChips) { list, chips -> list to chips },
                 ledgerRepository.attachmentsForParty(partyId),
                 gates,
                 session.businessName,
-            ) { party, entries, attachments, gate, businessName ->
+            ) { party, (entries, chips), attachments, gate, businessName ->
                 val rows = RunningBalanceCalculator.withRunningBalance(entries)
                 PartyLedgerState(
                     party = party,
                     rows = rows,
                     attachmentsByExpense = attachments.groupBy { it.attachment.expenseId },
+                    eventChips = chips,
+                    canOpenBookings = gate.viewBookings,
                     netBalancePaise = rows.firstOrNull()?.balanceAfterPaise ?: 0,
                     canEditEntries = gate.editEntries,
                     canCreateEntries = gate.createEntries,
@@ -191,7 +253,43 @@ class PartyLedgerViewModel
             val deleteParties: Boolean,
             val viewAmounts: Boolean = true,
             val googleUnlinked: Boolean = false,
+            val viewBookings: Boolean = true,
         )
+
+        private suspend fun resolveEventChips(entries: List<Expense>): Map<String, EventChip> {
+            val linked = entries.filter { it.bookingId != null }
+            if (linked.isEmpty()) return emptyMap()
+            val bookings =
+                linked
+                    .mapNotNull { it.bookingId }
+                    .distinct()
+                    .associateWith { id -> runCatching { bookingRepository.booking(id) }.getOrNull() }
+            return buildMap {
+                for (expense in linked) {
+                    val booking = bookings[expense.bookingId]?.takeIf { it.deletedAt == null }
+                    val chip =
+                        if (booking != null) {
+                            EventChip(
+                                customerFirstName = EventTypeLabels.customerFirstName(booking.customerName),
+                                eventType = booking.eventType,
+                                bookingId = booking.id,
+                                businessId = booking.businessId,
+                            )
+                        } else {
+                            EventChip.fallbackLabel(expense.notes)?.let { EventChip(fallbackLabel = it) }
+                        }
+                    if (chip != null) put(expense.id, chip)
+                }
+            }
+        }
+
+        /** Open the chip's booking card (ADR-098 route) — only for resolvable bookings and `booking.view` holders. */
+        fun openBooking(chip: EventChip) {
+            val bookingId = chip.bookingId ?: return
+            val businessId = chip.businessId ?: return
+            if (!state.value.canOpenBookings) return
+            bookingCardOpener.openBookingCard(bookingId, businessId)
+        }
 
         /**
          * Tombstone delete (§4.2), cascading to the entry's attachments (ADR-063): the

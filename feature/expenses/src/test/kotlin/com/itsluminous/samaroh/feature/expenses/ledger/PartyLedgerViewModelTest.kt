@@ -10,10 +10,12 @@ import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.testing.Fixtures
 import com.itsluminous.samaroh.core.testing.MainDispatcherRule
+import com.itsluminous.samaroh.feature.expenses.FakeBookingRepository
 import com.itsluminous.samaroh.feature.expenses.FakeDriveService
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesLedgerRepository
 import com.itsluminous.samaroh.feature.expenses.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.expenses.FakeGoogleAccountLinker
+import com.itsluminous.samaroh.feature.expenses.RecordingBookingCardOpener
 import com.itsluminous.samaroh.feature.expenses.RecordingSyncScheduler
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentContentResolver
 import com.itsluminous.samaroh.feature.expenses.fakeExpensesSession
@@ -40,6 +42,8 @@ class PartyLedgerViewModelTest {
     private lateinit var linker: FakeGoogleAccountLinker
     private lateinit var driveService: FakeDriveService
     private lateinit var syncScheduler: RecordingSyncScheduler
+    private lateinit var bookingRepository: FakeBookingRepository
+    private lateinit var bookingCardOpener: RecordingBookingCardOpener
 
     @Before
     fun setUp() {
@@ -48,6 +52,8 @@ class PartyLedgerViewModelTest {
         linker = FakeGoogleAccountLinker()
         driveService = FakeDriveService()
         syncScheduler = RecordingSyncScheduler()
+        bookingRepository = FakeBookingRepository()
+        bookingCardOpener = RecordingBookingCardOpener()
         expensesRepository.parties.value = listOf(party)
         ledgerRepository.parties.value = listOf(party)
     }
@@ -76,6 +82,8 @@ class PartyLedgerViewModelTest {
                     ioDispatcher = mainDispatcherRule.dispatcher,
                 ),
             syncScheduler = syncScheduler,
+            bookingRepository = bookingRepository,
+            bookingCardOpener = bookingCardOpener,
             clock = java.time.Clock.fixed(com.itsluminous.samaroh.core.testing.Fixtures.NOW, java.time.ZoneOffset.UTC),
         )
 
@@ -599,5 +607,106 @@ class PartyLedgerViewModelTest {
                 assertThat(awaitItem()).isEqualTo(PartyLedgerEvent.AttachmentDownloadFailed)
             }
             assertThat(viewModel.openingAttachmentId.value).isNull()
+        }
+
+    // ---- Event chips (ADR-101 §3) ----
+
+    private fun linkedExpense(
+        bookingId: String?,
+        notes: String? = null,
+    ) = Fixtures.expense(partyId = party.id).copy(bookingId = bookingId, notes = notes)
+
+    @Test
+    fun `entries recorded against a live booking carry a resolvable event chip`() =
+        runTest {
+            val booking = Fixtures.booking(id = "bk-1", eventType = "Lagan").copy(customerName = "Priya Sharma")
+            bookingRepository.bookings["bk-1"] = booking
+            val linked = linkedExpense("bk-1", notes = "Lagan · 10 Sep 2026")
+            val plain = linkedExpense(null, notes = "cement")
+            expensesRepository.expenses.value = listOf(linked, plain)
+            ledgerRepository.expenses.value = listOf(linked, plain)
+
+            viewModel().state.test {
+                val loaded = awaitItemMatching { it.loaded && it.eventChips.isNotEmpty() }
+                assertThat(loaded.eventChips.keys).containsExactly(linked.id)
+                val chip = loaded.eventChips.getValue(linked.id)
+                assertThat(chip.customerFirstName).isEqualTo("Priya")
+                assertThat(chip.eventType).isEqualTo("Lagan")
+                assertThat(chip.fallbackLabel).isNull()
+                assertThat(chip.resolvable).isTrue()
+                assertThat(chip.bookingId).isEqualTo("bk-1")
+                assertThat(chip.businessId).isEqualTo(booking.businessId)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `unresolvable booking falls back to the notes first segment or no chip`() =
+        runTest {
+            bookingRepository.bookings["bk-dead"] = Fixtures.booking(id = "bk-dead").copy(deletedAt = Fixtures.NOW)
+            val tombstoned = linkedExpense("bk-dead", notes = "Wedding · 10 Sep 2026")
+            val notPulled = linkedExpense("bk-missing", notes = "Wedding · 10 Sep 2026 · extra")
+            val bareNotes = linkedExpense("bk-missing", notes = "cement bags")
+            val noNotes = linkedExpense("bk-missing", notes = null)
+            val all = listOf(tombstoned, notPulled, bareNotes, noNotes)
+            expensesRepository.expenses.value = all
+            ledgerRepository.expenses.value = all
+
+            viewModel().state.test {
+                val loaded = awaitItemMatching { it.loaded && it.eventChips.isNotEmpty() }
+                assertThat(loaded.eventChips.keys).containsExactly(tombstoned.id, notPulled.id)
+                val dead = loaded.eventChips.getValue(tombstoned.id)
+                assertThat(dead.fallbackLabel).isEqualTo("Wedding")
+                assertThat(dead.resolvable).isFalse()
+                assertThat(loaded.eventChips.getValue(notPulled.id).fallbackLabel).isEqualTo("Wedding")
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `fallback label takes the first separator segment only when the notes have the default shape`() {
+        assertThat(EventChip.fallbackLabel("Wedding · 10 Sep 2026")).isEqualTo("Wedding")
+        assertThat(EventChip.fallbackLabel("  Wedding · 10–12 Sep 2026  ")).isEqualTo("Wedding")
+        assertThat(EventChip.fallbackLabel("cement bags")).isNull()
+        assertThat(EventChip.fallbackLabel(" · 10 Sep")).isNull()
+        assertThat(EventChip.fallbackLabel(null)).isNull()
+    }
+
+    @Test
+    fun `tapping a resolvable chip opens the booking card only with booking view`() =
+        runTest {
+            val resolvable = EventChip(customerFirstName = "Priya", eventType = "Lagan", bookingId = "bk-1", businessId = "biz-1")
+            val fallback = EventChip(fallbackLabel = "Wedding")
+
+            val owner = viewModel()
+            owner.state.test {
+                awaitItemMatching { it.loaded }
+                owner.openBooking(resolvable)
+                owner.openBooking(fallback) // not resolvable → nothing
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(bookingCardOpener.opened).containsExactly("bk-1" to "biz-1")
+
+            bookingCardOpener.opened.clear()
+            val noBookingView =
+                viewModel(
+                    fakeExpensesSession(
+                        userId = "member-1",
+                        isOwner = false,
+                        permissions =
+                            com.itsluminous.samaroh.core.model.MemberPermissions(
+                                expenses =
+                                    com.itsluminous.samaroh.core.model
+                                        .ExpensesPermissions(view = true),
+                            ),
+                    ),
+                )
+            noBookingView.state.test {
+                val loaded = awaitItemMatching { it.loaded }
+                assertThat(loaded.canOpenBookings).isFalse()
+                noBookingView.openBooking(resolvable)
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(bookingCardOpener.opened).isEmpty()
         }
 }

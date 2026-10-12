@@ -20,6 +20,12 @@ data class BookingActor(
     val displayName: String,
     val isOwner: Boolean,
     val permissions: BookingPermissions,
+    /**
+     * `expenses.create` (ADR-101): may this member record an expense against a booking
+     * from its card? Cross-module permission carried here so the card's visibility matrix
+     * stays a pure function of the actor. Owners bypass it like every other gate.
+     */
+    val canRecordExpense: Boolean = false,
 )
 
 /*
@@ -74,6 +80,7 @@ class OwnerBookingActorProvider
                         recordPayment = true,
                         generateInvoice = true,
                     ),
+                canRecordExpense = true,
             )
         }
     }
@@ -101,6 +108,7 @@ class SessionBookingActorProvider
                 displayName = member?.displayName ?: business.ownerName,
                 isOwner = false,
                 permissions = member?.permissions?.booking ?: BookingPermissions(view = true),
+                canRecordExpense = member?.permissions?.expenses?.create ?: false,
             )
         }
     }

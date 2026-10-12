@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.booking.ui.calendar
 
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPermissions
 import com.itsluminous.samaroh.core.model.BookingStatus
@@ -55,6 +56,7 @@ class BookingCalendarViewModelTest {
     private val invoiceGenerator = FakeInvoiceGenerator()
     private val calendarPrefs = FakeBookingCalendarPrefs()
     private val deepLinks = BookingDeepLinkHolder()
+    private val expenseDrafts = BookingExpenseDraftHolder()
 
     private fun viewModel(actorProvider: FakeActorProvider = FakeActorProvider()) =
         BookingCalendarViewModel(
@@ -69,6 +71,7 @@ class BookingCalendarViewModelTest {
             calendarPrefs = calendarPrefs,
             clock = clock,
             deepLinks = deepLinks,
+            expenseDrafts = expenseDrafts,
         )
 
     private fun pendingReminder(
@@ -915,6 +918,34 @@ class BookingCalendarViewModelTest {
                 ).isNull()
                 cancelAndIgnoreRemainingEvents()
             }
+        }
+
+    // ---- record expense from the card (ADR-101) ----
+
+    @Test
+    fun `record expense parks the draft in the holder and closes the card without writing`() =
+        runTest {
+            val booking = Fixtures.booking(id = "b-1", startDate = today)
+            repository.bookings.value = listOf(booking)
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-1")
+                assertThat(awaitItemMatching { it != null }?.booking?.id).isEqualTo("b-1")
+                val draft =
+                    com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft(
+                        bookingId = "b-1",
+                        businessId = booking.businessId,
+                        customerName = booking.customerName,
+                        customerPhone = null,
+                        defaultNotes = "Wedding · 10 Sep 2026",
+                    )
+                vm.recordExpense(draft)
+                assertThat(awaitItem()).isNull()
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(expenseDrafts.pending.value?.bookingId).isEqualTo("b-1")
+            assertThat(repository.bookings.value).containsExactly(booking) // nothing written here
         }
 
     // ---- reminder deep link (ADR-098): same card as a calendar tap, graceful fallbacks ----

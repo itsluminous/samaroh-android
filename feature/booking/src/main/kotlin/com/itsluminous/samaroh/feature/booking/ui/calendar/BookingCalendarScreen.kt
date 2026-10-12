@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
@@ -73,6 +74,7 @@ import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.currentLocale
 import com.itsluminous.samaroh.feature.booking.ui.eventTypeLabel
 import com.itsluminous.samaroh.feature.booking.ui.formatDate
+import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
 import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
 import com.itsluminous.samaroh.feature.booking.ui.formatMonthYear
 import java.time.LocalDate
@@ -136,6 +138,8 @@ fun BookingCalendarScreen(
     val canEdit = actor?.let { it.isOwner || it.permissions.edit } ?: false
     val canDelete = actor?.let { it.isOwner || it.permissions.delete } ?: false
     val canRecordPayment = actor?.let { it.isOwner || it.permissions.recordPayment } ?: false
+    // Record expense against the event (ADR-101): `expenses.create`, carried on the actor.
+    val canRecordExpense = actor?.let { it.isOwner || it.canRecordExpense } ?: false
     // Invoice needs booking.view_amounts too (an invoice IS the amounts, ADR-039).
     val canViewAmounts = actor?.let { it.isOwner || it.permissions.viewAmounts } ?: true
     val canInvoice = (actor?.let { it.isOwner || it.permissions.generateInvoice } ?: false) && canViewAmounts
@@ -483,6 +487,14 @@ fun BookingCalendarScreen(
     detail?.let { current ->
         // ★ Prefilled, localized WhatsApp payment-reminder text (§4.1) — resolved here in
         // composition so all placeholders are locale-correct.
+        // Record-expense notes pre-fill (ADR-101 / shared contract §1): the localized
+        // event-type label and the dates exactly as the card prints them.
+        val expenseNotesDefault =
+            stringResource(
+                R.string.expenses_entry_booking_notes_default,
+                eventTypeLabel(eventTypes, current.booking.eventType),
+                formatDateRange(current.booking.startDate, current.booking.endDate),
+            )
         val whatsappMessage =
             stringResource(
                 R.string.booking_whatsapp_reminder_text,
@@ -507,6 +519,7 @@ fun BookingCalendarScreen(
                     canDelete = canDelete,
                     canRecordPayment = canRecordPayment,
                     canInvoice = canInvoice,
+                    canRecordExpense = canRecordExpense,
                 ),
             canViewAmounts = canViewAmounts,
             onDismiss = viewModel::dismissBookingCard,
@@ -515,6 +528,22 @@ fun BookingCalendarScreen(
                 onEditBooking(current.booking.id)
             },
             onRecordPayment = { paymentSheet = Triple(current.booking.id, current.duePaise, null) },
+            // ADR-101: park the pre-fill in the core:data holder and close the card; the
+            // shell switches to the Expenses tab, whose host opens the add-entry form.
+            onRecordExpense = {
+                viewModel.recordExpense(
+                    BookingExpenseDraft(
+                        bookingId = current.booking.id,
+                        businessId = current.booking.businessId,
+                        customerName = current.booking.customerName,
+                        customerPhone =
+                            current.booking.customerPhone
+                                ?.trim()
+                                ?.ifEmpty { null },
+                        defaultNotes = expenseNotesDefault,
+                    ),
+                )
+            },
             onInvoicePdf = { viewModel.shareInvoicePdf(current.booking.id) },
             onInvoiceText = { viewModel.shareInvoiceText(current.booking.id) },
             onWhatsApp = { BookingShare.whatsAppReminder(context, whatsappMessage) },

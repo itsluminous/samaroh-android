@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CurrencyRupee
@@ -105,6 +106,7 @@ internal fun BookingCardSheet(
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onRecordPayment: () -> Unit,
+    onRecordExpense: () -> Unit,
     onInvoicePdf: () -> Unit,
     onInvoiceText: () -> Unit,
     onWhatsApp: () -> Unit,
@@ -262,6 +264,16 @@ internal fun BookingCardSheet(
                         icon = Icons.Filled.CurrencyRupee,
                         explanationRes = R.string.booking_card_action_record_payment,
                         onClick = onRecordPayment,
+                    )
+                }
+                // Record expense (ADR-101): beside Record payment; the Expenses-tab wallet
+                // glyph says where the tap lands. Hidden without `expenses.create`.
+                if (actions.showRecordExpense) {
+                    ExplainableIcon(
+                        icon = Icons.Filled.AccountBalanceWallet,
+                        explanationRes = R.string.booking_card_action_record_expense,
+                        onClick = onRecordExpense,
+                        modifier = Modifier.testTag("booking_card_record_expense"),
                     )
                 }
                 if (actions.showInvoice) {

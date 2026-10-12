@@ -5,8 +5,11 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
+import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
@@ -74,6 +77,7 @@ class AddEntryViewModelTest {
     private lateinit var driveService: FakeDriveService
     private lateinit var syncScheduler: RecordingSyncScheduler
     private lateinit var shareTargetHolder: ShareTargetHolder
+    private lateinit var bookingExpenseDrafts: BookingExpenseDraftHolder
 
     @Before
     fun setUp() {
@@ -85,6 +89,7 @@ class AddEntryViewModelTest {
         driveService = FakeDriveService()
         syncScheduler = RecordingSyncScheduler()
         shareTargetHolder = ShareTargetHolder()
+        bookingExpenseDrafts = BookingExpenseDraftHolder()
     }
 
     private fun viewModel(
@@ -116,8 +121,152 @@ class AddEntryViewModelTest {
         googleAccountLinker = linker,
         syncScheduler = syncScheduler,
         shareTargetHolder = shareTargetHolder,
+        bookingExpenseDrafts = bookingExpenseDrafts,
         clock = Clock.fixed(Fixtures.NOW, ZoneOffset.UTC),
     )
+
+    // ---- Record expense from a booking card (ADR-101) ----
+
+    private val draft =
+        BookingExpenseDraft(
+            bookingId = "booking-1",
+            businessId = Fixtures.BUSINESS_ID,
+            customerName = "Priya Sharma",
+            customerPhone = "9876543210",
+            defaultNotes = "Wedding · 10 Sep 2026",
+        )
+
+    private fun bookingViewModel(
+        savedState: Map<String, Any?> = mapOf(ARG_BOOKING_ID to draft.bookingId),
+        session: com.itsluminous.samaroh.feature.expenses.ExpensesSession = fakeExpensesSession(),
+    ) = AddEntryViewModel(
+        savedStateHandle = SavedStateHandle(savedState),
+        expensesRepository = expensesRepository,
+        ledgerRepository = ledgerRepository,
+        uploadQueue = uploadQueue,
+        compressor = AttachmentCompressor(context, ioDispatcher = mainDispatcherRule.dispatcher),
+        attachmentDeleter =
+            AttachmentDeleter(
+                ledgerRepository = ledgerRepository,
+                driveService = driveService,
+                googleAccountLinker = linker,
+                ioDispatcher = mainDispatcherRule.dispatcher,
+            ),
+        session = session,
+        googleAccountLinker = linker,
+        syncScheduler = syncScheduler,
+        shareTargetHolder = shareTargetHolder,
+        bookingExpenseDrafts = bookingExpenseDrafts,
+        clock = Clock.fixed(Fixtures.NOW, ZoneOffset.UTC),
+    )
+
+    /** A member who may create entries but not parties (no `manage_parties`). */
+    private fun creatorOnlySession() =
+        fakeExpensesSession(
+            userId = "member-1",
+            isOwner = false,
+            permissions =
+                com.itsluminous.samaroh.core.model.MemberPermissions(
+                    expenses =
+                        com.itsluminous.samaroh.core.model
+                            .ExpensesPermissions(view = true, create = true),
+                ),
+        )
+
+    @Test
+    fun `booking draft pre-fills You gave, the default notes and the customer, and is consumed`() {
+        bookingExpenseDrafts.set(draft)
+        val viewModel = bookingViewModel()
+        val state = viewModel.state.value
+        assertThat(state.direction).isEqualTo(ExpenseDirection.PAID)
+        assertThat(state.notes).isEqualTo("Wedding · 10 Sep 2026")
+        assertThat(state.bookingCustomerName).isEqualTo("Priya Sharma")
+        assertThat(state.amountText).isEmpty()
+        assertThat(state.unusable).isFalse()
+        assertThat(bookingExpenseDrafts.pending.value).isNull()
+        // Nothing is written on open (contract §1).
+        assertThat(expensesRepository.savedParties).isEmpty()
+        assertThat(expensesRepository.expenses.value).isEmpty()
+    }
+
+    @Test
+    fun `booking draft for another booking is left in the holder and the form is unusable`() {
+        bookingExpenseDrafts.set(draft.copy(bookingId = "booking-other"))
+        val viewModel = bookingViewModel()
+        assertThat(viewModel.state.value.unusable).isTrue()
+        assertThat(bookingExpenseDrafts.pending.value).isNotNull()
+    }
+
+    @Test
+    fun `save resolves the customer to an existing live party by normalized name and links the booking`() =
+        runTest {
+            val older = Fixtures.party(id = "p-older", name = "priya sharma ").copy(createdAt = Fixtures.NOW.minusSeconds(60))
+            val newer = Fixtures.party(id = "p-newer", name = "PRIYA SHARMA")
+            val dead = Fixtures.party(id = "p-dead", name = "Priya Sharma").copy(deletedAt = Fixtures.NOW)
+            expensesRepository.parties.value = listOf(newer, older, dead)
+            bookingExpenseDrafts.set(draft)
+            val viewModel = bookingViewModel(session = creatorOnlySession())
+            viewModel.events.test {
+                viewModel.onAmountChange("250")
+                viewModel.save()
+                assertThat(awaitItem()).isEqualTo(AddEntryEvent.Saved("p-older"))
+            }
+
+            val saved = expensesRepository.expenses.value.single()
+            assertThat(saved.partyId).isEqualTo("p-older") // earliest created_at among live matches
+            assertThat(saved.bookingId).isEqualTo("booking-1")
+            assertThat(saved.direction).isEqualTo(ExpenseDirection.PAID)
+            assertThat(saved.notes).isEqualTo("Wedding · 10 Sep 2026")
+            assertThat(expensesRepository.savedParties).isEmpty() // no create, no phone back-fill
+        }
+
+    @Test
+    fun `save creates the customer as a personal party when none exists and manage_parties is held`() =
+        runTest {
+            bookingExpenseDrafts.set(draft)
+            val viewModel = bookingViewModel() // owner
+            viewModel.onAmountChange("250")
+            viewModel.onNotesChange("")
+            viewModel.save()
+
+            val party = expensesRepository.savedParties.single()
+            assertThat(party.name).isEqualTo("Priya Sharma")
+            assertThat(party.phone).isEqualTo("9876543210")
+            assertThat(party.businessRelated).isFalse()
+            assertThat(party.notes).isNull()
+            val saved = expensesRepository.expenses.value.single()
+            assertThat(saved.partyId).isEqualTo(party.id)
+            assertThat(saved.bookingId).isEqualTo("booking-1")
+            assertThat(saved.notes).isNull() // the user cleared the default
+        }
+
+    @Test
+    fun `save is blocked when the party must be created but manage_parties is missing`() =
+        runTest {
+            bookingExpenseDrafts.set(draft)
+            val viewModel = bookingViewModel(session = creatorOnlySession())
+            viewModel.events.test {
+                viewModel.onAmountChange("250")
+                viewModel.save()
+                assertThat(awaitItem()).isEqualTo(AddEntryEvent.PartyCreateForbidden("Priya Sharma"))
+            }
+            assertThat(expensesRepository.savedParties).isEmpty()
+            assertThat(expensesRepository.expenses.value).isEmpty()
+            assertThat(viewModel.state.value.saving).isFalse()
+        }
+
+    @Test
+    fun `ordinary party route never carries a booking id`() =
+        runTest {
+            val viewModel = viewModel()
+            viewModel.onAmountChange("10")
+            viewModel.save()
+            assertThat(
+                expensesRepository.expenses.value
+                    .single()
+                    .bookingId,
+            ).isNull()
+        }
 
     @Test
     fun `defaults to today and the routed direction`() {

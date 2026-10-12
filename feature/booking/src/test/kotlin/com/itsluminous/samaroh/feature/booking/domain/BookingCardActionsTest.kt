@@ -16,7 +16,8 @@ class BookingCardActionsTest {
         canDelete: Boolean = true,
         canRecordPayment: Boolean = true,
         canInvoice: Boolean = true,
-    ) = BookingCardActions.forBooking(status, isMarker, canEdit, canDelete, canRecordPayment, canInvoice)
+        canRecordExpense: Boolean = true,
+    ) = BookingCardActions.forBooking(status, isMarker, canEdit, canDelete, canRecordPayment, canInvoice, canRecordExpense)
 
     private val activeStatuses = listOf(BookingStatus.TENTATIVE, BookingStatus.CONFIRMED, BookingStatus.COMPLETED)
 
@@ -26,12 +27,33 @@ class BookingCardActionsTest {
             val state = actions(status)
             assertThat(state.showEdit).isTrue()
             assertThat(state.showRecordPayment).isTrue()
+            assertThat(state.showRecordExpense).isTrue()
             assertThat(state.showInvoice).isTrue()
             assertThat(state.showWhatsAppReminder).isTrue()
             assertThat(state.showCancel).isTrue()
             assertThat(state.showRestore).isFalse()
             assertThat(state.showDelete).isFalse()
         }
+    }
+
+    // ADR-101 — Record expense: `expenses.create`, same marker/cancelled blackout as payment.
+    @Test
+    fun `record expense is gated on expenses create`() {
+        assertThat(actions(BookingStatus.CONFIRMED, canRecordExpense = false).showRecordExpense).isFalse()
+        assertThat(actions(BookingStatus.TENTATIVE, canRecordExpense = true).showRecordExpense).isTrue()
+    }
+
+    @Test
+    fun `record expense is independent of record payment`() {
+        val state = actions(BookingStatus.CONFIRMED, canRecordPayment = false, canRecordExpense = true)
+        assertThat(state.showRecordPayment).isFalse()
+        assertThat(state.showRecordExpense).isTrue()
+    }
+
+    @Test
+    fun `record expense is hidden on markers and cancelled bookings`() {
+        assertThat(actions(BookingStatus.CONFIRMED, isMarker = true).showRecordExpense).isFalse()
+        assertThat(actions(BookingStatus.CANCELLED).showRecordExpense).isFalse()
     }
 
     @Test
@@ -79,11 +101,13 @@ class BookingCardActionsTest {
                 canDelete = false,
                 canRecordPayment = false,
                 canInvoice = false,
+                canRecordExpense = false,
             )
         assertThat(state).isEqualTo(
             BookingCardActionState(
                 showEdit = false,
                 showRecordPayment = false,
+                showRecordExpense = false,
                 showInvoice = false,
                 showWhatsAppReminder = false,
                 showCancel = false,
@@ -117,6 +141,7 @@ class BookingCardActionsTest {
         assertThat(state.showEdit).isTrue()
         assertThat(state.showCancel).isTrue()
         assertThat(state.showRecordPayment).isFalse()
+        assertThat(state.showRecordExpense).isFalse()
         assertThat(state.showInvoice).isFalse()
         assertThat(state.showWhatsAppReminder).isFalse()
     }

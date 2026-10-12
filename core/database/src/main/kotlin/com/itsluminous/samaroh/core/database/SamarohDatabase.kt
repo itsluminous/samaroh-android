@@ -84,7 +84,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -422,6 +422,18 @@ abstract class SamarohDatabase : RoomDatabase() {
                     db.execSQL(
                         "CREATE INDEX IF NOT EXISTS index_folder_access_member_id ON folder_access (member_id)",
                     )
+                }
+            }
+
+        /**
+         * v13 → v14 (ADR-101): `expenses.booking_id` — the event an expense was recorded
+         * against (shared migration 012, FK `on delete set null` server-side). Nullable,
+         * additive; existing rows stay unlinked.
+         */
+        val MIGRATION_13_14: Migration =
+            object : Migration(13, 14) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE expenses ADD COLUMN booking_id TEXT")
                 }
             }
     }

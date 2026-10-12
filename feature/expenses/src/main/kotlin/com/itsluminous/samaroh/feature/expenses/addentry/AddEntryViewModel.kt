@@ -8,6 +8,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.itsluminous.samaroh.core.data.attachments.AttachmentUploadQueue
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.data.repository.ExpensesLedgerRepository
 import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
@@ -18,6 +20,7 @@ import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.ExpenseAttachment
 import com.itsluminous.samaroh.core.model.ExpenseDirection
+import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentDeleter
@@ -36,6 +39,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.math.BigDecimal
 import java.time.Clock
@@ -52,6 +56,18 @@ const val ARG_EXPENSE_ID = "expenseId"
 
 /** Optional route argument (ADR-078): pre-attach the Create-invoice shared file. */
 const val ARG_FROM_SHARE = "fromShare"
+
+/**
+ * Route argument of the record-expense-from-booking destination (ADR-101): the booking
+ * the pending [BookingExpenseDraft] is for. The route has NO party — see [AddEntryViewModel].
+ */
+const val ARG_BOOKING_ID = "bookingId"
+
+/** Saved-state key: the consumed [BookingExpenseDraft] (JSON) so recreation keeps the pre-fill. */
+private const val STATE_BOOKING_DRAFT = "bookingDraft"
+
+/** Saved-state key: the default notes were applied once (a recreated form keeps the user's text). */
+private const val STATE_NOTES_SEEDED = "bookingNotesSeeded"
 
 /** Attachments per entry are capped at 4 (§4.2). */
 const val MAX_ATTACHMENTS = 4
@@ -81,13 +97,26 @@ data class AddEntryState(
     val showGooglePrompt: Boolean = false,
     /** The prompt's Link button is running the account-picker/consent flow. */
     val linking: Boolean = false,
+    /**
+     * Record-expense-from-booking mode (ADR-101): the booking's customer the party will be
+     * resolved to (or created as) on save — shown on the form since the route has no party.
+     */
+    val bookingCustomerName: String? = null,
+    /**
+     * The booking-draft route was reached with NO draft to show (stale back stack after the
+     * holder was emptied elsewhere): the form cannot save anything — the screen leaves.
+     */
+    val unusable: Boolean = false,
 ) {
     /** Bills on the entry after Save: kept existing ones plus newly staged (the §4.2 cap counts both). */
     val attachmentCount: Int get() = existingAttachments.size + attachments.size
 }
 
 sealed interface AddEntryEvent {
-    data object Saved : AddEntryEvent
+    /** Saved; [partyId] is the entry's party (resolved/created on save in booking mode). */
+    data class Saved(
+        val partyId: String,
+    ) : AddEntryEvent
 
     data object AttachmentLimitReached : AddEntryEvent
 
@@ -98,6 +127,14 @@ sealed interface AddEntryEvent {
 
     /** The link-Google flow launched from the prompt failed (not a cancel). */
     data object GoogleLinkFailed : AddEntryEvent
+
+    /**
+     * ADR-101 §2: the booking customer has no live party and this member lacks
+     * `expenses.manage_parties` — nothing was written; the screen shows the blocking message.
+     */
+    data class PartyCreateForbidden(
+        val customerName: String,
+    ) : AddEntryEvent
 }
 
 @HiltViewModel
@@ -114,10 +151,35 @@ class AddEntryViewModel
         private val googleAccountLinker: GoogleAccountLinker,
         private val syncScheduler: SyncScheduler,
         private val shareTargetHolder: ShareTargetHolder,
+        private val bookingExpenseDrafts: BookingExpenseDraftHolder,
         private val clock: Clock,
     ) : ViewModel() {
-        val partyId: String = checkNotNull(savedStateHandle[ARG_PARTY_ID])
-        private val direction = ExpenseDirection.fromWire(checkNotNull(savedStateHandle[ARG_DIRECTION]))
+        /**
+         * Record-expense-from-booking pre-fill (ADR-101). Taken from the holder on first
+         * creation (and consumed there), then kept in saved state so recreation does not
+         * depend on the holder. Null on the ordinary party routes.
+         */
+        private val bookingDraft: BookingExpenseDraft? =
+            savedStateHandle.get<String>(ARG_BOOKING_ID)?.let { bookingId ->
+                savedStateHandle.get<String>(STATE_BOOKING_DRAFT)?.let { Json.decodeFromString<BookingExpenseDraft>(it) }
+                    ?: bookingExpenseDrafts.pending.value
+                        ?.takeIf { it.bookingId == bookingId }
+                        ?.also { draft ->
+                            savedStateHandle[STATE_BOOKING_DRAFT] = Json.encodeToString(BookingExpenseDraft.serializer(), draft)
+                            bookingExpenseDrafts.consume(draft)
+                        }
+            }
+
+        /** The route's party, or null in booking mode (the party is resolved on save). */
+        private val routePartyId: String? = savedStateHandle[ARG_PARTY_ID]
+
+        /** Party of the entry being EDITED / added to; booking mode has none until save. */
+        private val partyId: String
+            get() = checkNotNull(routePartyId) { "party route argument" }
+
+        /** Booking mode defaults to "You gave" (contract §1); the party routes carry it. */
+        private val direction =
+            savedStateHandle.get<String>(ARG_DIRECTION)?.let(ExpenseDirection::fromWire) ?: ExpenseDirection.PAID
 
         /** Non-null when editing an existing entry (gated by `expenses.edit`, §4.2). */
         private val editingExpenseId: String? = savedStateHandle.get<String>(ARG_EXPENSE_ID)?.ifEmpty { null }
@@ -126,13 +188,26 @@ class AddEntryViewModel
         /** Existing attachments the user removed in this edit session; tombstoned on Save (ADR-084). */
         private val removedAttachments = mutableListOf<AttachmentWithLocalState>()
 
+        /** Party the saved entry belongs to (booking mode resolves it on save); for the deferred Saved events. */
+        private var savedPartyId: String? = null
+
         private val _state =
             MutableStateFlow(
-                AddEntryState(direction = direction, date = LocalDate.now(clock.withZone(ZoneId.systemDefault()))),
+                AddEntryState(
+                    direction = direction,
+                    date = LocalDate.now(clock.withZone(ZoneId.systemDefault())),
+                    // Booking mode: notes pre-filled by the Booking side ("{eventType} · {dates}",
+                    // already localized); the user may edit or clear them. Only on FIRST
+                    // creation — a recreated ViewModel restores whatever the user typed.
+                    notes = bookingDraft?.defaultNotes.takeIf { savedStateHandle.get<Boolean>(STATE_NOTES_SEEDED) != true }.orEmpty(),
+                    bookingCustomerName = bookingDraft?.customerName,
+                    unusable = routePartyId == null && bookingDraft == null,
+                ),
             )
         val state: StateFlow<AddEntryState> = _state.asStateFlow()
 
         init {
+            if (bookingDraft != null) savedStateHandle[STATE_NOTES_SEEDED] = true
             editingExpenseId?.let { id ->
                 viewModelScope.launch {
                     val existing = expensesRepository.entriesForParty(partyId).first().find { it.id == id } ?: return@launch
@@ -265,6 +340,17 @@ class AddEntryViewModel
                 _state.update { it.copy(saving = true) }
                 val now = clock.instant()
                 val businessId = session.businessId()
+                // Booking mode (ADR-101 §2): resolve the customer's party NOW, in order —
+                // live name match (earliest created_at) → create (needs manage_parties).
+                val partyId =
+                    if (bookingDraft != null) {
+                        resolveBookingParty(bookingDraft, businessId, now) ?: run {
+                            _state.update { it.copy(saving = false) }
+                            return@launch
+                        }
+                    } else {
+                        partyId
+                    }
                 val expense =
                     editingExpense?.copy(
                         direction = current.direction,
@@ -283,8 +369,10 @@ class AddEntryViewModel
                         createdBy = session.userId(),
                         createdAt = now,
                         updatedAt = now,
+                        bookingId = bookingDraft?.bookingId,
                     )
                 expensesRepository.saveExpense(expense)
+                savedPartyId = expense.partyId
                 // Deferred removals (ADR-084): the same cascade as the viewer delete
                 // (ADR-053) — row tombstone + outbox DELETE, cache file, best-effort Drive
                 // delete — so every device converges via the tombstone pull leg.
@@ -307,15 +395,47 @@ class AddEntryViewModel
                 if (current.attachments.isNotEmpty() && linkState.value is GoogleLinkState.NotLinked) {
                     _state.update { it.copy(saving = false, showGooglePrompt = true) }
                 } else {
-                    _events.emit(AddEntryEvent.Saved)
+                    _events.emit(AddEntryEvent.Saved(expense.partyId))
                 }
             }
+        }
+
+        /**
+         * ADR-101 §2 party resolution. Returns the party id to record against, or null when
+         * the party would have to be created and this member may not (`expenses.manage_parties`,
+         * RLS `parties_insert`) — the blocking message is emitted and NOTHING is written.
+         * A created party is `{name = customer (trimmed), phone, business_related = false}`;
+         * an existing party's phone is never back-filled.
+         */
+        private suspend fun resolveBookingParty(
+            draft: BookingExpenseDraft,
+            businessId: String,
+            now: java.time.Instant,
+        ): String? {
+            val name = draft.customerName.trim()
+            expensesRepository.liveParty(businessId, name)?.let { return it.id }
+            if (!session.canCreateParties.first()) {
+                _events.emit(AddEntryEvent.PartyCreateForbidden(name))
+                return null
+            }
+            val party =
+                Party(
+                    id = UUID.randomUUID().toString(),
+                    businessId = businessId,
+                    name = name,
+                    phone = draft.customerPhone?.trim()?.ifEmpty { null },
+                    createdAt = now,
+                    updatedAt = now,
+                    businessRelated = false,
+                )
+            expensesRepository.saveParty(party)
+            return party.id
         }
 
         /** "Later" on the Google prompt — attachments stay local-pending; finish the flow. */
         fun dismissGooglePrompt() {
             _state.update { it.copy(showGooglePrompt = false) }
-            _events.tryEmit(AddEntryEvent.Saved)
+            _events.tryEmit(AddEntryEvent.Saved(savedPartyId ?: partyId))
         }
 
         /**
@@ -350,7 +470,7 @@ class AddEntryViewModel
             // nudge is all the uploads need (queue contract, ADR-018).
             syncScheduler.requestImmediateSync()
             _state.update { it.copy(showGooglePrompt = false, linking = false) }
-            _events.tryEmit(AddEntryEvent.Saved)
+            _events.tryEmit(AddEntryEvent.Saved(savedPartyId ?: partyId))
         }
 
         private fun handleLinkFailure(error: Throwable) {

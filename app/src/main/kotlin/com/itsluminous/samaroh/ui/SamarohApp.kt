@@ -70,6 +70,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.applink.AppLink
+import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
 import com.itsluminous.samaroh.core.data.share.ShareAction
 import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.data.share.ShareRouting
@@ -233,6 +234,26 @@ fun SamarohApp(
             bookingDeepLinks.consume(link)
         } else if (!onBooking) {
             navController.navigate(BOOKING_ROUTE) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
+    // Record expense from a booking card (ADR-101): switch to the Expenses tab; its host
+    // opens the add-entry form from the holder. No Expenses tab (no `expenses.view`) → the
+    // request is dropped here, nothing expenses-related shows (§3 gate, hide-not-grey).
+    val bookingExpenseDrafts = remember(activityContext) { ShellEntryPoints.of(activityContext).bookingExpenseDrafts() }
+    val pendingExpenseDraft by bookingExpenseDrafts.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingExpenseDraft, onboarded, visibleTabs) {
+        val draft = pendingExpenseDraft ?: return@LaunchedEffect
+        if (!onboarded) return@LaunchedEffect
+        val onExpenses = navController.currentDestination?.hierarchy?.any { it.route == EXPENSES_ROUTE } == true
+        if (EXPENSES_ROUTE !in visibleTabs) {
+            bookingExpenseDrafts.consume(draft)
+        } else if (!onExpenses) {
+            navController.navigate(EXPENSES_ROUTE) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                 launchSingleTop = true
                 restoreState = true
@@ -693,6 +714,9 @@ interface ShellEntryPoints {
 
     /** Pending reminder deep link (ADR-098). */
     fun bookingDeepLinks(): BookingDeepLinkHolder
+
+    /** Pending record-expense-from-booking draft (ADR-101). */
+    fun bookingExpenseDrafts(): BookingExpenseDraftHolder
 
     companion object {
         fun of(context: android.content.Context): ShellEntryPoints =

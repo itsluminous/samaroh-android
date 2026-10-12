@@ -4371,3 +4371,82 @@ event block and before the payment table, payment notes untouched, no emoji; bla
 no block; long notes complete), `InvoiceTextBuilderTest` (display number, `Notes:` line
 placement, omitted when blank), `GcalDescriptionLocalizedTest` (display form + prefix in
 fingerprint).
+
+## ADR-101 — Expense against an event: `expenses.booking_id`, "Record expense" on the card, the ledger's event chip (2026-10-12)
+
+**Context.** Owners pay for an event's extras (flowers, DJ, extra staff) and want that spend
+tied to the booking without a second bookkeeping system. Shared contract
+`shared/docs/expense-against-event.md` (schema `012_expense_booking_link.sql`:
+`expenses.booking_id uuid null references bookings(id) on delete set null`); both apps
+implement it identically. The server column must exist before this build ships (PGRST204
+otherwise — the owner applies 012 first).
+
+**Decision (Android half).**
+1. **Contract extensions (frozen modules, ADR-001 process, all additive).** `core:model
+   Expense.bookingId: String? = null` (`@SerialName("booking_id")`, defaulted so pre-012
+   servers and older backups decode). `core:database` v13 → v14 `MIGRATION_13_14`
+   (`ALTER TABLE expenses ADD COLUMN booking_id TEXT`), `ExpenseEntity.bookingId`, new
+   `PartyDao.liveByExactName(businessId, name)` (`lower(trim(name))` equality, live rows
+   only, earliest `created_at`). `core:data ExpensesRepository.liveParty(businessId, name)`.
+   Sync: the `expenses` `SyncTableSpec` has no column list (pulls `*`, pushes the serialized
+   model), so the column crosses the wire with no engine change; `LocalApplier` decodes the
+   model. Backup: `BackupExporter` is `SELECT *` per table, so `booking_id` is exported
+   automatically; restore treats an absent key as null (`docs/backup-format.md`).
+2. **Entry point.** `BookingCardActionState.showRecordExpense` =
+   `canRecordExpense && !isMarker && !cancelled`, rendered beside Record payment with the
+   Expenses-tab wallet glyph (`booking.card.action_record_expense`). `canRecordExpense` is
+   `expenses.create` carried on `BookingActor` (owners true; `SessionBookingActorProvider`
+   reads `member.permissions.expenses.create`) — the permission schema has no
+   `expenses.add`. Hidden, never greyed (ADR-038).
+3. **Cross-module seam in `core:data` (`navigation/BookingExpenseDraft.kt`).** Feature
+   modules never depend on each other, so: `BookingExpenseDraft(bookingId, businessId,
+   customerName, customerPhone, defaultNotes)` + singleton `BookingExpenseDraftHolder`
+   (ADR-098/099 holder pattern — set by the Booking card via
+   `BookingCalendarViewModel.recordExpense`, watched by the shell to switch to the Expenses
+   tab (dropped when the member has no Expenses tab), navigated by the Expenses tab host to
+   the new nested route `expenses/entry_for_booking/{bookingId}`, consumed by
+   `AddEntryViewModel` which copies it into `SavedStateHandle` so recreation keeps the
+   pre-fill). `defaultNotes` is built on the Booking side in composition
+   (`expenses.entry.booking_notes_default` = `{eventType} · {dates}` with the card's own
+   `eventTypeLabel` + `formatDateRange`) — the one place with both the localized label and
+   the card's date formatting. The reverse direction, the chip tap, goes through the
+   `BookingCardOpener` interface, bound in the app (`di/NavigationBridgeModule`) to the
+   ADR-098 `BookingDeepLinkHolder`, so it lands exactly where a reminder tap lands.
+4. **Form behaviour (contract §1/§2).** Direction `paid` (title "You gave"), amount empty,
+   date today, notes pre-filled (editable/clearable; seeded once), attachments none; the
+   customer name is shown as a plain line since the route has no party. On SAVE, in order:
+   `liveParty(businessId, trim(customer_name))` (case/whitespace-insensitive, tombstones
+   never match, earliest `created_at`) → else create `Party{name = trimmed customer, phone =
+   customer_phone or null, business_related = false}` which needs strict
+   `expenses.manage_parties` (`ExpensesSession.canCreateParties`, RLS `parties_insert`; NOT
+   the ADR-028 `edit || manage_parties` edit gate) — missing → snackbar
+   `expenses.entry.party_create_forbidden`, nothing written. Phone is never back-filled.
+   One `expenses` row through the normal write path (Room + outbox); `AddEntryEvent.Saved`
+   now carries the party id and the booking route lands on that party's ledger (new row and
+   chip visible). The ordinary party routes are unchanged (`bookingId = null`).
+5. **Rendering (contract §3).** `PartyLedgerViewModel` resolves one `EventChip` per linked
+   entry from `BookingRepository.booking(id)`: live booking → `{first name} · {event type}`
+   (`core:i18n EventTypeLabels`, new public helper mirroring `core:invoice`'s private table,
+   localizes legacy built-in keys; preset labels pass through); tombstoned / not pulled →
+   the notes' first `·` segment when they still have the default shape, else no chip; never a
+   bare id. Rendered as an `AssistChip` (`expenses.ledger.event_chip` = `Event: {label}`,
+   `labelSmall`) under the notes — content, not `MetadataText`. Tap opens the card only with
+   `booking.view` (`ExpensesSession.canViewBookings`) and a resolvable booking; otherwise the
+   chip is plain content (shown, never greyed). Amount masking unchanged. Reports unchanged
+   (`booking_id` is a back-reference only); the booking card does not list its expenses.
+
+**Tests.** `ExpenseBookingLinkMigrationTest` (13→14, existing rows null, new rows linked),
+`LiveNameSteeringDaoTest.liveByExactName` (case/whitespace, tombstone excluded, earliest
+first, business-scoped), `BookingCardActionsTest` (gate, independence from record_payment,
+marker/cancelled blackout), `BookingCalendarViewModelTest.recordExpense` (holder set, card
+closed, nothing written), `AddEntryViewModelTest` booking mode (pre-fill + consume; foreign
+draft → unusable; existing live party by normalized name → linked, no create; no party +
+manage_parties → personal party created with phone; no party − manage_parties → blocked,
+nothing written; ordinary route never links), `PartyLedgerViewModelTest` (resolvable chip
+fields; tombstoned/missing → notes fallback or omitted; `fallbackLabel` shapes; tap opens via
+`BookingCardOpener` only with `booking.view` and a resolvable booking).
+
+**Consequences.** `AddEntryScreen.onDone` now receives the party id; `BookingCardSheet` gains
+`onRecordExpense`; `BookingCalendarViewModel`, `AddEntryViewModel`, `PartyLedgerViewModel`
+and `ExpensesDeepLinkViewModel` gain constructor dependencies (tests updated). Web mirrors
+the contract on its own ("Record expense" in the booking detail dialog, chip in the ledger).

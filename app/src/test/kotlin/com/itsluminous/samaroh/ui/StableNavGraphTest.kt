@@ -62,13 +62,15 @@ class StableNavGraphTest {
     ) {
         val inner = rememberNavController()
         val vm: HostViewModel = viewModel()
-        // One slot per host instance: `remember` runs again only when the host is re-created.
-        remember {
-            probe.creations++
-            probe.controllers.add(System.identityHashCode(inner))
-            probe.viewModels.add(System.identityHashCode(vm))
-            Unit
-        }
+        // One slot per host instance: `remember` runs again only when the host is re-created
+        // (the remembered value is the creation ordinal — lint forbids remembering Unit).
+        val creation =
+            remember {
+                probe.controllers.add(System.identityHashCode(inner))
+                probe.viewModels.add(System.identityHashCode(vm))
+                ++probe.creations
+            }
+        check(creation > 0)
         probe.lastTarget = target.value
         NavHost(navController = inner, startDestination = "inner") {
             composable("inner") { Text("inner ${probe.creations}") }

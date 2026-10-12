@@ -143,6 +143,7 @@ internal fun Expense.toEntity() =
         createdAt,
         updatedAt,
         deletedAt,
+        bookingId,
     )
 
 internal fun ExpenseAttachment.toEntity(

@@ -11,6 +11,8 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 data class BookingCardActionState(
     val showEdit: Boolean,
     val showRecordPayment: Boolean,
+    /** Record expense (ADR-101): `expenses.create`, same marker/cancelled blackout as payments. */
+    val showRecordExpense: Boolean = false,
     val showInvoice: Boolean,
     val showWhatsAppReminder: Boolean,
     val showCancel: Boolean,
@@ -34,11 +36,13 @@ object BookingCardActions {
         canDelete: Boolean,
         canRecordPayment: Boolean,
         canInvoice: Boolean,
+        canRecordExpense: Boolean = false,
     ): BookingCardActionState {
         val cancelled = status == BookingStatus.CANCELLED
         return BookingCardActionState(
             showEdit = canEdit && !cancelled,
             showRecordPayment = canRecordPayment && !isMarker && !cancelled,
+            showRecordExpense = canRecordExpense && !isMarker && !cancelled,
             showInvoice = canInvoice && !isMarker && !cancelled,
             showWhatsAppReminder = !isMarker && !cancelled,
             showCancel = canDelete && !cancelled,

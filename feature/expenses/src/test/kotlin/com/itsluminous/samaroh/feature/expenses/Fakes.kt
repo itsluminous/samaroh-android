@@ -49,6 +49,14 @@ class FakeExpensesRepository : ExpensesRepository {
         parties.value = parties.value.filter { it.id != id }
     }
 
+    override suspend fun liveParty(
+        businessId: String,
+        name: String,
+    ): Party? =
+        parties.value
+            .filter { it.deletedAt == null && it.name.trim().lowercase() == name.trim().lowercase() }
+            .minByOrNull { it.createdAt }
+
     override fun entriesForParty(partyId: String): Flow<List<Expense>> =
         expenses.map { list ->
             list
@@ -323,4 +331,93 @@ class RecordingSyncScheduler : com.itsluminous.samaroh.core.data.sync.SyncSchedu
     }
 
     override fun ensurePeriodicSync() = Unit
+}
+
+/**
+ * Minimal booking lookup for the ledger's event chips (ADR-101): only [booking] is real;
+ * everything else is unreachable from the Expenses module and throws.
+ */
+class FakeBookingRepository : com.itsluminous.samaroh.core.data.repository.BookingRepository {
+    val bookings = mutableMapOf<String, com.itsluminous.samaroh.core.model.Booking>()
+
+    override suspend fun booking(id: String): com.itsluminous.samaroh.core.model.Booking? = bookings[id]
+
+    override fun bookingsBetween(
+        businessId: String,
+        from: java.time.LocalDate,
+        to: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override suspend fun bookingDateBounds(businessId: String) = throw UnsupportedOperationException()
+
+    override suspend fun saveBooking(booking: com.itsluminous.samaroh.core.model.Booking) = throw UnsupportedOperationException()
+
+    override suspend fun deleteBooking(id: String) = throw UnsupportedOperationException()
+
+    override suspend fun countBookingsOn(
+        businessId: String,
+        date: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override fun paymentsForBooking(bookingId: String) = throw UnsupportedOperationException()
+
+    override fun paymentsForBookings(bookingIds: List<String>) = throw UnsupportedOperationException()
+
+    override suspend fun recordPayment(payment: com.itsluminous.samaroh.core.model.BookingPayment) = throw UnsupportedOperationException()
+
+    override suspend fun totalPaidPaise(bookingId: String) = throw UnsupportedOperationException()
+
+    override fun dateBlocksBetween(
+        businessId: String,
+        from: java.time.LocalDate,
+        to: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override suspend fun saveDateBlock(block: com.itsluminous.samaroh.core.model.DateBlock) = throw UnsupportedOperationException()
+
+    override suspend fun deleteDateBlock(id: String) = throw UnsupportedOperationException()
+
+    override fun duePendingReminders(
+        businessId: String,
+        onOrBefore: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override suspend fun duePendingRemindersOnce(
+        businessId: String,
+        onOrBefore: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override suspend fun remindersForBooking(bookingId: String) = throw UnsupportedOperationException()
+
+    override suspend fun reminder(id: String) = throw UnsupportedOperationException()
+
+    override suspend fun saveReminder(reminder: com.itsluminous.samaroh.core.model.PaymentReminder) = throw UnsupportedOperationException()
+
+    override suspend fun bookingsEndedBefore(
+        businessId: String,
+        date: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override suspend fun bookingsStartingOn(
+        businessId: String,
+        date: java.time.LocalDate,
+    ) = throw UnsupportedOperationException()
+
+    override suspend fun invoiceNumberExists(
+        businessId: String,
+        invoiceNumber: String,
+        excludingBookingId: String?,
+    ) = throw UnsupportedOperationException()
+}
+
+/** Records "open this booking's card" requests (ADR-101 §3 chip tap). */
+class RecordingBookingCardOpener : com.itsluminous.samaroh.core.data.navigation.BookingCardOpener {
+    val opened = mutableListOf<Pair<String, String>>()
+
+    override fun openBookingCard(
+        bookingId: String,
+        businessId: String,
+    ) {
+        opened += bookingId to businessId
+    }
 }

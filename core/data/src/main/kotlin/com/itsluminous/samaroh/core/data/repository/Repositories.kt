@@ -141,6 +141,15 @@ interface ExpensesRepository {
 
     suspend fun deleteParty(id: String)
 
+    /**
+     * The live party whose normalized name (trim + lower) equals [name]'s, earliest
+     * `created_at` first; null when none (ADR-101 — resolving a booking's customer).
+     */
+    suspend fun liveParty(
+        businessId: String,
+        name: String,
+    ): Party?
+
     fun entriesForParty(partyId: String): Flow<List<Expense>>
 
     suspend fun saveExpense(expense: Expense)

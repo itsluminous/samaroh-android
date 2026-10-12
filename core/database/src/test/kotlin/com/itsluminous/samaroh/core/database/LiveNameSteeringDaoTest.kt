@@ -107,6 +107,21 @@ class LiveNameSteeringDaoTest {
         }
 
     @Test
+    fun `liveByExactName matches live parties case- and whitespace-insensitively, earliest first`() =
+        runTest {
+            val dao = db.partyDao()
+            dao.upsert(party("p-dead", "Priya Sharma", deletedAt = t1))
+            dao.upsert(party("p-newer", "PRIYA SHARMA").copy(createdAt = t2, updatedAt = t2))
+            dao.upsert(party("p-older", " priya sharma ").copy(createdAt = t1, updatedAt = t1))
+            dao.upsert(party("p-other", "Priya Sharmaa"))
+
+            // ADR-101 §2: tombstones never match; several live matches → earliest created_at.
+            assertThat(dao.liveByExactName(TEST_BUSINESS_ID, "  Priya SHARMA")?.id).isEqualTo("p-older")
+            assertThat(dao.liveByExactName(TEST_BUSINESS_ID, "Nobody")).isNull()
+            assertThat(dao.liveByExactName("other-business", "Priya Sharma")).isNull()
+        }
+
+    @Test
     fun `master items steering source hides the tombstoned twin and shows only the live re-creation`() =
         runTest {
             val dao = db.masterItemDao()

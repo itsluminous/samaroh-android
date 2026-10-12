@@ -70,6 +70,17 @@ class ExpensesSession
         val canViewAmounts: Flow<Boolean> = permissionGate { it.expenses.viewAmounts }
 
         /**
+         * Strict `expenses.manage_parties` (ADR-101 §2, RLS `parties_insert`): creating the
+         * booking customer's party while recording an expense from a booking. Deliberately
+         * NOT [canManageParties] (which also accepts `edit`, ADR-028) — the server would
+         * reject the insert.
+         */
+        val canCreateParties: Flow<Boolean> = permissionGate { it.expenses.manageParties }
+
+        /** `booking.view` (ADR-101 §3): the ledger's event chip is tappable only for members who can see the card. */
+        val canViewBookings: Flow<Boolean> = permissionGate { it.booking.view }
+
+        /**
          * Owners always pass [allowed]; signed-out/offline keeps the historical
          * owner-mode default (true).
          */
