@@ -135,7 +135,7 @@ data class ReportDetailUiState(
     val type: ReportType,
     val loading: Boolean = true,
     val allowed: Boolean = false,
-    val preset: RangePreset = RangePreset.LAST_12_MONTHS,
+    val preset: RangePreset = RangePreset.DEFAULT,
     val range: ReportDateRange,
     val data: ReportData? = null,
 )
@@ -167,7 +167,7 @@ class ReportDetailViewModel
 
         private val rangeSelection =
             MutableStateFlow(
-                RangeSelection(RangePreset.LAST_12_MONTHS, DateRanges.forPreset(RangePreset.LAST_12_MONTHS, LocalDate.now(clock))),
+                RangeSelection(RangePreset.DEFAULT, DateRanges.forPreset(RangePreset.DEFAULT, LocalDate.now(clock))),
             )
 
         /** Path+mime of a finished export, consumed once by the screen to open the share sheet. */

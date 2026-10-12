@@ -2,7 +2,6 @@ package com.itsluminous.samaroh.feature.reports.ui.detail
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,7 +10,6 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -33,7 +31,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itsluminous.samaroh.core.designsystem.component.AUTO_SHRINK_MIN_FONT_SCALE
 import com.itsluminous.samaroh.core.designsystem.component.AutoShrinkText
-import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.i18n.R
@@ -42,6 +39,7 @@ import com.itsluminous.samaroh.feature.reports.domain.ReportType
 import com.itsluminous.samaroh.feature.reports.export.ReportExportFormat
 import com.itsluminous.samaroh.feature.reports.export.ReportTable
 import com.itsluminous.samaroh.feature.reports.share.ReportShare
+import com.itsluminous.samaroh.feature.reports.ui.RangeQuickFilter
 import com.itsluminous.samaroh.feature.reports.ui.ReportsScreenScaffold
 import com.itsluminous.samaroh.feature.reports.ui.currentLocale
 import com.itsluminous.samaroh.feature.reports.ui.dateLabel
@@ -162,28 +160,8 @@ private fun RangeFilterRow(
 ) {
     val locale = currentLocale()
     Column {
-        ChipRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
-            FilterChip(
-                selected = state.preset == RangePreset.THIS_MONTH,
-                onClick = { onPreset(RangePreset.THIS_MONTH) },
-                label = { Text(stringResource(R.string.reports_range_this_month)) },
-            )
-            FilterChip(
-                selected = state.preset == RangePreset.LAST_3_MONTHS,
-                onClick = { onPreset(RangePreset.LAST_3_MONTHS) },
-                label = { Text(stringResource(R.string.reports_range_last_3_months)) },
-            )
-            FilterChip(
-                selected = state.preset == RangePreset.LAST_12_MONTHS,
-                onClick = { onPreset(RangePreset.LAST_12_MONTHS) },
-                label = { Text(stringResource(R.string.reports_range_last_12_months)) },
-            )
-            FilterChip(
-                selected = state.preset == RangePreset.CUSTOM,
-                onClick = onCustomClick,
-                label = { Text(stringResource(R.string.reports_range_custom)) },
-            )
-        }
+        // ADR-104: the one shared quick filter (−12m · −3m · This month · +3m · +12m · Custom).
+        RangeQuickFilter(selected = state.preset, onPreset = onPreset, onCustomClick = onCustomClick)
         Text(
             text =
                 stringResource(

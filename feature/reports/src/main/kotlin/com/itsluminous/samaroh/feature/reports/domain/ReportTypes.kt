@@ -42,29 +42,55 @@ data class ReportDateRange(
     val end: LocalDate,
 )
 
-/** Quick-pick presets for the date-range filter; CUSTOM opens the range picker. */
-enum class RangePreset {
-    THIS_MONTH,
-    LAST_3_MONTHS,
-    LAST_12_MONTHS,
-    CUSTOM,
+/**
+ * Quick-pick presets of the reports date-range filter, in CHIP ORDER (shared contract
+ * `shared/docs/reports-range-filter.md`, ADR-104). [id] is the cross-platform preset id
+ * (persisted form, if a platform remembers the choice). CUSTOM opens the range picker.
+ */
+enum class RangePreset(
+    val id: String,
+) {
+    MINUS_12M("minus_12m"),
+    MINUS_3M("minus_3m"),
+    THIS_MONTH("this_month"),
+    PLUS_3M("plus_3m"),
+    PLUS_12M("plus_12m"),
+    CUSTOM("custom"),
+    ;
+
+    companion object {
+        /** Both apps default to the trailing twelve months. */
+        val DEFAULT: RangePreset = MINUS_12M
+
+        /** Chips, in the contract's order. */
+        val CHIPS: List<RangePreset> = entries
+
+        fun fromId(id: String?): RangePreset? = entries.firstOrNull { it.id == id }
+    }
 }
 
 object DateRanges {
     /**
-     * Resolves a preset relative to [today]. Month presets span whole calendar months and
-     * run through the END of the current month so upcoming bookings stay visible.
+     * Resolves a preset relative to [today] (device-local date, ADR-091 "today" rule) —
+     * the contract's range math, both ends inclusive:
+     * - `−N months` = `today − N months` … `today` (backward-looking: what happened);
+     * - `This month` = whole calendar month (dues later this month stay visible);
+     * - `+N months` = `today` … `today + N months` (forward-looking: upcoming bookings/dues);
+     * - CUSTOM has no math of its own — the caller supplies explicit dates; asked here it
+     *   yields the [RangePreset.DEFAULT] range (the state before a picker result).
+     * `today ± N months` is Java `LocalDate.plusMonths`: same day-of-month, clamped to the
+     * last day when it does not exist (31 Mar − 1 month = 28/29 Feb).
      */
     fun forPreset(
         preset: RangePreset,
         today: LocalDate,
-    ): ReportDateRange {
-        val endOfMonth = today.withDayOfMonth(today.lengthOfMonth())
-        return when (preset) {
-            RangePreset.THIS_MONTH -> ReportDateRange(today.withDayOfMonth(1), endOfMonth)
-            RangePreset.LAST_3_MONTHS -> ReportDateRange(today.minusMonths(2).withDayOfMonth(1), endOfMonth)
-            RangePreset.LAST_12_MONTHS, RangePreset.CUSTOM ->
-                ReportDateRange(today.minusMonths(11).withDayOfMonth(1), endOfMonth)
+    ): ReportDateRange =
+        when (preset) {
+            RangePreset.MINUS_12M -> ReportDateRange(today.minusMonths(12), today)
+            RangePreset.MINUS_3M -> ReportDateRange(today.minusMonths(3), today)
+            RangePreset.THIS_MONTH -> ReportDateRange(today.withDayOfMonth(1), today.withDayOfMonth(today.lengthOfMonth()))
+            RangePreset.PLUS_3M -> ReportDateRange(today, today.plusMonths(3))
+            RangePreset.PLUS_12M -> ReportDateRange(today, today.plusMonths(12))
+            RangePreset.CUSTOM -> forPreset(RangePreset.DEFAULT, today)
         }
-    }
 }

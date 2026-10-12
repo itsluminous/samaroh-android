@@ -71,7 +71,7 @@ class ReportDetailViewModelTest {
             viewModel(ReportType.REVENUE).uiState.test {
                 val state = awaitItemMatching { it.allowed && it.data != null }
                 val data = state.data as ReportData.Revenue
-                assertThat(data.months).hasSize(12)
+                assertThat(data.months).hasSize(13) // −12 months = today−12m…today touches 13 calendar months (ADR-104)
                 val august = data.months.first { it.month == YearMonth.of(2026, 8) }
                 assertThat(august.collectedPaise).isEqualTo(50_000_00L)
                 assertThat(august.outstandingPaise).isEqualTo(1_50_000_00L)
@@ -169,7 +169,7 @@ class ReportDetailViewModelTest {
             viewModel(ReportType.EXPENSE_SUMMARY).uiState.test {
                 val state = awaitItemMatching { it.allowed && it.data != null }
                 val data = state.data as ReportData.Expenses
-                assertThat(data.months).hasSize(12)
+                assertThat(data.months).hasSize(13) // −12 months = today−12m…today touches 13 calendar months (ADR-104)
                 val august = data.months.first { it.month == YearMonth.of(2026, 8) }
                 assertThat(august.ledgerPaise).isEqualTo(10_000_00L)
                 assertThat(august.inventoryPaise).isEqualTo(5_000_00L)

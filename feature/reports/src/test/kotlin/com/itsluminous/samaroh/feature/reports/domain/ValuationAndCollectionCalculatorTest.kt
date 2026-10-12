@@ -107,6 +107,8 @@ class CollectionEfficiencyCalculatorTest {
 class DateRangesTest {
     private val today = LocalDate.of(2026, 8, 25)
 
+    // ADR-104 / shared reports-range-filter.md: both ends inclusive, device-local today.
+
     @Test
     fun `this month spans the whole current calendar month`() {
         val range = DateRanges.forPreset(RangePreset.THIS_MONTH, today)
@@ -116,11 +118,46 @@ class DateRangesTest {
     }
 
     @Test
-    fun `last 12 months starts at the first of the month 11 months back`() {
-        val range = DateRanges.forPreset(RangePreset.LAST_12_MONTHS, today)
+    fun `minus presets run from the same day N months back up to today`() {
+        assertThat(DateRanges.forPreset(RangePreset.MINUS_12M, today))
+            .isEqualTo(ReportDateRange(LocalDate.of(2025, 8, 25), today))
+        assertThat(DateRanges.forPreset(RangePreset.MINUS_3M, today))
+            .isEqualTo(ReportDateRange(LocalDate.of(2026, 5, 25), today))
+        // 13 calendar months touch a trailing-twelve-months window that ends mid-month.
+        assertThat(DateRanges.forPreset(RangePreset.MINUS_12M, today).months()).hasSize(13)
+    }
 
-        assertThat(range.start).isEqualTo(LocalDate.of(2025, 9, 1))
-        assertThat(range.end).isEqualTo(LocalDate.of(2026, 8, 31))
-        assertThat(range.months()).hasSize(12)
+    @Test
+    fun `plus presets run from today to the same day N months ahead`() {
+        assertThat(DateRanges.forPreset(RangePreset.PLUS_3M, today))
+            .isEqualTo(ReportDateRange(today, LocalDate.of(2026, 11, 25)))
+        assertThat(DateRanges.forPreset(RangePreset.PLUS_12M, today))
+            .isEqualTo(ReportDateRange(today, LocalDate.of(2027, 8, 25)))
+    }
+
+    @Test
+    fun `day-of-month clamps to the last day of the target month`() {
+        val endOfMarch = LocalDate.of(2026, 3, 31)
+        assertThat(DateRanges.forPreset(RangePreset.MINUS_3M, endOfMarch).start).isEqualTo(LocalDate.of(2025, 12, 31))
+        assertThat(DateRanges.forPreset(RangePreset.PLUS_3M, endOfMarch).end).isEqualTo(LocalDate.of(2026, 6, 30))
+        val endOfMay = LocalDate.of(2026, 5, 31)
+        assertThat(DateRanges.forPreset(RangePreset.MINUS_3M, endOfMay).start).isEqualTo(LocalDate.of(2026, 2, 28))
+        assertThat(DateRanges.forPreset(RangePreset.PLUS_12M, LocalDate.of(2027, 2, 28)).end).isEqualTo(LocalDate.of(2028, 2, 28))
+        assertThat(DateRanges.forPreset(RangePreset.MINUS_12M, LocalDate.of(2028, 2, 29)).start).isEqualTo(LocalDate.of(2027, 2, 28))
+    }
+
+    @Test
+    fun `default is minus twelve months and custom resolves to it until the picker answers`() {
+        assertThat(RangePreset.DEFAULT).isEqualTo(RangePreset.MINUS_12M)
+        assertThat(DateRanges.forPreset(RangePreset.CUSTOM, today)).isEqualTo(DateRanges.forPreset(RangePreset.MINUS_12M, today))
+    }
+
+    @Test
+    fun `chips follow the contract order and carry the cross-platform ids`() {
+        assertThat(RangePreset.CHIPS.map { it.id })
+            .containsExactly("minus_12m", "minus_3m", "this_month", "plus_3m", "plus_12m", "custom")
+            .inOrder()
+        assertThat(RangePreset.fromId("plus_3m")).isEqualTo(RangePreset.PLUS_3M)
+        assertThat(RangePreset.fromId("last_12_months")).isNull()
     }
 }

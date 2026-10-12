@@ -4499,3 +4499,38 @@ label + 8-digit amounts both cells are displayed, each `TextLayoutResult.lineCou
 the pending cell ends inside the box and starts after the received cell; widening to 800dp
 yields a cell no shorter than the narrow one (shrink, not wrap). `feature:booking` gains the
 Compose UI-test dependencies for unit tests.
+
+## ADR-104 — Reports date-range quick filter: one shared component, ±3/±12 months around today (2026-10-12)
+
+**Context.** Every report page carried a three-chip row (This month / 3 months / 12 months /
+Custom) whose "N months" ran over whole calendar months up to the END of the current month,
+and web used a different end (today) — the same chip meant different ranges on the two
+platforms, and nothing looked forward (upcoming bookings and dues). Shared contract:
+`shared/docs/reports-range-filter.md` (2026-10-12).
+
+**Decision.**
+1. **Presets, in chip order**, `RangePreset(id)`: `MINUS_12M(minus_12m)`, `MINUS_3M(minus_3m)`,
+   `THIS_MONTH(this_month)`, `PLUS_3M(plus_3m)`, `PLUS_12M(plus_12m)`, `CUSTOM(custom)`;
+   `DEFAULT = MINUS_12M` (the trailing-twelve-months meaning of the old default is kept, its
+   END moves from end-of-month to today — identical ranges on both platforms is the point).
+   `LAST_3_MONTHS` / `LAST_12_MONTHS` are gone; the `reports.range.last_*` keys are deprecated
+   in the shared catalog (web switch pending, then deleted).
+2. **Range math** (`DateRanges.forPreset`, both ends inclusive, device-local `today`):
+   `−N` = `today − N months … today`; `This month` = whole calendar month; `+N` = `today …
+   today + N months`; `today ± N months` = `LocalDate.plusMonths` (same day-of-month, clamped
+   to the last day of the target month). `CUSTOM` carries explicit picker dates; asked for
+   math it yields the default range. Consequence for month charts: a window ending mid-month
+   touches 13 calendar months (tests updated).
+3. **One component**: `ui/RangeQuickFilter(selected, onPreset, onCustomClick)` renders the six
+   `FilterChip`s (`reports.range.minus_12m / minus_3m / this_month / plus_3m / plus_12m /
+   custom`, typographic `−` U+2212) inside the design-system `ChipRow` (scrolls, never wraps or
+   shrinks — ADR-091); Custom routes to the picker and is never selected by its own tap. The
+   report detail screen (all ten reports) uses it; `RangePreset.labelRes()` is the only label
+   mapping. Preset ids are the persisted form should the choice ever be remembered.
+
+**Tests.** `DateRangesTest` (each preset; clamping 31 Mar − 3 → 31 Dec, 31 Mar + 3 → 30 Jun,
+31 May − 3 → 28 Feb, leap-day cases; default and CUSTOM fallback; id round-trip and order),
+`RangeQuickFilterTest` (Robolectric Compose: six chips in order with catalog labels, selected
+state follows the preset, preset vs Custom tap routing, narrow row scrolls),
+`ReportDetailViewModelTest` (13 months for the default window). `feature:reports` gains the
+Compose UI-test dependencies for unit tests.
