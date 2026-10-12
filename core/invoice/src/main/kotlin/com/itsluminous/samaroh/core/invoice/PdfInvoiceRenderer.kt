@@ -48,7 +48,8 @@ class PdfInvoiceRenderer
             try {
                 painter.paint()
                 val outDir = File(context.filesDir, INVOICE_DIR).apply { mkdirs() }
-                val outFile = File(outDir, "${data.invoiceNumber}$PDF_EXTENSION")
+                // File name = DISPLAY number (layout-spec § File name): `INV-0088.pdf`, never `88.pdf`.
+                val outFile = File(outDir, data.pdfFileName)
                 FileOutputStream(outFile).use { document.writeTo(it) }
                 return Rendered(outFile.absolutePath, painter.pageCount, outFile.length())
             } finally {
@@ -97,6 +98,7 @@ class PdfInvoiceRenderer
                 drawHeader()
                 drawCustomerBlock()
                 drawEventBlock()
+                drawNotesBlock()
                 drawAmounts()
                 drawPaymentTable()
                 drawBalanceBand()
@@ -122,7 +124,9 @@ class PdfInvoiceRenderer
                 var textY = y + NAME_SIZE
                 canvas.drawText(business.name, textX, textY, businessNamePaint)
                 textY += LINE_GAP + BODY_SIZE
-                for (line in listOfNotNull(business.businessType, business.address, business.ownerName)) {
+                // Header text column (layout-spec §1, 2026-10-12): name, address, owner —
+                // the business-type line is gone; blank lines are skipped.
+                for (line in listOfNotNull(business.address, business.ownerName).filter { it.isNotBlank() }) {
                     canvas.drawText(line, textX, textY, greyPaint)
                     textY += BODY_SIZE + 4f
                 }
@@ -130,7 +134,7 @@ class PdfInvoiceRenderer
                 var rightY = y + SECTION_SIZE
                 drawRight(ctx.getString(R.string.invoice_title), rightY, accentSectionPaint)
                 rightY += SECTION_SIZE + 6f
-                drawRight(data.invoiceNumber, rightY, bodyPaint)
+                drawRight(data.displayNumber, rightY, bodyPaint)
                 rightY += BODY_SIZE + 6f
                 drawRight(date(data.issueDate), rightY, bodyPaint)
 
@@ -163,6 +167,26 @@ class PdfInvoiceRenderer
                         .takeIf { it.isNotEmpty() }
                         ?.joinToString(" \u2013 ")
                 line(if (times != null) "$dates · $times" else dates, bodyPaint)
+                y += BLOCK_GAP
+            }
+
+            /**
+             * NOTES block (layout-spec §3a): only when `bookings.notes` is non-blank — title,
+             * then the notes verbatim: newlines kept, wrapped to the content width, never
+             * truncated (multi-page via [ensureSpace]).
+             */
+            private fun drawNotesBlock() {
+                val notes = data.invoiceNotes ?: return
+                line(ctx.getString(R.string.invoice_notes_title), accentSectionPaint)
+                for (paragraph in notes.split('\n')) {
+                    if (paragraph.isBlank()) {
+                        y += BODY_SIZE / 2
+                        continue
+                    }
+                    for (wrapped in InvoiceText.wrap(paragraph, CONTENT_WIDTH, bodyPaint::measureText)) {
+                        line(wrapped, bodyPaint)
+                    }
+                }
                 y += BLOCK_GAP
             }
 
@@ -299,12 +323,12 @@ class PdfInvoiceRenderer
 
         private companion object {
             const val INVOICE_DIR = "invoices"
-            const val PDF_EXTENSION = ".pdf"
 
             // Layout contract constants (shared/invoice/layout-spec.md).
             const val PAGE_WIDTH = 595f
             const val PAGE_HEIGHT = 842f
             const val MARGIN = 40f
+            const val CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
             const val BODY_SIZE = 11f
             const val SECTION_SIZE = 13f
             const val NAME_SIZE = 20f

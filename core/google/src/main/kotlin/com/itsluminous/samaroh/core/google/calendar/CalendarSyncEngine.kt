@@ -19,6 +19,7 @@ import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.GoogleAccountLink
+import com.itsluminous.samaroh.core.model.InvoiceNumbers
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -94,11 +95,10 @@ class CalendarSyncEngine
                     if (settings?.gcalSyncEnabled != true) return@withLock
                     // The calendar carries the business's own name (ADR-048); the localized
                     // "Samaroh" is only the blank-name fallback.
-                    val calendarDisplayName =
-                        businessRepository
-                            .business(businessId)
-                            ?.name
-                            ?.takeIf { it.isNotBlank() } ?: calendarName()
+                    val business = businessRepository.business(businessId)
+                    val calendarDisplayName = business?.name?.takeIf { it.isNotBlank() } ?: calendarName()
+                    // Invoice numbers render in display form (ADR-100) — prefix-dependent.
+                    invoicePrefix = business?.invoicePrefix ?: InvoiceNumbers.DEFAULT_PREFIX
 
                     val today = LocalDate.now(clock)
                     val bookings =
@@ -107,7 +107,8 @@ class CalendarSyncEngine
                             .first()
                     val paidByBooking = bookings.associate { it.id to bookingRepository.totalPaidPaise(it.id) }
 
-                    fun fingerprintOf(booking: Booking) = GcalEventMapper.fingerprint(booking, paidByBooking[booking.id] ?: 0)
+                    fun fingerprintOf(booking: Booking) =
+                        GcalEventMapper.fingerprint(booking, paidByBooking[booking.id] ?: 0, invoicePrefix)
 
                     val state = stateStore.read(businessId).toMutableMap()
                     var plan = CalendarSyncPlanner.plan(bookings, state, ::fingerprintOf)
@@ -513,6 +514,12 @@ class CalendarSyncEngine
             bookingRepository.saveBooking(booking.copy(gcalEventId = eventId, updatedAt = clock.instant()))
         }
 
+        /**
+         * `businesses.invoice_prefix` of the business being synced (ADR-100 display numbers);
+         * set at the start of every [syncBusiness] pass, which runs under [syncMutex].
+         */
+        private var invoicePrefix: String = InvoiceNumbers.DEFAULT_PREFIX
+
         private fun buildEvent(
             booking: Booking,
             paidPaise: Long,
@@ -520,7 +527,7 @@ class CalendarSyncEngine
             GcalEventMapper.toEvent(
                 booking = booking,
                 tentativeSuffix = context.getString(R.string.settings_gcal_tentative_suffix),
-                description = GcalEventMapper.description(booking, paidPaise, descriptionStrings(context)),
+                description = GcalEventMapper.description(booking, paidPaise, descriptionStrings(context), invoicePrefix),
                 zoneId = ZoneId.systemDefault(),
             )
 

@@ -57,6 +57,18 @@ class GcalDescriptionLocalizedTest {
     }
 
     @Test
+    fun `invoice number renders in display form with the business prefix`() {
+        val strings = descriptionStrings(localizedContext("en"))
+        val bare = booking.copy(invoiceNumber = "88")
+        assertThat(GcalEventMapper.description(bare, paidPaise = 0, strings = strings).split("\n"))
+            .contains("Invoice number: INV-0088")
+        assertThat(GcalEventMapper.description(bare, paidPaise = 0, strings = strings, invoicePrefix = "SGH").split("\n"))
+            .contains("Invoice number: SGH-0088")
+        // Prefix changes the pushed description, so it changes the fingerprint too.
+        assertThat(GcalEventMapper.fingerprint(bare, 0, "INV")).isNotEqualTo(GcalEventMapper.fingerprint(bare, 0, "SGH"))
+    }
+
+    @Test
     fun `hindi description carries every field on its own line`() {
         val strings = descriptionStrings(localizedContext("hi"))
         val lines = GcalEventMapper.description(booking, paidPaise = 50_000_00L, strings = strings).split("\n")

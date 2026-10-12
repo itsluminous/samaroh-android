@@ -4329,3 +4329,45 @@ consumption, Menu push/pop) no longer touch the NavGraph at all. Any future shel
 feature graph must observe MUST be passed as a `State`/holder — a value captured by the
 builder is frozen at first composition (documented on `rememberStableNavGraph`). Web:
 nothing to mirror (no shell NavHost).
+
+## ADR-100 — Invoice: notes block, no business-type line, display invoice number + file name (2026-10-12)
+
+**Context.** Owner feedback round (`shared/docs/invoice-layout.md`, canonical
+`shared/invoice/layout-spec.md` 2026-10-12): the PDF said `Marriage Hall` under the business
+name, the "notes" the owner saw were `Imported — …`, and the file was `88.pdf`. Root causes:
+(1) the header printed `businesses.business_type`; (2) the only notes ever printed were
+`booking_payments.notes` in the payment table — written by the one-time import — because no
+section printed `bookings.notes`; (3) the owner typed `88` into the manual invoice-number
+field (ADR-020) and both the header and the file name show the stored value verbatim.
+
+**Decision (Android half of the shared contract; web mirrors).**
+1. **Header** = logo (top-left, 56×56 pt, when `logo_path` points at the cached local file,
+   ADR-065 — unchanged) + name (20 pt bold) + address + owner name (11 pt grey), blank lines
+   skipped. The business-type line is gone from the PDF; `businesses.business_type` is
+   untouched everywhere else.
+2. **NOTES block** (`invoice.notes_title`) after the Event block, only when `bookings.notes`
+   is non-blank: the notes verbatim — trimmed, newlines kept, emoji stripped (ADR-035),
+   word-wrapped to the content width (`InvoiceText.wrap`, over-long words broken by
+   character), never truncated. The text receipt gets `Notes: …` right after the event line.
+   The payment table keeps its *Notes* column (per-payment notes, 28-char cut as before);
+   the owner clears the import markers once with `shared/scripts/clear-import-payment-notes.sql`.
+3. **Display form** — ONE pure helper, `core:model InvoiceNumbers.display(stored, prefix)`
+   (additive to the frozen module, ADR-001 process): bare digits → `{prefix}-{n:04d}`
+   (`88` → `INV-0088`, `0088` → `INV-0088`, `12345` → `INV-12345`, `88`+`SGH` → `SGH-0088`);
+   anything else verbatim. Stored `bookings.invoice_number` NEVER changes (the edit form
+   still shows/freezes the stored value — it is an input, not a display). Used by: PDF
+   header (`InvoiceData.displayNumber`), text receipt, Google Calendar description
+   (`GcalEventMapper.description(…, invoicePrefix)`; the prefix joins the fingerprint and
+   `FORMAT_VERSION` bumps to `v3`, so existing events re-push once with the new line).
+   Android's booking card has no "Invoice no." line today (web-only) — nothing to change.
+4. **File name** = `InvoiceNumbers.pdfFileName` = `{display}.pdf` with chars outside
+   `[A-Za-z0-9._-]` → `-` (`INV-0088.pdf`, `SGH-2026-0042.pdf`); `PdfInvoiceRenderer` writes
+   it, so save/share pick it up unchanged.
+
+**Tests.** `InvoiceNumbersTest` (the shared table + sanitising), `InvoiceTextTest` (emoji
+strip, wrap never drops text), `PdfInvoiceRendererContentTest` (no business type; `88` →
+header `INV-0088` + `INV-0088.pdf`; `SGH` prefix → `SGH-0042.pdf`; notes block after the
+event block and before the payment table, payment notes untouched, no emoji; blank notes →
+no block; long notes complete), `InvoiceTextBuilderTest` (display number, `Notes:` line
+placement, omitted when blank), `GcalDescriptionLocalizedTest` (display form + prefix in
+fingerprint).

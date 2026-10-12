@@ -98,17 +98,21 @@ fun invoiceData(
     securityDepositPaise: Long = 50_000_00L,
     paymentAmountsPaise: List<Long> = listOf(50_000_00L),
     invoiceNumber: String = "INV-2026-0001",
+    notes: String? = null,
+    paymentNotes: String? = null,
+    business: com.itsluminous.samaroh.core.model.Business = Fixtures.business(),
 ): InvoiceData {
     val booking =
-        Fixtures.booking(
-            id = "booking-1",
-            totalAmountPaise = totalAmountPaise,
-            securityDepositPaise = securityDepositPaise,
-        )
+        Fixtures
+            .booking(
+                id = "booking-1",
+                totalAmountPaise = totalAmountPaise,
+                securityDepositPaise = securityDepositPaise,
+            ).copy(notes = notes)
     return InvoiceData(
-        business = Fixtures.business(),
+        business = business,
         booking = booking,
-        payments = paymentAmountsPaise.map { Fixtures.payment(booking.id, amountPaise = it) },
+        payments = paymentAmountsPaise.map { Fixtures.payment(booking.id, amountPaise = it).copy(notes = paymentNotes) },
         invoiceNumber = invoiceNumber,
         issueDate = LocalDate.of(2026, 8, 25),
     )

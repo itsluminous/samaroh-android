@@ -4,6 +4,7 @@ import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.core.model.BookingStatus
+import com.itsluminous.samaroh.core.model.InvoiceNumbers
 import com.itsluminous.samaroh.core.model.displayIcon
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -75,7 +76,7 @@ object GcalEventMapper {
      * ONCE as an UPDATE (PATCH of the recorded event id — never an insert, so no
      * duplicates) carrying the new description format.
      */
-    const val FORMAT_VERSION = "v2"
+    const val FORMAT_VERSION = "v3"
 
     /**
      * @param tentativeSuffix localized `" (Tentative)"` suffix appended for tentative bookings.
@@ -129,6 +130,7 @@ object GcalEventMapper {
         booking: Booking,
         paidPaise: Long,
         strings: GcalDescriptionStrings,
+        invoicePrefix: String = InvoiceNumbers.DEFAULT_PREFIX,
     ): String {
         val duePaise = (booking.totalAmountPaise - paidPaise).coerceAtLeast(0)
         val lines = mutableListOf<String>()
@@ -140,7 +142,10 @@ object GcalEventMapper {
         lines += strings.line(strings.securityDepositLabel, AmountFormatter.format(booking.securityDepositPaise))
         lines += strings.line(strings.advanceLabel, AmountFormatter.format(paidPaise))
         lines += strings.line(strings.dueLabel, AmountFormatter.format(duePaise))
-        booking.invoiceNumber?.takeIf { it.isNotBlank() }?.let { lines += strings.line(strings.invoiceNumberLabel, it) }
+        // Display form (ADR-100): `88` → `INV-0088`; auto numbers verbatim.
+        booking.invoiceNumber?.takeIf { it.isNotBlank() }?.let {
+            lines += strings.line(strings.invoiceNumberLabel, InvoiceNumbers.display(it, invoicePrefix))
+        }
         booking.source?.let { lines += strings.line(strings.sourceLabel, strings.sourceNames.getValue(it)) }
         booking.notes?.takeIf { it.isNotBlank() }?.let { lines += strings.line(strings.notesLabel, it) }
         lines += strings.managedBy
@@ -162,9 +167,11 @@ object GcalEventMapper {
     fun fingerprint(
         booking: Booking,
         paidPaise: Long,
+        invoicePrefix: String = InvoiceNumbers.DEFAULT_PREFIX,
     ): String =
         listOf(
             FORMAT_VERSION,
+            invoicePrefix,
             booking.eventIcon,
             booking.eventType,
             booking.customerName,

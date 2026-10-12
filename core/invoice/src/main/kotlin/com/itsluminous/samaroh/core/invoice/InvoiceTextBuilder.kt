@@ -35,7 +35,7 @@ class InvoiceTextBuilder
             val booking = data.booking
             val lines = mutableListOf<String>()
             lines += data.business.name
-            lines += "${label(R.string.invoice_title)} · ${label(R.string.invoice_number_label)} ${data.invoiceNumber}"
+            lines += "${label(R.string.invoice_title)} · ${label(R.string.invoice_number_label)} ${data.displayNumber}"
             lines += "${label(R.string.invoice_issue_date_label)}: ${date(data.issueDate)}"
             lines +=
                 buildString {
@@ -52,6 +52,8 @@ class InvoiceTextBuilder
                 }
             lines += "${label(R.string.invoice_event_label)}: ${booking.eventIcon} " +
                 "${EventTypeLabels.label(ctx, booking.eventType)} · $dates"
+            // NOTES (layout-spec §3a): the booking's own notes, right after the event line.
+            data.invoiceNotes?.let { lines += "${label(R.string.invoice_notes_title)}: $it" }
             lines += "${label(R.string.invoice_total_amount)}: ${AmountFormatter.format(booking.totalAmountPaise)}"
             if (booking.securityDepositPaise > 0) {
                 lines += "${label(R.string.invoice_security_deposit)}: ${AmountFormatter.format(booking.securityDepositPaise)}"

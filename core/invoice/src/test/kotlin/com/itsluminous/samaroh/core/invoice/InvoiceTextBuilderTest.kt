@@ -28,6 +28,26 @@ class InvoiceTextBuilderTest {
     }
 
     @Test
+    fun `receipt shows the display number and the booking notes after the event line`() {
+        val text =
+            InvoiceTextBuilder(localizedContext("en")).build(
+                invoiceData(invoiceNumber = "88", notes = "Stage by 4 pm", paymentNotes = "Imported"),
+            )
+        val lines = text.split("\n")
+        assertThat(lines[1]).endsWith("Invoice no. INV-0088")
+        val eventIndex = lines.indexOfFirst { it.startsWith("Event:") }
+        assertThat(lines[eventIndex + 1]).isEqualTo("Notes: Stage by 4 pm")
+        // Payment notes are not part of the text receipt at all.
+        assertThat(text).doesNotContain("Imported")
+    }
+
+    @Test
+    fun `receipt omits the notes line when the booking has none`() {
+        val text = InvoiceTextBuilder(localizedContext("en")).build(invoiceData(notes = "  "))
+        assertThat(text).doesNotContain("Notes:")
+    }
+
+    @Test
     fun `hindi receipt is fully localized`() {
         val text = InvoiceTextBuilder(localizedContext("hi")).build(invoiceData())
 

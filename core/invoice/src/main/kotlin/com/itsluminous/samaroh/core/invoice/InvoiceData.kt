@@ -10,6 +10,7 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.Business
+import com.itsluminous.samaroh.core.model.InvoiceNumbers
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import kotlinx.coroutines.flow.first
 import java.time.Clock
@@ -27,6 +28,26 @@ data class InvoiceData(
     val issueDate: LocalDate,
 ) {
     val totalPaidPaise: Long get() = payments.sumOf { it.amountPaise }
+
+    /**
+     * What every surface SHOWS for the number (layout-spec "Display form", ADR-100): bare
+     * digits become `{prefix}-{n:04d}`; anything else is the stored value verbatim.
+     */
+    val displayNumber: String get() = InvoiceNumbers.display(invoiceNumber, business.invoicePrefix)
+
+    /** `{displayNumber}.pdf`, sanitised to `[A-Za-z0-9._-]` (layout-spec § File name). */
+    val pdfFileName: String get() = InvoiceNumbers.pdfFileName(invoiceNumber, business.invoicePrefix)
+
+    /**
+     * The booking's own notes for the invoice NOTES block (layout-spec §3a): trimmed,
+     * emoji stripped (PDF fonts, ADR-035), newlines kept; null when blank. Never
+     * `booking_payments.notes` — those stay in the payment table's Notes column.
+     */
+    val invoiceNotes: String? get() =
+        booking.notes
+            ?.let(InvoiceText::stripEmoji)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
 
     /** due = total − Σ(payments); computed at render time, never stored (§2). */
     val duePaise: Long get() = booking.totalAmountPaise - totalPaidPaise
