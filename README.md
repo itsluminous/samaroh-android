@@ -23,7 +23,11 @@ app for bookings, expenses and inventory.
   chip in the party ledger that reopens the booking card.
 - **Payments, reminders & follow-ups**: record advance/partial payments, get scheduled
   payment reminders (style configurable in Settings), and log follow-up notes per
-  booking.
+  booking. A wrongly recorded payment can be **deleted from the card** (trash icon on
+  the row → confirmation; same permission as recording, ADR-105) — the due is
+  recalculated everywhere. Members holding `record_payment` without `edit` need shared
+  migration `013_payment_tombstone_by_recorder.sql` applied before installing a build
+  ≥ 0.23.0 (owners and `edit` holders work without it).
 - **Invoices + WhatsApp**: generate a PDF invoice (numbered, bilingual layout from the
   shared contract) and share it — WhatsApp is a first-class share target.
 - Date blocks for holidays/maintenance; conflict warnings when double-booking.
