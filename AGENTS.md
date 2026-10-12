@@ -28,9 +28,9 @@ Sign-In, Drive backups and Calendar sync.
 | `core:google` | Google linking, Drive backups/attachments, Calendar sync | done |
 | `core:invoice` | PDF renderer + invoice numbering (layout per `shared/invoice/layout-spec.md`) | done |
 | `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done |
-| `feature:booking` | month calendar (crossfade cells), **events-view agenda** (windowed loading, ADR-029), booking card sheet, add/edit form, reminders/follow-ups, invoicing | done |
+| `feature:booking` | month calendar (crossfade cells; one day colour, most severe wins — ADR-102), **events-view agenda** (windowed loading, ADR-029), booking card sheet (incl. **Record expense**, ADR-101), add/edit form, reminders/follow-ups, invoicing (display number `INV-0088`, ADR-100) | done |
 | `feature:files` | Drive-indexed file storage (ADR-085): folder tree + breadcrumbs, global search, grid/list, upload staging via system picker (`FileUploadIntake`), owner access editor, `FilesSession` perm gate; share-chooser "Save to Files" landing (ADR-086); rename/move + lazy `FolderPickerDialog`, non-image open via `FilesFileProvider` `ACTION_VIEW` (ADR-090) | done |
-| `feature:expenses` | party ledger, business/personal party flag (ADR-027), party edit/cascade delete (ADR-028), attachments, `ExpensesSession` perm gate | done |
+| `feature:expenses` | party ledger, business/personal party flag (ADR-027), party edit/cascade delete (ADR-028), attachments, `ExpensesSession` perm gate, **expense against an event** (ADR-101: `expenses.booking_id` ← shared migration 012 / Room v14, `entry_for_booking` route, ledger `EventChip` → booking card) | done |
 | `feature:inventory` | stock + masterlist, FIFO (ADR-012), item detail w/ txn history, `ui/MasterItemDialogs.kt` (shared add/edit/delete dialogs), `InventorySession` perm gate | done |
 | `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate) | done |
 | `feature:onboarding` | sign-in/sign-up, create/join business, Google link, offline continue | done |

@@ -17,7 +17,10 @@ app for bookings, expenses and inventory.
   menu → "Events view"). Grouped by date, anchored at today, loads older/newer bookings
   on demand as you scroll; the choice persists per device.
 - **Booking card** — one sheet for everything: details, payments & running dues,
-  reminders, follow-ups, invoice actions.
+  reminders, follow-ups, invoice actions, and **Record expense** — opens the ledger
+  entry form pre-filled for the booking's customer; the entry remembers its event
+  (`expenses.booking_id`, shared migration 012) and shows an *Event: Priya · Wedding*
+  chip in the party ledger that reopens the booking card.
 - **Payments, reminders & follow-ups**: record advance/partial payments, get scheduled
   payment reminders (style configurable in Settings), and log follow-up notes per
   booking.
@@ -32,6 +35,10 @@ app for bookings, expenses and inventory.
   Personal-expenses report.
 - Party edit & delete (cascade tombstone of the party's entries), invoice **attachments**
   per entry (stored via Google Drive), scrollable filter pills.
+- **Expenses against an event**: entries recorded from a booking card carry
+  `expenses.booking_id` (shared migration `012_expense_booking_link.sql`, Room v14) and
+  render an **Event chip** linking back to the booking. The server column must exist
+  before installing a build ≥ 0.22.0 — apply migration 012 first.
 
 ### 📦 Inventory
 - Photo-per-item stock with a masterlist and simple add/remove transactions; zero-stock
