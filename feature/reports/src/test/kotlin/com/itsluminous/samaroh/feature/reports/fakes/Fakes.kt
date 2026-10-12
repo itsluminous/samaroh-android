@@ -92,6 +92,8 @@ class FakeBookingRepository : BookingRepository {
 
     override suspend fun recordPayment(payment: BookingPayment) = throw UnsupportedOperationException()
 
+    override suspend fun deletePayment(paymentId: String) = throw UnsupportedOperationException()
+
     override suspend fun totalPaidPaise(bookingId: String): Long = 0L
 
     override fun dateBlocksBetween(

@@ -11,6 +11,13 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 data class BookingCardActionState(
     val showEdit: Boolean,
     val showRecordPayment: Boolean,
+    /**
+     * Trash icon on each payment-history row (ADR-105): the SAME gate as recording —
+     * `booking.record_payment` — so whoever can add a payment can take a wrong one back;
+     * hidden (never greyed) otherwise, and dark with the rest of the money surface on
+     * markers and cancelled bookings.
+     */
+    val showDeletePayment: Boolean = false,
     /** Record expense (ADR-101): `expenses.create`, same marker/cancelled blackout as payments. */
     val showRecordExpense: Boolean = false,
     val showInvoice: Boolean,
@@ -42,6 +49,7 @@ object BookingCardActions {
         return BookingCardActionState(
             showEdit = canEdit && !cancelled,
             showRecordPayment = canRecordPayment && !isMarker && !cancelled,
+            showDeletePayment = canRecordPayment && !isMarker && !cancelled,
             showRecordExpense = canRecordExpense && !isMarker && !cancelled,
             showInvoice = canInvoice && !isMarker && !cancelled,
             showWhatsAppReminder = !isMarker && !cancelled,

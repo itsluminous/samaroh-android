@@ -56,6 +56,25 @@ class BookingCardActionsTest {
         assertThat(actions(BookingStatus.CANCELLED).showRecordExpense).isFalse()
     }
 
+    // ADR-105 — Delete payment: the SAME gate as recording, hidden (not greyed) otherwise.
+    @Test
+    fun `delete payment follows record payment exactly`() {
+        activeStatuses.forEach { status ->
+            assertThat(actions(status, canRecordPayment = true).showDeletePayment).isTrue()
+            assertThat(actions(status, canRecordPayment = false).showDeletePayment).isFalse()
+        }
+        // Not an edit/delete power: those alone never surface the trash icon.
+        val editOnly = actions(BookingStatus.CONFIRMED, canRecordPayment = false, canEdit = true, canDelete = true)
+        assertThat(editOnly.showDeletePayment).isFalse()
+    }
+
+    @Test
+    fun `delete payment is hidden on markers and cancelled bookings`() {
+        assertThat(actions(BookingStatus.CONFIRMED, isMarker = true).showDeletePayment).isFalse()
+        assertThat(actions(BookingStatus.CANCELLED).showDeletePayment).isFalse()
+        assertThat(actions(BookingStatus.CANCELLED, isMarker = true).showDeletePayment).isFalse()
+    }
+
     @Test
     fun `cancelled shows ONLY restore and delete with all permissions`() {
         val state = actions(BookingStatus.CANCELLED)

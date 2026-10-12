@@ -4534,3 +4534,99 @@ platforms, and nothing looked forward (upcoming bookings and dues). Shared contr
 state follows the preset, preset vs Custom tap routing, narrow row scrolls),
 `ReportDetailViewModelTest` (13 months for the default window). `feature:reports` gains the
 Compose UI-test dependencies for unit tests.
+
+## ADR-105 — Delete a recorded payment from the booking card (soft delete, same gate as recording) (2026-10-13)
+
+**Context.** A wrongly recorded payment could only be corrected by the owner via SQL. The
+booking card lists every live payment but offered no way back; the due stayed wrong on every
+device and the invoice printed the bad row. Shared strings landed in `samaroh-shared` d8146b0
+(`booking.payment.delete`, `delete_confirm_title`, `delete_confirm_body` `{amount}` `{date}`,
+`deleted`); web mirrors the same contract in its booking detail dialog.
+
+**Decision.**
+1. **Gate = recording.** Each row of the card's payment history gets a trash
+   `ExplainableIcon` (`booking.payment.delete`) when `BookingCardActionState.showDeletePayment`
+   = `canRecordPayment && !isMarker && !cancelled` — exactly `showRecordPayment`: whoever may
+   add a payment may take a wrong one back. Hidden, never greyed, otherwise; a `booking.edit` /
+   `booking.delete` holder without `record_payment` does not see it. Markers have no payment
+   surface; a cancelled booking is a dead record (ADR-054).
+2. **Always confirmed.** Tap → `AlertDialog` titled `delete_confirm_title`, body
+   `delete_confirm_body` with the row's amount (`AmountFormatter`, `MASKED` without
+   `view_amounts`) and its `paid_on` (`formatDate`), destructive `common.action.delete` in the
+   error colour, `common.action.cancel`. The pending id lives in `rememberSaveable`; the row is
+   re-resolved from the detail so a payment that vanished meanwhile just closes the dialog.
+3. **Soft delete through the normal path.** New additive contract method
+   `BookingRepository.deletePayment(paymentId)` (frozen interface, extension recorded here):
+   `BookingPaymentDao.tombstone` (`deleted_at = updated_at = now`) + outbox
+   `("booking_payments", id, DELETE, {id, deleted_at, business_id})`. The sync engine pushes a
+   DELETE op as a PostgREST PATCH of `deleted_at`/`updated_at` (never a row delete); the payload
+   additionally carries `business_id` (new optional `tombstonePayload` argument) so
+   `BookingMutationCalendarTrigger` can scope the Google Calendar re-sync — tombstones of child
+   rows used to resolve to nothing and the event description's due would have gone stale.
+   Idempotent: unknown or already-tombstoned ids are no-ops (no second op).
+   `BookingCalendarViewModel.deletePayment(payment)` re-checks the gate (owner or
+   `record_payment`), requires a live non-cancelled booking and a live payment, then emits
+   `BookingEvent.PaymentDeleted`.
+4. **Due is never stored** (§2), so every reader recomputes: card (`detail` flow),
+   month summary (`paymentsForBookings`), reports (`paymentsBetween`), calendar description
+   (`totalPaidPaise`), invoice — all already filter `deleted_at IS NULL`; verified, no query
+   changed. Invoice numbering is per booking (`bookings.invoice_number`), untouched.
+5. **Reminders re-plan naturally.** `PaymentReminderPlanner.plan` creates a new PENDING row
+   whenever due > 0 and no PENDING row exists — CONFIRMED/DISMISSED rows only feed the
+   defensive `max(last + 7, end + 1)` date; a new row id is a new ADR-094 ledger key, so the
+   notification fires again. No stale "paid" dismissal blocks it (test added). The on-change
+   sync after the outbox write runs the post-sync planning pass (ADR-060 §4).
+6. **Snackbar, hosted by the card.** `booking.payment.deleted` (and, converging per the AGENTS
+   snackbar convention, the former `booking.payment.recorded` / `invoice_failed` toasts) show
+   via a `SnackbarHostState` owned by the calendar screen. While `BookingCardSheet` is open it
+   hosts that state ITSELF at the top of its content — the modal sheet is a separate window
+   that covers the Scaffold's host, and a partially expanded sheet clips a host at the bottom
+   of its column. `showSnackbar` is forked (`launch`) so a share intent queued behind a
+   confirmation is never held back.
+7. **RLS finding → shared migration 013** (`013_payment_tombstone_by_recorder.sql`, 477822f).
+   `002_rls.sql` lets only `booking.edit` UPDATE `booking_payments`, so a record_payment-only
+   member's tombstone PATCH is rejected (42501) and retries forever. 013 adds one permissive
+   UPDATE policy scoped to the live → tombstoned transition for `booking.record_payment`
+   holders (`using deleted_at is null`, `with check deleted_at is not null`); `booking.edit`
+   keeps the unrestricted policy. Must be applied BEFORE the first client that carries the
+   icon ships (handoff `~/.luminous/handoff/shared-013-owner-ddl.md`; owners and edit holders
+   work without it). Not replayed on a scratch Postgres here (no daemon on this Mac) —
+   the handoff carries the post-apply probe.
+
+**Tests.** `BookingCardActionsTest` (delete follows record_payment exactly; edit/delete alone
+never surface it; hidden on markers and cancelled), `BookingCalendarViewModelTest`
+(tombstone + due restored on the open card + `PaymentDeleted`; refused without
+`record_payment`; allowed for a non-owner recorder; cancelled booking and tombstoned row are
+no-ops; exactly one op for exactly the chosen row), `RoomBookingRepositoryTombstoneTest`
+(Room tombstone, dropped from every live read, DELETE op payload `{id, deleted_at,
+business_id}`, idempotent), `BookingMutationCalendarTriggerTest` (payment tombstone enqueues
+via payload `business_id`), `PaymentReminderPlannerTest` (paid-then-unpaid re-plans a fresh
+PENDING row despite CONFIRMED/DISMISSED rows), e2e `BookingFlowTest.deletePayment_restoresDue`
+(En + Hi: record → trash → dialog with amount + date → Delete → row gone, due restored,
+snackbar).
+
+**Also fixed — e2e harness: the "first Hi class renders English" quirk is gone
+(`LocalizedE2eTest.disarmAppCompatLocaleSync`).** Root cause (verified in logcat and AppCompat
+1.7 source): with `autoStoreLocales` opted in, the FIRST `AppCompatActivity` of a process on
+API 33+ queues `AppCompatDelegate.syncLocalesToFramework` from `attachBaseContext` on a worker
+thread. The job uses the ENABLED state of `AppLocalesMetadataHolderService` as its "already
+synced" marker (manifest: `enabled="false"`; the suite reinstalls every run), then calls
+`getApplicationLocales()`, which on 33+ resolves the framework `LocaleManager` through the
+ACTIVE delegates — registered only in `onCreate`, after the job was queued. Losing that race it
+reads "no app locale", finds AppCompat's storage empty and pushes an EMPTY locale list: the
+per-app `hi` set by the harness was wiped, the process flipped to the system locale and the
+just-resumed activity was recreated in English (`ReminderDeepLinkHiTest.warm_…` failed whenever
+a `Hi` class launched the process's first activity; `En` is unaffected, so the full suite masked
+it behind the alphabetically-earlier `En` classes). The harness now sets that marker itself
+before applying the locale (what the sync does on success → the job is a no-op) and
+additionally polls until the process configuration reports the requested locale before
+launching the activity (fails loudly after 5 s instead of a vague missing-text assertion).
+Production is unaffected (storage and framework agree there).
+
+**Consequences.** `BookingCardSheet` gains `onDeletePayment` and `snackbarHostState`
+(defaulted); `BookingCardActionState` gains `showDeletePayment` (defaulted); every
+`BookingRepository` fake implements `deletePayment`. Test tags: `booking_card_payment_row`,
+`booking_card_delete_payment`, `booking_card_due`. Observed while verifying, NOT changed here:
+`state.today` / the record-payment sheet's default `paid_on` come from the injected UTC `Clock`,
+so between 00:00 and 05:30 IST a payment defaults to yesterday's date (the audit line uses the
+device zone) — same class of issue ADR-094 §3 fixed for alarms; worth its own ADR.

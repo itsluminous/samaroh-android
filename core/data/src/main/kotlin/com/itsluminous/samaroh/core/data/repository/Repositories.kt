@@ -56,6 +56,13 @@ interface BookingRepository {
 
     suspend fun recordPayment(payment: BookingPayment)
 
+    /**
+     * Soft-deletes one payment: `deleted_at` tombstone locally + a DELETE outbox op (the
+     * server row is UPDATEd, never removed). Due is recomputed by every reader, since it
+     * is never stored. Additive extension of the frozen contract (ADR-105).
+     */
+    suspend fun deletePayment(paymentId: String)
+
     /** due = booking.totalAmountPaise − this value; always computed, never stored (§2). */
     suspend fun totalPaidPaise(bookingId: String): Long
 

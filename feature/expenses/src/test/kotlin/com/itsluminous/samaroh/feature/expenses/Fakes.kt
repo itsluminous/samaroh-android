@@ -365,6 +365,8 @@ class FakeBookingRepository : com.itsluminous.samaroh.core.data.repository.Booki
 
     override suspend fun recordPayment(payment: com.itsluminous.samaroh.core.model.BookingPayment) = throw UnsupportedOperationException()
 
+    override suspend fun deletePayment(paymentId: String) = throw UnsupportedOperationException()
+
     override suspend fun totalPaidPaise(bookingId: String) = throw UnsupportedOperationException()
 
     override fun dateBlocksBetween(

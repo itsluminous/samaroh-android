@@ -102,6 +102,35 @@ class PaymentReminderPlannerTest {
         assertThat(plan.toNotify).containsExactly(created) // 7 days already elapsed
     }
 
+    /**
+     * ADR-105: a booking paid off (its reminder CONFIRMED, another DISMISSED) whose payment is
+     * then deleted is unpaid again — the planner re-plans a NEW pending row (new id → new
+     * ADR-094 ledger key, so the notification fires again); the settled rows never block it.
+     */
+    @Test
+    fun `paid-then-unpaid booking gets a fresh pending reminder despite confirmed and dismissed rows`() {
+        val booking = Fixtures.booking(startDate = today.minusDays(20), endDate = today.minusDays(15))
+        val confirmed = reminder(booking.id, today.minusDays(14), status = ReminderStatus.CONFIRMED)
+        val dismissed = reminder(booking.id, today.minusDays(10), status = ReminderStatus.DISMISSED)
+        val plan =
+            PaymentReminderPlanner.plan(
+                today = today,
+                endedBookings = listOf(booking),
+                duePaiseByBooking = mapOf(booking.id to 1_50_000_00L), // due restored by the delete
+                remindersByBooking = mapOf(booking.id to listOf(confirmed, dismissed)),
+                newId = newId,
+                now = Fixtures.NOW,
+            )
+        val created = plan.toCreate.single()
+        assertThat(created.id).isNotIn(listOf(confirmed.id, dismissed.id))
+        assertThat(created.status).isEqualTo(ReminderStatus.PENDING)
+        assertThat(created.amountDueSnapshotPaise).isEqualTo(1_50_000_00L)
+        // Defensive +7 chaining from the LAST row, clamped to day-after-end: 10 − 7 = 3 days ago.
+        assertThat(created.remindOn).isEqualTo(dismissed.remindOn.plusDays(7))
+        assertThat(plan.toNotify).containsExactly(created)
+        assertThat(plan.toDismiss).isEmpty()
+    }
+
     @Test
     fun `future reminder is not notified yet`() {
         val booking = Fixtures.booking(startDate = today.minusDays(4), endDate = today.minusDays(1))

@@ -145,6 +145,9 @@ data class RestoreConflict(
 sealed interface BookingEvent {
     data object PaymentRecorded : BookingEvent
 
+    /** A payment was tombstoned and the due recomputed (ADR-105) — snackbar confirmation. */
+    data object PaymentDeleted : BookingEvent
+
     data class SharePdf(
         val path: String,
     ) : BookingEvent
@@ -686,6 +689,26 @@ class BookingCalendarViewModel
                 )
                 settleReminderAfterPayment(booking, answeringReminderId)
                 events.trySend(BookingEvent.PaymentRecorded)
+            }
+        }
+
+        /**
+         * Delete-payment confirmation (ADR-105). Gated like recording (`booking.record_payment`
+         * or owner); the card hides the trash icon otherwise, this is defence in depth. Only
+         * live payments of a live, non-cancelled booking go: the repository tombstones the row
+         * and queues the DELETE op, every reader recomputes due from the remaining rows, and
+         * the next reminder pass re-plans naturally if the booking is unpaid again (the
+         * planner only ever looks at PENDING rows, ADR-094/097).
+         */
+        fun deletePayment(payment: BookingPayment) {
+            viewModelScope.launch {
+                val actor = uiState.value.actor ?: return@launch
+                if (!(actor.isOwner || actor.permissions.recordPayment)) return@launch
+                val booking = bookingRepository.booking(payment.bookingId) ?: return@launch
+                if (booking.status == BookingStatus.CANCELLED || booking.deletedAt != null) return@launch
+                if (payment.deletedAt != null) return@launch
+                bookingRepository.deletePayment(payment.id)
+                events.trySend(BookingEvent.PaymentDeleted)
             }
         }
 

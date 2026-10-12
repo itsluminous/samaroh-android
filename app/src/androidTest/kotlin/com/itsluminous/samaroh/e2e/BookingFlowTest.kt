@@ -1,17 +1,22 @@
 package com.itsluminous.samaroh.e2e
 
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.testing.Fixtures
 import dagger.hilt.android.testing.HiltAndroidTest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.time.LocalDate
@@ -116,6 +121,63 @@ abstract class BookingFlowTest(
         compose.onNode(hasText(string(R.string.common_action_save))).performClick()
 
         waitForText(AmountFormatter.format(0L))
+    }
+
+    /**
+     * ADR-105: record → delete → confirm → the payment row is gone, the due is restored and
+     * the snackbar confirms. Both languages: the dialog body carries amount + date.
+     */
+    @Test
+    fun deletePayment_restoresDue() {
+        val booking =
+            Fixtures
+                .booking(startDate = futureDateInCurrentMonth(), totalAmountPaise = 2_00_000_00L)
+                .copy(customerName = "Meera")
+        runBlocking { bookingRepository.saveBooking(booking) }
+
+        waitForContentDescription("Meera", substring = true).performClick()
+        waitForText(string(R.string.booking_calendar_add_new_event))
+        compose
+            .onNode(
+                hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
+                useUnmergedTree = true,
+            ).performClick()
+
+        // No payment yet; no trash icon either (nothing to delete).
+        waitForText(string(R.string.booking_card_no_payments))
+        compose.onAllNodesWithTag("booking_card_delete_payment", useUnmergedTree = true).assertCountEquals(0)
+
+        // Record the full due through the sheet (prefilled 200000) → due ₹0, one row.
+        waitForContentDescription(string(R.string.booking_card_action_record_payment)).performClick()
+        waitForText(string(R.string.booking_payment_amount), substring = true)
+        compose.onNode(hasText("200000")).performClick()
+        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+        waitForText(string(R.string.booking_payment_recorded))
+        compose.onNodeWithTag("booking_card_due", useUnmergedTree = true).assertTextEquals(AmountFormatter.format(0L))
+        compose.onAllNodesWithTag("booking_card_payment_row", useUnmergedTree = true).assertCountEquals(1)
+
+        // Trash icon on the row → confirmation names the amount and the date. The sheet
+        // prefilled `paid_on` with the app clock's date (UTC), which is not necessarily the
+        // device-local date around midnight IST — read the row instead of assuming it.
+        val recorded = runBlocking { bookingRepository.paymentsForBooking(booking.id).first().single() }
+        waitForContentDescription(string(R.string.booking_payment_delete)).performClick()
+        waitForText(string(R.string.booking_payment_delete_confirm_title))
+        waitForText(
+            string(
+                R.string.booking_payment_delete_confirm_body,
+                AmountFormatter.format(2_00_000_00L),
+                formatDate(recorded.paidOn),
+            ),
+        )
+        compose
+            .onNode(hasText(string(R.string.common_action_delete)) and hasAnyAncestor(isDialog()), useUnmergedTree = true)
+            .performClick()
+
+        // Row gone, due restored, snackbar confirms.
+        waitForText(string(R.string.booking_card_no_payments))
+        compose.onAllNodesWithTag("booking_card_payment_row", useUnmergedTree = true).assertCountEquals(0)
+        compose.onNodeWithTag("booking_card_due", useUnmergedTree = true).assertTextEquals(AmountFormatter.format(2_00_000_00L))
+        waitForText(string(R.string.booking_payment_deleted))
     }
 
     @Test

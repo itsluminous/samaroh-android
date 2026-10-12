@@ -106,6 +106,63 @@ class RoomBookingRepositoryTombstoneTest {
             assertThat(payload["deleted_at"]?.jsonPrimitive?.content).isEqualTo(now.toString())
         }
 
+    // ---- ADR-105: delete payment ----
+
+    @Test
+    fun `deletePayment tombstones the row, drops it from every live read and enqueues a DELETE push`() =
+        runTest {
+            val booking = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10))
+            repository.saveBooking(booking)
+            val keep = Fixtures.payment(booking.id, id = "p-keep", amountPaise = 50_000_00L, paidOn = LocalDate.of(2026, 9, 1))
+            val wrong = Fixtures.payment(booking.id, id = "p-wrong", amountPaise = 1_50_000_00L, paidOn = LocalDate.of(2026, 9, 2))
+            repository.recordPayment(keep)
+            repository.recordPayment(wrong)
+            assertThat(repository.totalPaidPaise(booking.id)).isEqualTo(2_00_000_00L)
+            outbox.records.clear()
+
+            repository.deletePayment(wrong.id)
+
+            // Due is never stored: every reader recomputes from the live rows only.
+            assertThat(repository.totalPaidPaise(booking.id)).isEqualTo(50_000_00L)
+            assertThat(repository.paymentsForBooking(booking.id).first().map { it.id }).containsExactly("p-keep")
+            assertThat(repository.paymentsForBookings(listOf(booking.id)).first().map { it.id }).containsExactly("p-keep")
+            // Soft delete: the row survives as a tombstone (LWW against other devices).
+            val tombstoned = db.bookingPaymentDao().byId(wrong.id)
+            assertThat(tombstoned).isNotNull()
+            assertThat(tombstoned!!.deletedAt).isEqualTo(now)
+            assertThat(tombstoned.updatedAt).isEqualTo(now)
+
+            // Sync op shape: DELETE on booking_payments → server UPDATE deleted_at (never a
+            // row delete); the payload also names the business so the Google Calendar
+            // trigger can scope the re-sync without a Room lookup.
+            val record = outbox.records.single()
+            assertThat(record.entityType).isEqualTo("booking_payments")
+            assertThat(record.entityId).isEqualTo(wrong.id)
+            assertThat(record.operation).isEqualTo(OutboxOperation.DELETE)
+            val payload = Json.parseToJsonElement(record.payloadJson).jsonObject
+            assertThat(payload.keys).containsExactly("id", "deleted_at", "business_id")
+            assertThat(payload["id"]?.jsonPrimitive?.content).isEqualTo(wrong.id)
+            assertThat(payload["deleted_at"]?.jsonPrimitive?.content).isEqualTo(now.toString())
+            assertThat(payload["business_id"]?.jsonPrimitive?.content).isEqualTo(booking.businessId)
+        }
+
+    @Test
+    fun `deletePayment is idempotent and ignores unknown ids`() =
+        runTest {
+            val booking = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10))
+            repository.saveBooking(booking)
+            val payment = Fixtures.payment(booking.id, id = "p1")
+            repository.recordPayment(payment)
+            outbox.records.clear()
+
+            repository.deletePayment(payment.id)
+            repository.deletePayment(payment.id) // second tap / replayed intent
+            repository.deletePayment("never-existed")
+
+            assertThat(outbox.records).hasSize(1)
+            assertThat(outbox.records.single().operation).isEqualTo(OutboxOperation.DELETE)
+        }
+
     @Test
     fun `restore save enqueues an UPSERT carrying the confirmed status`() =
         runTest {

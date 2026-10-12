@@ -46,6 +46,7 @@ private val json = Json { encodeDefaults = true }
 private fun tombstonePayload(
     id: String,
     at: Instant,
+    businessId: String? = null,
 ): String =
     json
         .encodeToString(
@@ -53,6 +54,10 @@ private fun tombstonePayload(
             kotlinx.serialization.json.buildJsonObject {
                 put("id", id)
                 put("deleted_at", at.toString())
+                // Optional (ADR-105): lets `LocalMutationListener`s scope a child-row
+                // tombstone to its business without a Room round-trip (the sync push
+                // reads only `deleted_at` from a DELETE payload).
+                if (businessId != null) put("business_id", businessId)
             },
         )
 
@@ -111,6 +116,19 @@ class RoomBookingRepository
                 payment.id,
                 OutboxOperation.UPSERT,
                 json.encodeToString(BookingPayment.serializer(), payment),
+            )
+        }
+
+        override suspend fun deletePayment(paymentId: String) {
+            val payment = paymentDao.byId(paymentId) ?: return
+            if (payment.deletedAt != null) return
+            val now = clock.instant()
+            paymentDao.tombstone(paymentId, now)
+            outboxWriter.enqueue(
+                "booking_payments",
+                paymentId,
+                OutboxOperation.DELETE,
+                tombstonePayload(paymentId, now, businessId = payment.businessId),
             )
         }
 

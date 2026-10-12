@@ -95,6 +95,16 @@ class FakeBookingRepository : BookingRepository {
         payments.value = payments.value + payment
     }
 
+    /** Ids passed to [deletePayment], in call order — the "sync op shape" probe for VM tests. */
+    val deletedPaymentIds = mutableListOf<String>()
+
+    override suspend fun deletePayment(paymentId: String) {
+        deletedPaymentIds += paymentId
+        val now = java.time.Instant.parse("2026-01-01T00:00:00Z")
+        payments.value =
+            payments.value.map { if (it.id == paymentId && it.deletedAt == null) it.copy(deletedAt = now, updatedAt = now) else it }
+    }
+
     override suspend fun totalPaidPaise(bookingId: String): Long =
         payments.value.filter { it.bookingId == bookingId && it.deletedAt == null }.sumOf { it.amountPaise }
 

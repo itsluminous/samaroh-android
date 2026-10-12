@@ -147,6 +147,130 @@ class BookingCalendarViewModelTest {
             }
         }
 
+    // ---- ADR-105: delete payment ----
+
+    @Test
+    fun `deletePayment tombstones the row, recomputes due on the open card and confirms`() =
+        runTest {
+            val booking = Fixtures.booking(startDate = today) // total ₹2,00,000
+            repository.bookings.value = listOf(booking)
+            val keep = Fixtures.payment(booking.id, id = "p-keep", amountPaise = 50_000_00L)
+            val wrong = Fixtures.payment(booking.id, id = "p-wrong", amountPaise = 1_50_000_00L)
+            repository.payments.value = listOf(keep, wrong)
+            val vm = viewModel()
+            vm.openBooking(booking.id)
+
+            vm.detail.test {
+                val before = awaitItemMatching { it != null && it.payments.size == 2 }!!
+                assertThat(before.duePaise).isEqualTo(0L) // fully paid
+
+                vm.eventFlow.test {
+                    vm.deletePayment(wrong)
+                    assertThat(awaitItem()).isEqualTo(BookingEvent.PaymentDeleted)
+                    cancelAndIgnoreRemainingEvents()
+                }
+
+                val after = awaitItemMatching { it != null && it.payments.size == 1 }!!
+                assertThat(after.payments.single().id).isEqualTo("p-keep")
+                assertThat(after.paidPaise).isEqualTo(50_000_00L)
+                assertThat(after.duePaise).isEqualTo(1_50_000_00L) // due restored
+                cancelAndIgnoreRemainingEvents()
+            }
+            // Sync op shape: ONE tombstone for exactly the chosen row; the row survives as a
+            // deleted_at tombstone (soft delete), never vanishes from the store.
+            assertThat(repository.deletedPaymentIds).containsExactly("p-wrong")
+            assertThat(
+                repository.payments.value
+                    .first { it.id == "p-wrong" }
+                    .deletedAt,
+            ).isNotNull()
+            assertThat(
+                repository.payments.value
+                    .first { it.id == "p-keep" }
+                    .deletedAt,
+            ).isNull()
+        }
+
+    @Test
+    fun `deletePayment is refused without record_payment`() =
+        runTest {
+            val booking = Fixtures.booking(startDate = today)
+            repository.bookings.value = listOf(booking)
+            val payment = Fixtures.payment(booking.id, id = "p1")
+            repository.payments.value = listOf(payment)
+            val viewer = FakeActorProvider()
+            viewer.actor =
+                viewer.actor.copy(
+                    isOwner = false,
+                    permissions = viewer.actor.permissions.copy(recordPayment = false, edit = true, delete = true),
+                )
+            val vm = viewModel(viewer)
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+                vm.eventFlow.test {
+                    vm.deletePayment(payment)
+                    expectNoEvents()
+                    cancelAndIgnoreRemainingEvents()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(repository.deletedPaymentIds).isEmpty()
+            assertThat(
+                repository.payments.value
+                    .single()
+                    .deletedAt,
+            ).isNull()
+        }
+
+    @Test
+    fun `deletePayment with record_payment but not owner is allowed`() =
+        runTest {
+            val booking = Fixtures.booking(startDate = today)
+            repository.bookings.value = listOf(booking)
+            val payment = Fixtures.payment(booking.id, id = "p1")
+            repository.payments.value = listOf(payment)
+            val member = FakeActorProvider()
+            member.actor =
+                member.actor.copy(
+                    isOwner = false,
+                    permissions = member.actor.permissions.copy(recordPayment = true, edit = false, delete = false),
+                )
+            val vm = viewModel(member)
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+                vm.eventFlow.test {
+                    vm.deletePayment(payment)
+                    assertThat(awaitItem()).isEqualTo(BookingEvent.PaymentDeleted)
+                    cancelAndIgnoreRemainingEvents()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(repository.deletedPaymentIds).containsExactly("p1")
+        }
+
+    @Test
+    fun `deletePayment ignores cancelled bookings and already-deleted rows`() =
+        runTest {
+            val cancelled = Fixtures.booking(startDate = today, status = BookingStatus.CANCELLED)
+            val live = Fixtures.booking(startDate = today.plusDays(1))
+            repository.bookings.value = listOf(cancelled, live)
+            val onCancelled = Fixtures.payment(cancelled.id, id = "p-cancelled")
+            val gone = Fixtures.payment(live.id, id = "p-gone").copy(deletedAt = Fixtures.NOW)
+            repository.payments.value = listOf(onCancelled, gone)
+            val vm = viewModel()
+            vm.uiState.test {
+                awaitItemMatching { it.loaded && it.actor != null }
+                vm.eventFlow.test {
+                    vm.deletePayment(onCancelled)
+                    vm.deletePayment(gone)
+                    expectNoEvents()
+                    cancelAndIgnoreRemainingEvents()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertThat(repository.deletedPaymentIds).isEmpty()
+        }
+
     @Test
     fun `partial payment answering a reminder confirms it and chains plus 7 days`() =
         runTest {

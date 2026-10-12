@@ -1,6 +1,5 @@
 package com.itsluminous.samaroh.feature.booking.ui.calendar
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -30,6 +29,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,6 +77,7 @@ import com.itsluminous.samaroh.feature.booking.ui.formatDate
 import com.itsluminous.samaroh.feature.booking.ui.formatDateRange
 import com.itsluminous.samaroh.feature.booking.ui.formatFullDate
 import com.itsluminous.samaroh.feature.booking.ui.formatMonthYear
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /**
@@ -117,15 +119,20 @@ fun BookingCalendarScreen(
         runCatching { BookingReminderWorker.ensureScheduled(context) }
     }
 
+    // Transient confirmations/errors ride the scaffold's snackbar (AGENTS convention; the
+    // former toasts on this screen converged here with ADR-105).
+    val snackbarHostState = remember { SnackbarHostState() }
+    val paymentRecordedText = stringResource(R.string.booking_payment_recorded)
+    val paymentDeletedText = stringResource(R.string.booking_payment_deleted)
+    val invoiceFailedText = stringResource(R.string.booking_card_invoice_failed)
     LaunchedEffect(viewModel) {
         viewModel.eventFlow.collect { event ->
+            // showSnackbar suspends for the snackbar's lifetime — fork so a share intent
+            // queued right behind a confirmation is never held back.
             when (event) {
-                BookingEvent.PaymentRecorded ->
-                    Toast.makeText(context, context.getString(R.string.booking_payment_recorded), Toast.LENGTH_SHORT).show()
-
-                BookingEvent.InvoiceFailed ->
-                    Toast.makeText(context, context.getString(R.string.booking_card_invoice_failed), Toast.LENGTH_SHORT).show()
-
+                BookingEvent.PaymentRecorded -> launch { snackbarHostState.showSnackbar(paymentRecordedText) }
+                BookingEvent.PaymentDeleted -> launch { snackbarHostState.showSnackbar(paymentDeletedText) }
+                BookingEvent.InvoiceFailed -> launch { snackbarHostState.showSnackbar(invoiceFailedText) }
                 is BookingEvent.SharePdf -> BookingShare.sharePdf(context, event.path)
                 is BookingEvent.ShareText -> BookingShare.shareText(context, event.text)
             }
@@ -147,6 +154,8 @@ fun BookingCalendarScreen(
     val canSeePaymentReminders = actor?.canReceivePaymentReminders ?: false
 
     Scaffold(
+        // While the booking card (a separate sheet window) is open it hosts the snackbar.
+        snackbarHost = { if (detail == null) SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             if (canCreate && state.business != null) {
                 SamarohFab(onClick = { onAddBooking(null) }) {
@@ -542,6 +551,8 @@ fun BookingCalendarScreen(
             onCancelBooking = { viewModel.cancelBooking(current.booking.id) },
             onRestoreBooking = { viewModel.requestRestore(current.booking.id) },
             onDeleteBooking = { viewModel.deleteBookingPermanently(current.booking.id) },
+            onDeletePayment = viewModel::deletePayment,
+            snackbarHostState = snackbarHostState,
         )
     }
 

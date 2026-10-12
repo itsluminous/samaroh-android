@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CurrencyRupee
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Share
@@ -34,6 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,7 +64,9 @@ import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
+import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.PaymentMethod
@@ -113,14 +118,27 @@ internal fun BookingCardSheet(
     onCancelBooking: () -> Unit,
     onRestoreBooking: () -> Unit,
     onDeleteBooking: () -> Unit,
+    onDeletePayment: (BookingPayment) -> Unit = {},
+    /**
+     * Transient confirmations while the card is open (ADR-105). The sheet is its own
+     * window above the screen's Scaffold, so a snackbar hosted there would be covered —
+     * the card hosts the same state itself for as long as it is showing.
+     */
+    snackbarHostState: SnackbarHostState? = null,
 ) {
     val booking = detail.booking
     val context = LocalContext.current
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var invoiceChooser by rememberSaveable { mutableStateOf(false) }
+    // Payment awaiting delete confirmation (ADR-105); id only — the row is re-resolved
+    // from [detail] so a payment that vanished meanwhile simply closes the dialog.
+    var confirmDeletePaymentId by rememberSaveable { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        // Snackbar FIRST: a partially expanded sheet clips its lower content, so a host at
+        // the bottom of the column would sit below the fold while the message plays.
+        snackbarHostState?.let { SnackbarHost(it, modifier = Modifier.fillMaxWidth()) }
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -212,6 +230,7 @@ internal fun BookingCardSheet(
                         tone = if (detail.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         masked = !canViewAmounts,
+                        modifier = Modifier.testTag("booking_card_due"),
                     )
                 }
 
@@ -225,7 +244,11 @@ internal fun BookingCardSheet(
                     )
                 } else {
                     detail.payments.forEach { payment ->
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().testTag("booking_card_payment_row"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             // Payment line mirrors web: "date · method[ · notes]".
                             Text(
                                 text =
@@ -238,6 +261,15 @@ internal fun BookingCardSheet(
                                 modifier = Modifier.weight(1f),
                             )
                             AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN, masked = !canViewAmounts)
+                            // Delete payment (ADR-105): same gate as recording; hidden otherwise.
+                            if (actions.showDeletePayment) {
+                                ExplainableIcon(
+                                    icon = Icons.Filled.Delete,
+                                    explanationRes = R.string.booking_payment_delete,
+                                    onClick = { confirmDeletePaymentId = payment.id },
+                                    modifier = Modifier.testTag("booking_card_delete_payment"),
+                                )
+                            }
                         }
                     }
                 }
@@ -375,6 +407,38 @@ internal fun BookingCardSheet(
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_action_close)) }
+            },
+        )
+    }
+
+    // Deleting a payment changes the due on every device — always confirmed (ADR-105).
+    val paymentToDelete = confirmDeletePaymentId?.let { id -> detail.payments.firstOrNull { it.id == id } }
+    if (paymentToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDeletePaymentId = null },
+            title = { Text(stringResource(R.string.booking_payment_delete_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.booking_payment_delete_confirm_body,
+                        if (canViewAmounts) AmountFormatter.format(paymentToDelete.amountPaise) else AmountFormatter.MASKED,
+                        formatDate(paymentToDelete.paidOn),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeletePaymentId = null
+                    onDeletePayment(paymentToDelete)
+                }) {
+                    Text(
+                        text = stringResource(R.string.common_action_delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeletePaymentId = null }) { Text(stringResource(R.string.common_action_cancel)) }
             },
         )
     }

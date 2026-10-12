@@ -79,6 +79,8 @@ class BookingMutationCalendarTriggerTest {
 
         override suspend fun recordPayment(payment: BookingPayment) = error("unused")
 
+        override suspend fun deletePayment(paymentId: String) = error("unused")
+
         override suspend fun totalPaidPaise(bookingId: String): Long = 0
 
         override fun dateBlocksBetween(
@@ -156,6 +158,19 @@ class BookingMutationCalendarTriggerTest {
     fun `payment upsert also enqueues - amounts are part of the event description`() =
         runTest {
             trigger().onLocalMutation("booking_payments", "p-1", OutboxOperation.UPSERT, """{"business_id":"$BIZ"}""")
+            assertThat(pendingOnChangeWork()).isEqualTo(1)
+        }
+
+    /** ADR-105: a payment tombstone carries `business_id`, so the due in the event description refreshes. */
+    @Test
+    fun `payment tombstone enqueues through the business id in its payload`() =
+        runTest {
+            trigger().onLocalMutation(
+                "booking_payments",
+                "p-1",
+                OutboxOperation.DELETE,
+                """{"id":"p-1","deleted_at":"2026-10-12T10:00:00Z","business_id":"$BIZ"}""",
+            )
             assertThat(pendingOnChangeWork()).isEqualTo(1)
         }
 

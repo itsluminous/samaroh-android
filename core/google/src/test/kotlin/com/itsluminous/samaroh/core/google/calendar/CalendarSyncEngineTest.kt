@@ -194,6 +194,8 @@ class CalendarSyncEngineTest {
 
         override suspend fun recordPayment(payment: BookingPayment) = error("unused")
 
+        override suspend fun deletePayment(paymentId: String) = error("unused")
+
         override suspend fun totalPaidPaise(bookingId: String): Long = 0
 
         override fun dateBlocksBetween(
