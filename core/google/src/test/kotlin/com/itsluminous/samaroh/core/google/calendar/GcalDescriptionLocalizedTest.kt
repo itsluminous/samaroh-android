@@ -85,7 +85,7 @@ class GcalDescriptionLocalizedTest {
                 "चालान नंबर: INV-7",
                 "बुकिंग कहाँ से आई: फ़ोन",
                 "नोट्स: stage by 4 pm",
-                "Samaroh द्वारा प्रबंधित",
+                "समारोह द्वारा प्रबंधित", // Devanagari brand in hi prose (shared d8146b0)
             ).inOrder()
     }
 }
