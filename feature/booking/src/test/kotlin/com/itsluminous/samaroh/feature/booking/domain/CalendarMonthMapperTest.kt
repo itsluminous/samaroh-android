@@ -234,15 +234,94 @@ class CalendarMonthMapperTest {
         assertThat(day.fillColorKey).isNull()
     }
 
-    @Test
-    fun `multiple bookings on a day keep the default fill even when colored`() {
+    // ---- one colour per day, most severe wins (ADR-102, shared calendar-day-color.md) ----
+
+    /** `shared/booking-colors.json` order — contractual severity (warm → cool). */
+    private val palette =
+        listOf(
+            "tomato",
+            "flamingo",
+            "tangerine",
+            "banana",
+            "sage",
+            "basil",
+            "olive",
+            "peacock",
+            "sky",
+            "blueberry",
+            "midnight",
+            "lavender",
+            "grape",
+            "fuchsia",
+            "cocoa",
+            "graphite",
+        )
+
+    private fun fillFor(vararg bookings: com.itsluminous.samaroh.core.model.Booking): CalendarMonthMapper.Day {
         val date = LocalDate.of(2026, 9, 10)
-        val first = Fixtures.booking(startDate = date).copy(color = "peacock")
-        val second = Fixtures.booking(startDate = date).copy(color = "tomato")
-        val grid = CalendarMonthMapper.map(month, today, listOf(first, second), emptyList())
-        val day = days(grid).getValue(date)
+        val grid =
+            CalendarMonthMapper.map(
+                month,
+                today,
+                bookings.toList(),
+                emptyList(),
+                isMarker = { it.eventType == "marker" },
+                paletteOrder = palette,
+            )
+        return days(grid).getValue(date)
+    }
+
+    private fun firm(
+        color: String?,
+        status: BookingStatus = BookingStatus.CONFIRMED,
+        eventType: String = "wedding",
+    ) = Fixtures.booking(startDate = LocalDate.of(2026, 9, 10), status = status, eventType = eventType).copy(color = color)
+
+    @Test
+    fun `two firm red bookings paint the day red, never a blended or default colour`() {
+        val day = fillFor(firm("tomato"), firm("tomato"))
         assertThat(day.hasFirmBooking).isTrue()
-        assertThat(day.fillColorKey).isNull()
+        assertThat(day.fillColorKey).isEqualTo("tomato")
+    }
+
+    @Test
+    fun `mixed firm colours resolve to the most severe palette colour`() {
+        assertThat(fillFor(firm("sage"), firm("tomato")).fillColorKey).isEqualTo("tomato") // index 0 < 4
+        assertThat(fillFor(firm("graphite"), firm("sage")).fillColorKey).isEqualTo("sage")
+        assertThat(fillFor(firm("sage"), firm(null)).fillColorKey).isEqualTo("sage") // default ranks last
+        assertThat(fillFor(firm(null), firm(null)).fillColorKey).isNull() // all default → themed default
+    }
+
+    @Test
+    fun `status does not influence the colour choice among firm bookings`() {
+        assertThat(fillFor(firm("sage", BookingStatus.COMPLETED), firm("tomato")).fillColorKey).isEqualTo("tomato")
+        assertThat(fillFor(firm("tomato", BookingStatus.COMPLETED), firm("sage")).fillColorKey).isEqualTo("tomato")
+    }
+
+    @Test
+    fun `tentative bookings never fill but keep the amber outline`() {
+        val mixed = fillFor(firm("tomato"), firm("grape", BookingStatus.TENTATIVE))
+        assertThat(mixed.fillColorKey).isEqualTo("tomato")
+        assertThat(mixed.hasTentativeBooking).isTrue()
+        val tentativeOnly = fillFor(firm("tomato", BookingStatus.TENTATIVE), firm("sage", BookingStatus.TENTATIVE))
+        assertThat(tentativeOnly.fillColorKey).isNull()
+        assertThat(tentativeOnly.hasFirmBooking).isFalse()
+        assertThat(tentativeOnly.hasTentativeBooking).isTrue()
+    }
+
+    @Test
+    fun `a marker loses to a real booking before the colour rule runs`() {
+        assertThat(fillFor(firm("tomato", eventType = "marker"), firm("sage")).fillColorKey).isEqualTo("sage")
+    }
+
+    @Test
+    fun `fillColorKey ranks unknown keys after the palette and before the default`() {
+        assertThat(CalendarMonthMapper.fillColorKey(emptyList(), palette)).isNull()
+        assertThat(CalendarMonthMapper.fillColorKey(listOf("mystery", "graphite"), palette)).isEqualTo("graphite")
+        assertThat(CalendarMonthMapper.fillColorKey(listOf("mystery", null), palette)).isEqualTo("mystery")
+        assertThat(CalendarMonthMapper.fillColorKey(listOf("mystery", "mystery"), palette)).isEqualTo("mystery")
+        // Without a palette order, the first non-null key wins (stable, never blended).
+        assertThat(CalendarMonthMapper.fillColorKey(listOf("sage", "tomato"), emptyList())).isEqualTo("sage")
     }
 
     @Test
@@ -264,13 +343,13 @@ class CalendarMonthMapperTest {
     }
 
     @Test
-    fun `mixed firm plus tentative day keeps default fill but both status flags`() {
+    fun `mixed firm plus tentative day fills with the firm colour and keeps both status flags`() {
         val date = LocalDate.of(2026, 9, 10)
         val firm = Fixtures.booking(startDate = date).copy(color = "sky")
         val tentative = Fixtures.booking(startDate = date, status = BookingStatus.TENTATIVE)
         val grid = CalendarMonthMapper.map(month, today, listOf(firm, tentative), emptyList())
         val day = days(grid).getValue(date)
-        assertThat(day.fillColorKey).isNull()
+        assertThat(day.fillColorKey).isEqualTo("sky")
         assertThat(day.hasFirmBooking).isTrue()
         assertThat(day.hasTentativeBooking).isTrue()
     }
@@ -328,13 +407,13 @@ class CalendarMonthMapperTest {
     }
 
     @Test
-    fun `multi-booking day keeps the default fill even with type defaults`() {
+    fun `two bookings of the same type share that type's default colour (ADR-102)`() {
         val date = LocalDate.of(2026, 9, 10)
-        val first = Fixtures.booking(startDate = date)
+        val first = Fixtures.booking(startDate = date) // wedding → tomato via the preset default
         val second = Fixtures.booking(startDate = date)
         val grid =
             CalendarMonthMapper.map(month, today, listOf(first, second), emptyList(), effectiveColorKey = fallbackResolver)
-        assertThat(days(grid).getValue(date).fillColorKey).isNull()
+        assertThat(days(grid).getValue(date).fillColorKey).isEqualTo("tomato")
     }
 
     // ---- marker precedence (ADR-041) ----

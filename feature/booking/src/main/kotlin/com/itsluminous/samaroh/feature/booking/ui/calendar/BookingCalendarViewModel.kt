@@ -430,6 +430,8 @@ class BookingCalendarViewModel
                         data.blocks,
                         // Marker precedence (ADR-041): real bookings own mixed cells.
                         isMarker = { booking -> EventTypeKinds.isMarker(presetRows, booking.eventType) },
+                        // Severity order for mixed-colour days (ADR-102): the palette's own order.
+                        paletteOrder = bookingColorsProvider.colors.map { it.key },
                     ) { booking ->
                         // Fallback chain (ADR-031/032): explicit colour → preset default → themed.
                         BookingColorFallback.effectiveKey(

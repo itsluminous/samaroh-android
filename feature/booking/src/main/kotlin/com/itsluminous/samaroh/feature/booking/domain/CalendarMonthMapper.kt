@@ -45,12 +45,12 @@ object CalendarMonthMapper {
         val hasTentativeBooking: Boolean = false,
         /**
          * Palette key (`shared/booking-colors.json`) painting the cell's FILL, or null
-         * for the default treatment (ADR-030). Set only when EXACTLY ONE live booking
-         * covers this date, that booking is firm (confirmed/completed — never
-         * tentative), and a colour RESOLVES for it via the fallback chain (ADR-031:
-         * explicit `bookings.color` → event-type default → null). Multi-booking days
-         * keep the default fill; the tentative amber outline + 👤 are unaffected
-         * either way.
+         * for the themed default (ADR-030, rule 5 superseded by ADR-102 /
+         * `shared/docs/calendar-day-color.md`). Decided over the FIRM (confirmed/completed)
+         * bookings shown on the date — tentative ones never fill — by [fillColorKey]: all
+         * the same colour → that colour (two red → red); mixed → the most severe palette
+         * colour (lowest `booking-colors.json` index; the themed default ranks last). Never
+         * blended. The tentative amber outline + 👤 are unaffected either way.
          */
         val fillColorKey: String? = null,
     )
@@ -75,7 +75,9 @@ object CalendarMonthMapper {
      * callers pass `EventTypeKinds.isMarker`; on a date covered by both real and marker
      * bookings the CELL shows only the real bookings' icons/colour (the day sheet still
      * lists everything via [bookingsOn]); marker-only dates keep the marker's own
-     * icon/colour treatment.
+     * icon/colour treatment. [paletteOrder] is the palette's key order (severity, ADR-102)
+     * — callers pass `BookingColorCatalog.colors.map { it.key }`; keys missing from it rank
+     * after every listed key (and still before the themed default).
      */
     fun map(
         month: YearMonth,
@@ -84,6 +86,7 @@ object CalendarMonthMapper {
         blocks: List<DateBlock>,
         firstDayOfWeek: DayOfWeek = DayOfWeek.SUNDAY,
         isMarker: (Booking) -> Boolean = { false },
+        paletteOrder: List<String> = emptyList(),
         effectiveColorKey: (Booking) -> String? = { it.color },
     ): MonthGrid {
         val visible = bookings.filter { it.status != BookingStatus.CANCELLED && it.deletedAt == null }
@@ -117,16 +120,36 @@ object CalendarMonthMapper {
                         hasFirmBooking = shown.any { it.status != BookingStatus.TENTATIVE },
                         hasTentativeBooking = shown.any { it.status == BookingStatus.TENTATIVE },
                         fillColorKey =
-                            shown
-                                .singleOrNull()
-                                ?.takeIf { it.status != BookingStatus.TENTATIVE }
-                                ?.let(effectiveColorKey),
+                            fillColorKey(
+                                shown.filter { it.status != BookingStatus.TENTATIVE }.map(effectiveColorKey),
+                                paletteOrder,
+                            ),
                     )
                 }
             weeks += Week(days)
             weekStart = weekStart.plusDays(7)
         }
         return MonthGrid(month, weeks)
+    }
+
+    /**
+     * The ONE colour a day cell shows (ADR-102, shared `calendar-day-color.md`), from the
+     * effective colour keys of the FIRM bookings covering it (null = themed default):
+     * none → no fill (null); all equal → that key (including all-null → default); mixed →
+     * the most severe palette key = lowest index in [paletteOrder] (an unlisted key ranks
+     * after every listed one; the default ranks after everything, so a mixed set always
+     * yields a palette colour). Never blends, never invents a "multiple" colour.
+     */
+    fun fillColorKey(
+        firmColorKeys: List<String?>,
+        paletteOrder: List<String>,
+    ): String? {
+        if (firmColorKeys.isEmpty()) return null
+        val first = firmColorKeys.first()
+        if (firmColorKeys.all { it == first }) return first
+        return firmColorKeys
+            .filterNotNull()
+            .minByOrNull { key -> paletteOrder.indexOf(key).let { if (it < 0) paletteOrder.size else it } }
     }
 
     /** Live, non-cancelled bookings covering [date] — drives tap-routing and conflicts. */

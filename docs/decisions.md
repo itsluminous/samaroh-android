@@ -4450,3 +4450,31 @@ fields; tombstoned/missing → notes fallback or omitted; `fallbackLabel` shapes
 `onRecordExpense`; `BookingCalendarViewModel`, `AddEntryViewModel`, `PartyLedgerViewModel`
 and `ExpensesDeepLinkViewModel` gain constructor dependencies (tests updated). Web mirrors
 the contract on its own ("Record expense" in the booking detail dialog, chip in the ledger).
+
+## ADR-102 — Calendar day colour: one colour per day, most severe wins (supersedes ADR-030 rule 5) (2026-10-12)
+
+**Context.** Two red bookings on one day rendered the day purple. Nothing blended: ADR-030
+rule 5 set the custom fill only when EXACTLY ONE firm booking covered the day
+(`shown.singleOrNull()`), so any multi-booking day fell back to the themed default
+`tertiaryContainer`. Shared rule: `shared/docs/calendar-day-color.md` (2026-10-12); the
+order of `shared/booking-colors.json` is now contractual (severity, warm → cool).
+
+**Decision.** `CalendarMonthMapper.fillColorKey(firmColorKeys, paletteOrder)` replaces the
+`singleOrNull()` rule, over the FIRM (confirmed/completed) bookings shown on the date after
+the ADR-041 marker rule, each resolved through the unchanged ADR-031 fallback chain
+(`bookings.color` → preset default → null): no firm booking → no fill; all equal → that
+colour (two red → red; all-null → themed default); mixed → the most severe palette key =
+lowest `booking-colors.json` index (an unlisted key ranks after every listed one, the
+themed default after everything, so a mixed set always yields a palette colour). Never
+blended, no "multiple" colour. Tentative bookings still never fill (amber outline + 👤 only);
+status does not influence the choice among firm bookings; the date number's on-colour
+follows the winning fill as before. `map()` gains `paletteOrder` (the ViewModel passes
+`BookingColorCatalog.colors.map { it.key }`); `hasFirmBooking` / `hasTentativeBooking` are
+unchanged.
+
+**Tests.** `CalendarMonthMapperTest`: the contract table — one firm red, two firm red → tomato;
+red + sage → tomato; sage + graphite → sage; sage + null → sage; null + null → default;
+red + tentative → tomato with the outline; tentative only → none with the outline; marker
+red + real sage → sage; status-agnostic choice; unknown keys rank after the palette and
+before the default; same-type pair shares the type default. Web: pills stay per-booking;
+the function is the rule if web ever paints a per-day colour.
