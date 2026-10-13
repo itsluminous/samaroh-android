@@ -226,8 +226,16 @@ class RoomExpensesRepository
             name: String,
         ): Party? = partyDao.liveByExactName(businessId, name)?.toModel()
 
+        override suspend fun livePartyForBooking(
+            businessId: String,
+            bookingId: String,
+        ): Party? = partyDao.liveByBooking(businessId, bookingId)?.toModel()
+
         override fun entriesForParty(partyId: String): Flow<List<Expense>> =
             expenseDao.entriesForParty(partyId).map { list -> list.map { it.toModel() } }
+
+        override fun entriesForBooking(bookingId: String): Flow<List<Expense>> =
+            expenseDao.liveForBooking(bookingId).map { list -> list.map { it.toModel() } }
 
         override suspend fun saveExpense(expense: Expense) {
             require(expense.amountPaise > 0) { "expense amount must be positive" }

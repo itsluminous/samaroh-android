@@ -158,7 +158,14 @@ class FakeExpensesRepository : ExpensesRepository {
         name: String,
     ): Party? = null
 
+    override suspend fun livePartyForBooking(
+        businessId: String,
+        bookingId: String,
+    ): Party? = null
+
     override fun entriesForParty(partyId: String): Flow<List<Expense>> = MutableStateFlow(emptyList())
+
+    override fun entriesForBooking(bookingId: String): Flow<List<Expense>> = MutableStateFlow(emptyList())
 
     override suspend fun saveExpense(expense: Expense) = throw UnsupportedOperationException()
 

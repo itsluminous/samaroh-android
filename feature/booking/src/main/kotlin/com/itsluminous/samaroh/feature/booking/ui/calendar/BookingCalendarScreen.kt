@@ -62,6 +62,7 @@ import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
 import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
+import com.itsluminous.samaroh.core.i18n.EventPartyName
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
@@ -146,6 +147,8 @@ fun BookingCalendarScreen(
     val canRecordPayment = actor?.let { it.isOwner || it.permissions.recordPayment } ?: false
     // Record expense against the event (ADR-101): `expenses.create`, carried on the actor.
     val canRecordExpense = actor?.let { it.isOwner || it.canRecordExpense } ?: false
+    // Expenses-history amounts on the card follow `expenses.view_amounts` (ADR-106 §3b).
+    val canViewExpenseAmounts = actor?.let { it.isOwner || it.canViewExpenseAmounts } ?: true
     // Invoice needs booking.view_amounts too (an invoice IS the amounts, ADR-039).
     val canViewAmounts = actor?.let { it.isOwner || it.permissions.viewAmounts } ?: true
     val canInvoice = (actor?.let { it.isOwner || it.permissions.generateInvoice } ?: false) && canViewAmounts
@@ -529,14 +532,21 @@ fun BookingCalendarScreen(
                 onEditBooking(current.booking.id)
             },
             onRecordPayment = { paymentSheet = Triple(current.booking.id, current.duePaise, null) },
-            // ADR-101: park the pre-fill in the core:data holder and close the card; the
-            // shell switches to the Expenses tab, whose host opens the add-entry form.
+            // ADR-101/ADR-106: park the pre-fill in the core:data holder and close the card;
+            // the shell switches to the Expenses tab, whose host opens the add-entry form.
+            // The event party's name is ENGLISH, device-independent (contract §2.1).
             onRecordExpense = {
                 viewModel.recordExpense(
                     BookingExpenseDraft(
                         bookingId = current.booking.id,
                         businessId = current.booking.businessId,
-                        customerName = current.booking.customerName,
+                        eventPartyName =
+                            EventPartyName.build(
+                                context = context,
+                                eventType = current.booking.eventType,
+                                startDate = current.booking.startDate,
+                                customerName = current.booking.customerName,
+                            ),
                         customerPhone =
                             current.booking.customerPhone
                                 ?.trim()
@@ -553,6 +563,7 @@ fun BookingCalendarScreen(
             onDeleteBooking = { viewModel.deleteBookingPermanently(current.booking.id) },
             onDeletePayment = viewModel::deletePayment,
             snackbarHostState = snackbarHostState,
+            canViewExpenseAmounts = canViewExpenseAmounts,
         )
     }
 

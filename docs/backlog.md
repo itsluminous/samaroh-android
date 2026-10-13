@@ -33,6 +33,12 @@ never reference third-party products (see the legal-hygiene rule in AGENTS.md).
 
 ## Platform
 
+- **Event-party collision self-heal (ADR-106 §6)** — on a PostgREST 409 / `23505`
+  (`uq_parties_biz_name`) for a queued `parties` insert, pull, re-resolve the event party
+  (link → name), re-point the local expense rows and queued expense payloads at the winner,
+  drop the losing party row and op. Today the op is held and retried (never dead-lettered);
+  the race needs two devices creating the same event party offline before either syncs.
+
 - **More languages** — extend the catalog beyond English + Hindi toward the 10-language
   target (Marathi, Gujarati, Telugu, Tamil, Kannada, Bengali, Punjabi, Malayalam);
   translation-only work by design.

@@ -98,10 +98,11 @@ data class AddEntryState(
     /** The prompt's Link button is running the account-picker/consent flow. */
     val linking: Boolean = false,
     /**
-     * Record-expense-from-booking mode (ADR-101): the booking's customer the party will be
-     * resolved to (or created as) on save — shown on the form since the route has no party.
+     * Record-expense-from-booking mode (ADR-106 §2): the EVENT PARTY's name
+     * (`{EventTypeLabel} - {dd-MMM-yyyy} - {CustomerName}`, English) the entry will be
+     * resolved to (or created as) on save — shown read-only since the route has no party.
      */
-    val bookingCustomerName: String? = null,
+    val bookingPartyName: String? = null,
     /**
      * The booking-draft route was reached with NO draft to show (stale back stack after the
      * holder was emptied elsewhere): the form cannot save anything — the screen leaves.
@@ -129,11 +130,12 @@ sealed interface AddEntryEvent {
     data object GoogleLinkFailed : AddEntryEvent
 
     /**
-     * ADR-101 §2: the booking customer has no live party and this member lacks
-     * `expenses.manage_parties` — nothing was written; the screen shows the blocking message.
+     * ADR-106 §2.2 step 3: the booking has no event party yet and this member lacks
+     * `expenses.manage_parties` — nothing was written; the screen shows the blocking message
+     * with the event party's name.
      */
     data class PartyCreateForbidden(
-        val customerName: String,
+        val partyName: String,
     ) : AddEntryEvent
 }
 
@@ -155,7 +157,7 @@ class AddEntryViewModel
         private val clock: Clock,
     ) : ViewModel() {
         /**
-         * Record-expense-from-booking pre-fill (ADR-101). Taken from the holder on first
+         * Record-expense-from-booking pre-fill (ADR-101/ADR-106). Taken from the holder on first
          * creation (and consumed there), then kept in saved state so recreation does not
          * depend on the holder. Null on the ordinary party routes.
          */
@@ -200,7 +202,7 @@ class AddEntryViewModel
                     // already localized); the user may edit or clear them. Only on FIRST
                     // creation — a recreated ViewModel restores whatever the user typed.
                     notes = bookingDraft?.defaultNotes.takeIf { savedStateHandle.get<Boolean>(STATE_NOTES_SEEDED) != true }.orEmpty(),
-                    bookingCustomerName = bookingDraft?.customerName,
+                    bookingPartyName = bookingDraft?.eventPartyName,
                     unusable = routePartyId == null && bookingDraft == null,
                 ),
             )
@@ -340,8 +342,8 @@ class AddEntryViewModel
                 _state.update { it.copy(saving = true) }
                 val now = clock.instant()
                 val businessId = session.businessId()
-                // Booking mode (ADR-101 §2): resolve the customer's party NOW, in order —
-                // live name match (earliest created_at) → create (needs manage_parties).
+                // Booking mode (ADR-106 §2.2): resolve the EVENT PARTY now, in order —
+                // by link → by normalized name → create (needs manage_parties).
                 val partyId =
                     if (bookingDraft != null) {
                         resolveBookingParty(bookingDraft, businessId, now) ?: run {
@@ -401,18 +403,23 @@ class AddEntryViewModel
         }
 
         /**
-         * ADR-101 §2 party resolution. Returns the party id to record against, or null when
-         * the party would have to be created and this member may not (`expenses.manage_parties`,
-         * RLS `parties_insert`) — the blocking message is emitted and NOTHING is written.
-         * A created party is `{name = customer (trimmed), phone, business_related = false}`;
-         * an existing party's phone is never back-filled.
+         * ADR-106 §2.2 event-party resolution, in this exact order:
+         * 1. by LINK — a live party with `booking_id = this booking` is reused whatever its
+         *    current name (the owner may have renamed it; the booking may have been edited);
+         * 2. by NAME — a live party whose normalized name equals the §2.1 name (tombstones
+         *    never match; earliest `created_at`); its `booking_id` is NOT back-filled;
+         * 3. CREATE `{name = §2.1, phone = customer phone or null, business_related = true,
+         *    booking_id}` — needs `expenses.manage_parties` (RLS `parties_insert`); without
+         *    it the blocking message is emitted and NOTHING is written (null returned).
+         * An existing party's phone is never back-filled.
          */
         private suspend fun resolveBookingParty(
             draft: BookingExpenseDraft,
             businessId: String,
             now: java.time.Instant,
         ): String? {
-            val name = draft.customerName.trim()
+            expensesRepository.livePartyForBooking(businessId, draft.bookingId)?.let { return it.id }
+            val name = draft.eventPartyName.trim()
             expensesRepository.liveParty(businessId, name)?.let { return it.id }
             if (!session.canCreateParties.first()) {
                 _events.emit(AddEntryEvent.PartyCreateForbidden(name))
@@ -426,7 +433,8 @@ class AddEntryViewModel
                     phone = draft.customerPhone?.trim()?.ifEmpty { null },
                     createdAt = now,
                     updatedAt = now,
-                    businessRelated = false,
+                    businessRelated = true,
+                    bookingId = draft.bookingId,
                 )
             expensesRepository.saveParty(party)
             return party.id

@@ -15,7 +15,6 @@ import com.itsluminous.samaroh.core.data.sync.SyncScheduler
 import com.itsluminous.samaroh.core.google.auth.GoogleAccountLinker
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkException
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
-import com.itsluminous.samaroh.core.i18n.EventTypeLabels
 import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.feature.expenses.ExpensesSession
@@ -49,39 +48,14 @@ import javax.inject.Inject
 const val ARG_PARTY_ID = "partyId"
 
 /**
- * The event an entry was recorded against (ADR-101 §3), rendered as a small chip
- * `Event: {label}`. [bookingId]/[businessId] are null when the booking is not resolvable
- * locally (tombstoned / not pulled yet) and the label came from the notes fallback —
- * such a chip is not tappable.
+ * The target of a "Show event" action (ADR-106 §3): a booking that RESOLVED locally (live
+ * row of the business). Entries or event parties whose booking is tombstoned or not yet
+ * pulled get NO target — the control is omitted, never a bare id.
  */
-data class EventChip(
-    /** The booking customer's first name (`BookingTitleFormatter.firstName` convention). */
-    val customerFirstName: String? = null,
-    /** The stored `bookings.event_type`; the UI localizes it (`EventTypeLabels`). */
-    val eventType: String? = null,
-    /** Notes-derived label when the booking is unresolvable: the first `·` segment of the notes. */
-    val fallbackLabel: String? = null,
-    val bookingId: String? = null,
-    val businessId: String? = null,
-) {
-    /** Tappable only when the booking resolved locally (ADR-101 §3). */
-    val resolvable: Boolean get() = bookingId != null && businessId != null
-
-    companion object {
-        /** `{eventType} · {dates}` / `{first name} · {event type}` separator (shared contract §1/§3). */
-        const val SEPARATOR = " · "
-
-        /**
-         * Fallback for an unresolvable booking: the notes' first segment IF they still have
-         * the `booking_notes_default` shape (`{eventType} · {dates}`), else null (no chip).
-         */
-        fun fallbackLabel(notes: String?): String? {
-            val text = notes?.trim().orEmpty()
-            if (!text.contains(SEPARATOR)) return null
-            return text.substringBefore(SEPARATOR).trim().ifEmpty { null }
-        }
-    }
-}
+data class ShowEventTarget(
+    val bookingId: String,
+    val businessId: String,
+)
 
 data class PartyLedgerState(
     val party: Party? = null,
@@ -89,9 +63,11 @@ data class PartyLedgerState(
     val rows: List<LedgerRow> = emptyList(),
     /** expenseId → its live attachments (thumbnails + pending badges). */
     val attachmentsByExpense: Map<String, List<AttachmentWithLocalState>> = emptyMap(),
-    /** expenseId → the event chip of entries recorded against a booking (ADR-101). */
-    val eventChips: Map<String, EventChip> = emptyMap(),
-    /** `booking.view` (ADR-101 §3): the chip opens the booking card only when true; shown regardless. */
+    /** expenseId → "Show event" target of entries recorded against a resolvable booking (ADR-106 §3). */
+    val showEventTargets: Map<String, ShowEventTarget> = emptyMap(),
+    /** The event party's own "Show event" target (`parties.booking_id`, resolvable) — header control. */
+    val partyEventTarget: ShowEventTarget? = null,
+    /** `booking.view` (ADR-106 §3): without it NO "Show event" control is rendered (hidden, not greyed). */
     val canOpenBookings: Boolean = true,
     /** Net balance = the newest row's balance-after (0 when no entries). */
     val netBalancePaise: Long = 0,
@@ -206,30 +182,34 @@ class PartyLedgerViewModel
 
         private val entries = expensesRepository.entriesForParty(partyId)
 
+        private val party = partyRefresh.map { ledgerRepository.party(partyId) }
+
         /**
-         * Event chips (ADR-101 §3), resolved per distinct `booking_id` whenever the entries
-         * change: live booking → `{first name} · {event type}`; unresolvable (tombstoned, not
-         * pulled) → the notes' first segment when they still have the default shape, else no
-         * chip. Never a bare id, never a crash.
+         * "Show event" targets (ADR-106 §3), re-resolved whenever the party or its entries
+         * change: one per linked entry (`expenses.booking_id`) plus the event party's own
+         * (`parties.booking_id`), each only when the booking is a live local row. Never a
+         * bare id, never a crash.
          */
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        private val eventChips: kotlinx.coroutines.flow.Flow<Map<String, EventChip>> =
-            entries.flatMapLatest { list -> flow { emit(resolveEventChips(list)) } }
+        private val showEvent: kotlinx.coroutines.flow.Flow<ShowEventTargets> =
+            combine(party, entries) { p, list -> p to list }
+                .flatMapLatest { (p, list) -> flow { emit(resolveShowEventTargets(p, list)) } }
 
         val state: StateFlow<PartyLedgerState> =
             combine(
-                partyRefresh.map { ledgerRepository.party(partyId) },
-                combine(entries, eventChips) { list, chips -> list to chips },
+                party,
+                combine(entries, showEvent) { list, targets -> list to targets },
                 ledgerRepository.attachmentsForParty(partyId),
                 gates,
                 session.businessName,
-            ) { party, (entries, chips), attachments, gate, businessName ->
+            ) { party, (entries, targets), attachments, gate, businessName ->
                 val rows = RunningBalanceCalculator.withRunningBalance(entries)
                 PartyLedgerState(
                     party = party,
                     rows = rows,
                     attachmentsByExpense = attachments.groupBy { it.attachment.expenseId },
-                    eventChips = chips,
+                    showEventTargets = targets.byExpense,
+                    partyEventTarget = targets.party,
                     canOpenBookings = gate.viewBookings,
                     netBalancePaise = rows.firstOrNull()?.balanceAfterPaise ?: 0,
                     canEditEntries = gate.editEntries,
@@ -256,39 +236,39 @@ class PartyLedgerViewModel
             val viewBookings: Boolean = true,
         )
 
-        private suspend fun resolveEventChips(entries: List<Expense>): Map<String, EventChip> {
-            val linked = entries.filter { it.bookingId != null }
-            if (linked.isEmpty()) return emptyMap()
-            val bookings =
-                linked
-                    .mapNotNull { it.bookingId }
-                    .distinct()
-                    .associateWith { id -> runCatching { bookingRepository.booking(id) }.getOrNull() }
-            return buildMap {
-                for (expense in linked) {
-                    val booking = bookings[expense.bookingId]?.takeIf { it.deletedAt == null }
-                    val chip =
-                        if (booking != null) {
-                            EventChip(
-                                customerFirstName = EventTypeLabels.customerFirstName(booking.customerName),
-                                eventType = booking.eventType,
-                                bookingId = booking.id,
-                                businessId = booking.businessId,
-                            )
-                        } else {
-                            EventChip.fallbackLabel(expense.notes)?.let { EventChip(fallbackLabel = it) }
-                        }
-                    if (chip != null) put(expense.id, chip)
+        private data class ShowEventTargets(
+            val byExpense: Map<String, ShowEventTarget> = emptyMap(),
+            val party: ShowEventTarget? = null,
+        )
+
+        private suspend fun resolveShowEventTargets(
+            party: Party?,
+            entries: List<Expense>,
+        ): ShowEventTargets {
+            val wanted = (entries.mapNotNull { it.bookingId } + listOfNotNull(party?.bookingId)).distinct()
+            if (wanted.isEmpty()) return ShowEventTargets()
+            val targets =
+                wanted.associateWith { id ->
+                    runCatching { bookingRepository.booking(id) }
+                        .getOrNull()
+                        ?.takeIf { it.deletedAt == null }
+                        ?.let { ShowEventTarget(bookingId = it.id, businessId = it.businessId) }
                 }
-            }
+            return ShowEventTargets(
+                byExpense =
+                    buildMap {
+                        for (expense in entries) {
+                            targets[expense.bookingId]?.let { put(expense.id, it) }
+                        }
+                    },
+                party = targets[party?.bookingId],
+            )
         }
 
-        /** Open the chip's booking card (ADR-098 route) — only for resolvable bookings and `booking.view` holders. */
-        fun openBooking(chip: EventChip) {
-            val bookingId = chip.bookingId ?: return
-            val businessId = chip.businessId ?: return
+        /** "Show event" (ADR-106 §3): open the booking card via the ADR-098 route — `booking.view` holders only. */
+        fun openBooking(target: ShowEventTarget) {
             if (!state.value.canOpenBookings) return
-            bookingCardOpener.openBookingCard(bookingId, businessId)
+            bookingCardOpener.openBookingCard(target.bookingId, target.businessId)
         }
 
         /**

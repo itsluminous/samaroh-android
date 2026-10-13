@@ -157,7 +157,22 @@ interface ExpensesRepository {
         name: String,
     ): Party?
 
+    /**
+     * The live EVENT PARTY linked to [bookingId] (`parties.booking_id`, ADR-106 §2.2 step
+     * 1), earliest `created_at` first; null when none.
+     */
+    suspend fun livePartyForBooking(
+        businessId: String,
+        bookingId: String,
+    ): Party?
+
     fun entriesForParty(partyId: String): Flow<List<Expense>>
+
+    /**
+     * Live entries recorded against [bookingId] (`expenses.booking_id`), newest first —
+     * the booking card's "Expenses history" (ADR-106 §3b).
+     */
+    fun entriesForBooking(bookingId: String): Flow<List<Expense>>
 
     suspend fun saveExpense(expense: Expense)
 

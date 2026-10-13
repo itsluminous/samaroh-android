@@ -26,6 +26,16 @@ data class BookingActor(
      * stays a pure function of the actor. Owners bypass it like every other gate.
      */
     val canRecordExpense: Boolean = false,
+    /**
+     * `expenses.view` (ADR-106 §3b): may this member see the card's "Expenses history"
+     * section at all? Owners always may.
+     */
+    val canViewExpenses: Boolean = false,
+    /**
+     * `expenses.view_amounts` (ADR-106 §3b): without it the section's amounts are masked
+     * exactly as the Expenses tab masks them (dates and notes stay visible).
+     */
+    val canViewExpenseAmounts: Boolean = false,
 )
 
 /*
@@ -81,6 +91,8 @@ class OwnerBookingActorProvider
                         generateInvoice = true,
                     ),
                 canRecordExpense = true,
+                canViewExpenses = true,
+                canViewExpenseAmounts = true,
             )
         }
     }
@@ -109,6 +121,8 @@ class SessionBookingActorProvider
                 isOwner = false,
                 permissions = member?.permissions?.booking ?: BookingPermissions(view = true),
                 canRecordExpense = member?.permissions?.expenses?.create ?: false,
+                canViewExpenses = member?.permissions?.expenses?.view ?: false,
+                canViewExpenseAmounts = member?.permissions?.expenses?.viewAmounts ?: false,
             )
         }
     }

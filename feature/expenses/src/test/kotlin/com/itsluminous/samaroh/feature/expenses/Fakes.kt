@@ -57,10 +57,25 @@ class FakeExpensesRepository : ExpensesRepository {
             .filter { it.deletedAt == null && it.name.trim().lowercase() == name.trim().lowercase() }
             .minByOrNull { it.createdAt }
 
+    override suspend fun livePartyForBooking(
+        businessId: String,
+        bookingId: String,
+    ): Party? =
+        parties.value
+            .filter { it.deletedAt == null && it.businessId == businessId && it.bookingId == bookingId }
+            .minByOrNull { it.createdAt }
+
     override fun entriesForParty(partyId: String): Flow<List<Expense>> =
         expenses.map { list ->
             list
                 .filter { it.partyId == partyId }
+                .sortedWith(compareByDescending<Expense> { it.expenseDate }.thenByDescending { it.createdAt })
+        }
+
+    override fun entriesForBooking(bookingId: String): Flow<List<Expense>> =
+        expenses.map { list ->
+            list
+                .filter { it.bookingId == bookingId && it.deletedAt == null }
                 .sortedWith(compareByDescending<Expense> { it.expenseDate }.thenByDescending { it.createdAt })
         }
 

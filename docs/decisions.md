@@ -4630,3 +4630,111 @@ Production is unaffected (storage and framework agree there).
 `state.today` / the record-payment sheet's default `paid_on` come from the injected UTC `Clock`,
 so between 00:00 and 05:30 IST a payment defaults to yesterday's date (the audit line uses the
 device zone) — same class of issue ADR-094 §3 fixed for alarms; worth its own ADR.
+
+## ADR-106 — Expense against an event, revision 2: the EVENT PARTY (`parties.booking_id`), "Show event", "Expenses history" on the card (2026-10-13)
+
+**Status:** accepted (owner feedback on ADR-101: the expense is the EVENT's, not the customer's).
+Implements shared `docs/expense-against-event.md` **revision 2** (samaroh-shared 8c7e7a0: migration
+`014_party_booking_link.sql`, strings `booking.card.expenses_history`, `booking.card.expenses_total`,
+`expenses.ledger.show_event`; `expenses.ledger.event_chip` deprecated). Web mirrors the same contract.
+**The owner applies 012 then 014 BEFORE this build ships** (PGRST204 otherwise — handoff
+`~/.luminous/handoff/shared-014-owner-ddl.md`).
+
+**Context.** Revision 1 (ADR-101) booked the expense against the booking's CUSTOMER as a person
+(`business_related = false`, name = customer name) and annotated ledger rows with an `Event: {label}`
+chip. The owner's model is different: event spend belongs to the EVENT, is business spend, and should be
+visible from the booking card. The party also had no link back to its booking, so a renamed party or an
+edited booking split the ledger.
+
+**Decision (Android half).**
+1. **Contract extensions (frozen modules, ADR-001 process, all additive).** `core:model
+   Party.bookingId: String? = null` (`@SerialName("booking_id")`, defaulted so pre-014 servers and older
+   backups decode — `PartyBookingLinkSerializationTest`). `core:database` v14 → v15 `MIGRATION_14_15`
+   (`ALTER TABLE parties ADD COLUMN booking_id TEXT`), `PartyEntity.bookingId`, new
+   `PartyDao.liveByBooking(businessId, bookingId)` (live rows, earliest `created_at`) and
+   `ExpenseDao.liveForBooking(bookingId)` (live, `expense_date DESC, created_at DESC`). `core:data
+   ExpensesRepository.livePartyForBooking` + `entriesForBooking`; both mappers (`core:data`, `core:sync`)
+   carry the column. Sync: the `parties` `SyncTableSpec` has no column list, so `booking_id` crosses the
+   wire with no engine change (pull `*`, push the serialized model). Backup: `SELECT *` rows export it
+   automatically; restore accepts absence → null (`docs/backup-format.md`).
+2. **The event party name is ENGLISH, device-independent** (`core:i18n EventPartyName`, contract §2.1):
+   `{EventTypeLabel} - {dd-MMM-yyyy} - {CustomerName}`. The month is a fixed `Jan…Dec` table and the digits
+   are plain `Int.toString()` — no locale-aware formatter anywhere, so a `hi-IN-u-nu-deva` default locale
+   yields the identical string (`EventPartyNameTest`). `{EventTypeLabel}` is `bookings.event_type` trimmed
+   as stored (a Hindi custom label stays Hindi — it IS the data); a legacy built-in KEY (matched by the
+   shared `normalize` rule — `wedding`, `room_booking`, and the stored seeded label `Room Booking` which
+   normalizes to the same key) resolves to the preset's English catalog label through an English-forced
+   `createConfigurationContext`. `EventTypeLabels` gains `lagan`/`muh_dikhayi` (kept in step with
+   `shared/event-types.json`) and loses the chip-only `customerFirstName`. The Booking card builds the name
+   in composition and ships it in the `core:data BookingExpenseDraft` (`eventPartyName` REPLACES rev-1's
+   `customerName`; `customerPhone` + `defaultNotes` unchanged); the add-entry form shows it read-only
+   (`entry_booking_party`).
+3. **Resolution at SAVE (`AddEntryViewModel.resolveBookingParty`, contract §2.2, exact order):** (1) by
+   LINK — `livePartyForBooking` reuses the live party with `booking_id = booking.id` whatever its current
+   name (the owner may have renamed it; the booking may have been edited), earliest `created_at` on an
+   offline race; (2) by NAME — `liveParty(normalized §2.1 name)`, tombstones never match, `booking_id` NOT
+   back-filled (no silent edits); (3) CREATE `{name = §2.1, phone = customer phone or null,
+   business_related = TRUE, booking_id, notes = null}` — needs strict `expenses.manage_parties`
+   (`ExpensesSession.canCreateParties`, RLS `parties_insert`); a `create`-only member gets
+   `expenses.entry.party_create_forbidden` with the event party name and nothing is written. Phone never
+   back-filled. `business_related = true` because event spend IS business spend (reports roll it up under
+   the event party's name; rev 1's `false` was wrong). **Nothing migrates retroactively:** v0.22.0 event
+   expenses keep their rev-1 customer party (`business_related = false`, no `booking_id`); the next expense
+   recorded from that card resolves by link (none) → by name (the new §2.1 name ≠ the customer name) →
+   creates the event party. The owner may merge by renaming/deleting the old party; this ADR does not.
+4. **"Show event" replaces the event chip (contract §3).** `PartyLedgerViewModel` resolves a
+   `ShowEventTarget(bookingId, businessId)` per linked entry AND one for the party itself when
+   `parties.booking_id` points at a LIVE local booking; tombstoned / not-yet-pulled bookings yield no
+   target (never a bare id, never the rev-1 notes fallback). The screen renders an outlined
+   `AssistChip` `expenses.ledger.show_event` (`labelSmall`, calendar glyph; tags `ledger_show_event`,
+   `ledger_party_show_event`) ONLY when `booking.view` holds AND a target exists — hidden, never greyed
+   (ADR-038). The header control sits directly under the app bar above Net balance (the title slot's fixed
+   height clipped it below the phone line — verified on the emulator). Tap → `BookingCardOpener` → ADR-098
+   `BookingDeepLinkHolder` (lands where a reminder tap lands). `EventChip`, `EventChipView` and the use of
+   `expenses.ledger.event_chip` are gone; the key stays in the catalog (deprecated) until the web drops it.
+5. **"Expenses history" on the booking card (contract §3b).** `BookingCalendarViewModel.detail` combines
+   `expensesRepository.entriesForBooking(id)` (strictly `expenses.booking_id`-based — plain-ledger entries
+   against the event party are NOT listed) and the actor from `actorFlow` (NOT the possibly-initial
+   `uiState`, so the gate holds on the first emission); `BookingDetail.expenses` =
+   `BookingExpensesHistory.visibleRows(actor, rows)` — EMPTY without `expenses.view` (owners / owner-mode
+   always see them). `BookingActor` gains `canViewExpenses` / `canViewExpenseAmounts`
+   (`SessionBookingActorProvider` maps `permissions.expenses.view` / `.viewAmounts`; owners true).
+   `BookingCardSheet` renders the section directly below Payment history, styled identically (divider,
+   `titleSmall` heading, `bodyMedium` line `date · notes` single-line ellipsised via
+   `BookingCardNotes.expenseLine`, trailing `AmountText` — paid = money-out, received = money-in as in the
+   ledger), footer `booking.card.expenses_total` = `BookingExpensesHistory.totalPaise` (Σpaid − Σreceived,
+   `bodyLarge` like *Paid*, sign shown by tone). **Entirely absent** when there are no rows (no divider,
+   heading or empty state); amounts masked per `expenses.view_amounts` (new `canViewExpenseAmounts`
+   parameter, independent of `booking.view_amounts`); rows are read-only. The total is NEVER subtracted
+   from Due — booking money math is unchanged. Placed inside the non-marker block (markers have no money
+   surface and the action is hidden on them). Tags: `booking_card_expenses_history`,
+   `booking_card_expense_row`, `booking_card_expenses_total`.
+6. **23505 on the party insert (contract §2.2 step 5) — not changed here.** Android's push already never
+   dead-letters: a rejected `parties` op is held and retried on every sync (ADR-083 §3), the expense op
+   behind it waits in per-entity FIFO. A client-side "pull, re-resolve from step 1, re-point the expense"
+   pass on `uq_parties_biz_name` collisions is recorded in `docs/backlog.md` (Platform); the local
+   link→name dedup against pulled rows makes the race rare.
+
+**Tests.** `EventPartyNameTest` (contract example; day/month/year format incl. `Sep` never `Sept`;
+identical under `hi-IN-u-nu-deva` and `ar-EG` default locales; whitespace collapse; stored labels pass
+through incl. Hindi; legacy keys and normalize-matched seeded labels → English catalog label),
+`PartyBookingLinkSerializationTest` (wire key, legacy row decodes unlinked), `PartyBookingLinkMigrationTest`
+(14→15: existing parties null, new rows linked), `LiveNameSteeringDaoTest.liveByBooking` (by link whatever
+the name, tombstone excluded, earliest first, business-scoped) + `liveForBooking` (newest first by date then
+created_at, tombstones / other bookings / plain entries excluded), `AddEntryViewModelTest` (pre-fill shows
+the event party name; by-link beats by-name and ignores tombstones; by-name without back-fill; create =
+business-related + linked + phone; `create`-only member blocked with the event party name; ordinary route
+never links), `PartyLedgerViewModelTest` (targets only for live bookings; header target from
+`parties.booking_id` and omitted once the booking is tombstoned; open only with `booking.view`),
+`BookingExpensesHistoryTest` (total, gate incl. owner-mode null actor, tombstones dropped, expense line),
+`BookingCalendarViewModelTest` (no linked rows → empty; newest-first + total + due unchanged; member without
+`expenses.view` → empty, with it → rows). Full gate green; connected suite 40/40; emulator (en + hi):
+record expense shows `Wedding - 20-Oct-2026 - Sandhya Upadhyay`, a second expense reuses the party, both
+Show event controls render and open the card, the card lists both rows + total, a card without expenses
+shows no section, the Hindi UI keeps the English party name.
+
+**Consequences.** `BookingExpenseDraft.customerName` → `eventPartyName` (feature-internal callers
+updated); `AddEntryState.bookingCustomerName` → `bookingPartyName`; `AddEntryEvent.PartyCreateForbidden
+.partyName`; `PartyLedgerState.eventChips/canOpenBookings` → `showEventTargets/partyEventTarget/
+canOpenBookings`; `BookingCalendarViewModel` gains an `ExpensesRepository` dependency; `BookingCardSheet`
+gains `canViewExpenseAmounts` (defaulted); every `ExpensesRepository` fake implements the two new methods.

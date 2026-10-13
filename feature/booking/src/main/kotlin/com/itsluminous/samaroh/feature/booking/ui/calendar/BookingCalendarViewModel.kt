@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
+import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
@@ -17,6 +18,7 @@ import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.EventTypeKinds
+import com.itsluminous.samaroh.core.model.Expense
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderKind
@@ -25,6 +27,7 @@ import com.itsluminous.samaroh.feature.booking.domain.BookingActor
 import com.itsluminous.samaroh.feature.booking.domain.BookingActorProvider
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
 import com.itsluminous.samaroh.feature.booking.domain.BookingDeepLinkResolver
+import com.itsluminous.samaroh.feature.booking.domain.BookingExpensesHistory
 import com.itsluminous.samaroh.feature.booking.domain.CalendarMonthMapper
 import com.itsluminous.samaroh.feature.booking.domain.DueCalculator
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
@@ -100,6 +103,13 @@ data class BookingDetail(
      * record-payment / invoice / payment-reminder actions. A marker has no money.
      */
     val isMarker: Boolean = false,
+    /**
+     * "Expenses history" rows (ADR-106 §3b): live expenses recorded against THIS booking
+     * (`expenses.booking_id`), newest first. Already gated — EMPTY for a member without
+     * `expenses.view` (owners always see them) — so the card simply hides the section when
+     * the list is empty. Informational: never part of [duePaise].
+     */
+    val expenses: List<Expense> = emptyList(),
 )
 
 data class PendingConfirmationUi(
@@ -177,6 +187,7 @@ class BookingCalendarViewModel
         private val clock: Clock,
         private val deepLinks: BookingDeepLinkHolder,
         private val expenseDrafts: BookingExpenseDraftHolder,
+        private val expensesRepository: ExpensesRepository,
     ) : ViewModel() {
         private val month = MutableStateFlow(YearMonth.now(clock))
         private val selectedBookingId = MutableStateFlow<String?>(null)
@@ -283,11 +294,14 @@ class BookingCalendarViewModel
                         flowOf(null)
                     } else {
                         combine(
-                            uiState.map { state -> state.bookings.firstOrNull { it.id == id } },
+                            // The ACTOR comes from its own flow, not the (possibly still initial)
+                            // uiState: the expenses.view gate must hold on the first emission too.
+                            combine(uiState.map { state -> state.bookings.firstOrNull { it.id == id } }, actorFlow) { b, a -> b to a },
                             businessFlow,
                             bookingRepository.paymentsForBooking(id),
                             presets,
-                        ) { booking, business, payments, presetRows ->
+                            expensesRepository.entriesForBooking(id),
+                        ) { (booking, actor), business, payments, presetRows, linkedExpenses ->
                             // Events view opens bookings outside the shown month — fall
                             // back to a direct lookup when the month state lacks the row.
                             (booking ?: bookingRepository.booking(id))?.let {
@@ -299,6 +313,7 @@ class BookingCalendarViewModel
                                     duePaise = DueCalculator.duePaise(it, paid),
                                     creatorName = creatorName(it, business),
                                     isMarker = EventTypeKinds.isMarker(presetRows, it.eventType),
+                                    expenses = BookingExpensesHistory.visibleRows(actor, linkedExpenses),
                                 )
                             }
                         }
@@ -530,9 +545,9 @@ class BookingCalendarViewModel
         }
 
         /**
-         * Record expense (ADR-101): hands the pre-fill to the Expenses module through the
-         * core:data holder and closes the card. Nothing is written here — the party is
-         * resolved and the row inserted only when the user saves the add-entry form.
+         * Record expense (ADR-101/ADR-106): hands the pre-fill to the Expenses module through
+         * the core:data holder and closes the card. Nothing is written here — the event party
+         * is resolved and the row inserted only when the user saves the add-entry form.
          */
         fun recordExpense(draft: BookingExpenseDraft) {
             expenseDrafts.set(draft)

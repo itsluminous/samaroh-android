@@ -131,7 +131,7 @@ class AddEntryViewModelTest {
         BookingExpenseDraft(
             bookingId = "booking-1",
             businessId = Fixtures.BUSINESS_ID,
-            customerName = "Priya Sharma",
+            eventPartyName = "Wedding - 10-Sep-2026 - Priya Sharma",
             customerPhone = "9876543210",
             defaultNotes = "Wedding · 10 Sep 2026",
         )
@@ -174,13 +174,13 @@ class AddEntryViewModelTest {
         )
 
     @Test
-    fun `booking draft pre-fills You gave, the default notes and the customer, and is consumed`() {
+    fun `booking draft pre-fills You gave, the default notes and the event party name, and is consumed`() {
         bookingExpenseDrafts.set(draft)
         val viewModel = bookingViewModel()
         val state = viewModel.state.value
         assertThat(state.direction).isEqualTo(ExpenseDirection.PAID)
         assertThat(state.notes).isEqualTo("Wedding · 10 Sep 2026")
-        assertThat(state.bookingCustomerName).isEqualTo("Priya Sharma")
+        assertThat(state.bookingPartyName).isEqualTo("Wedding - 10-Sep-2026 - Priya Sharma")
         assertThat(state.amountText).isEmpty()
         assertThat(state.unusable).isFalse()
         assertThat(bookingExpenseDrafts.pending.value).isNull()
@@ -198,12 +198,41 @@ class AddEntryViewModelTest {
     }
 
     @Test
-    fun `save resolves the customer to an existing live party by normalized name and links the booking`() =
+    fun `save reuses the party LINKED to the booking whatever its current name (step 1 beats the name match)`() =
         runTest {
-            val older = Fixtures.party(id = "p-older", name = "priya sharma ").copy(createdAt = Fixtures.NOW.minusSeconds(60))
-            val newer = Fixtures.party(id = "p-newer", name = "PRIYA SHARMA")
-            val dead = Fixtures.party(id = "p-dead", name = "Priya Sharma").copy(deletedAt = Fixtures.NOW)
-            expensesRepository.parties.value = listOf(newer, older, dead)
+            // Owner renamed the event party; the booking was edited too — the link still wins.
+            val renamedNewer = Fixtures.party(id = "p-linked-newer", name = "Priya wedding flowers").copy(bookingId = "booking-1")
+            val renamedOlder =
+                Fixtures
+                    .party(id = "p-linked-older", name = "Old name")
+                    .copy(bookingId = "booking-1", createdAt = Fixtures.NOW.minusSeconds(60))
+            val deadLinked = Fixtures.party(id = "p-linked-dead", name = "x").copy(bookingId = "booking-1", deletedAt = Fixtures.NOW)
+            val byName = Fixtures.party(id = "p-by-name", name = "Wedding - 10-Sep-2026 - Priya Sharma")
+            expensesRepository.parties.value = listOf(renamedNewer, deadLinked, byName, renamedOlder)
+            bookingExpenseDrafts.set(draft)
+            val viewModel = bookingViewModel(session = creatorOnlySession())
+            viewModel.events.test {
+                viewModel.onAmountChange("250")
+                viewModel.save()
+                assertThat(awaitItem()).isEqualTo(AddEntryEvent.Saved("p-linked-older"))
+            }
+            val saved = expensesRepository.expenses.value.single()
+            assertThat(saved.partyId).isEqualTo("p-linked-older") // earliest created_at among live LINKED rows
+            assertThat(saved.bookingId).isEqualTo("booking-1")
+            assertThat(expensesRepository.savedParties).isEmpty() // no create, no edits
+        }
+
+    @Test
+    fun `save resolves the event party by normalized name when no party is linked, without back-filling booking_id`() =
+        runTest {
+            val older =
+                Fixtures
+                    .party(id = "p-older", name = "wedding - 10-sep-2026 - priya sharma ")
+                    .copy(createdAt = Fixtures.NOW.minusSeconds(60))
+            val newer = Fixtures.party(id = "p-newer", name = "WEDDING - 10-SEP-2026 - PRIYA SHARMA")
+            val dead = Fixtures.party(id = "p-dead", name = "Wedding - 10-Sep-2026 - Priya Sharma").copy(deletedAt = Fixtures.NOW)
+            val otherBooking = Fixtures.party(id = "p-other", name = "Birthday - 01-Jan-2026 - Someone").copy(bookingId = "booking-9")
+            expensesRepository.parties.value = listOf(newer, older, dead, otherBooking)
             bookingExpenseDrafts.set(draft)
             val viewModel = bookingViewModel(session = creatorOnlySession())
             viewModel.events.test {
@@ -217,11 +246,16 @@ class AddEntryViewModelTest {
             assertThat(saved.bookingId).isEqualTo("booking-1")
             assertThat(saved.direction).isEqualTo(ExpenseDirection.PAID)
             assertThat(saved.notes).isEqualTo("Wedding · 10 Sep 2026")
-            assertThat(expensesRepository.savedParties).isEmpty() // no create, no phone back-fill
+            assertThat(expensesRepository.savedParties).isEmpty() // no create, no phone / booking_id back-fill
+            assertThat(
+                expensesRepository.parties.value
+                    .single { it.id == "p-older" }
+                    .bookingId,
+            ).isNull()
         }
 
     @Test
-    fun `save creates the customer as a personal party when none exists and manage_parties is held`() =
+    fun `save creates the EVENT party (business-related, linked) when none exists and manage_parties is held`() =
         runTest {
             bookingExpenseDrafts.set(draft)
             val viewModel = bookingViewModel() // owner
@@ -230,9 +264,10 @@ class AddEntryViewModelTest {
             viewModel.save()
 
             val party = expensesRepository.savedParties.single()
-            assertThat(party.name).isEqualTo("Priya Sharma")
+            assertThat(party.name).isEqualTo("Wedding - 10-Sep-2026 - Priya Sharma")
             assertThat(party.phone).isEqualTo("9876543210")
-            assertThat(party.businessRelated).isFalse()
+            assertThat(party.businessRelated).isTrue() // event spend IS business spend (rev 2)
+            assertThat(party.bookingId).isEqualTo("booking-1")
             assertThat(party.notes).isNull()
             val saved = expensesRepository.expenses.value.single()
             assertThat(saved.partyId).isEqualTo(party.id)
@@ -248,7 +283,7 @@ class AddEntryViewModelTest {
             viewModel.events.test {
                 viewModel.onAmountChange("250")
                 viewModel.save()
-                assertThat(awaitItem()).isEqualTo(AddEntryEvent.PartyCreateForbidden("Priya Sharma"))
+                assertThat(awaitItem()).isEqualTo(AddEntryEvent.PartyCreateForbidden("Wedding - 10-Sep-2026 - Priya Sharma"))
             }
             assertThat(expensesRepository.savedParties).isEmpty()
             assertThat(expensesRepository.expenses.value).isEmpty()

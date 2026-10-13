@@ -8,10 +8,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * "Record an expense against THIS booking" request (ADR-101, shared
+ * "Record an expense against THIS booking" request (ADR-101, revised by ADR-106; shared
  * `docs/expense-against-event.md` §1). Built by the Booking card, consumed by the
- * Expenses add-entry form. Carries only what the form pre-fills; the party itself is
- * resolved/created on SAVE (§2), never on open.
+ * Expenses add-entry form. Carries only what the form pre-fills; the EVENT PARTY itself is
+ * resolved/created on SAVE (§2.2: by link → by name → create), never on open.
  *
  * Lives in `core:data` because feature modules never depend on each other: Booking
  * writes it, Expenses reads it, the app shell only watches it to switch tabs.
@@ -20,8 +20,12 @@ import javax.inject.Singleton
 data class BookingExpenseDraft(
     @SerialName("booking_id") val bookingId: String,
     @SerialName("business_id") val businessId: String,
-    /** `bookings.customer_name` — the party to resolve by normalized name, else create. */
-    @SerialName("customer_name") val customerName: String,
+    /**
+     * The event party's deterministic ENGLISH name (§2.1, `core:i18n EventPartyName`:
+     * `{EventTypeLabel} - {dd-MMM-yyyy} - {CustomerName}`) — shown read-only on the form,
+     * matched by normalized name (§2.2 step 2) and used verbatim for a created party.
+     */
+    @SerialName("event_party_name") val eventPartyName: String,
     /** `bookings.customer_phone`, null when blank — phone for a NEWLY created party only. */
     @SerialName("customer_phone") val customerPhone: String? = null,
     /**
@@ -63,9 +67,9 @@ class BookingExpenseDraftHolder
     }
 
 /**
- * "Open THIS booking's card" from outside the Booking module (ADR-101 §3 — the ledger's
- * event chip). The app binds it to the ADR-098 `BookingDeepLinkHolder` route, so the
- * tap lands exactly where a reminder tap lands: the booking's month with its card open
+ * "Open THIS booking's card" from outside the Booking module (ADR-106 §3 — the ledger's
+ * "Show event" action). The app binds it to the ADR-098 `BookingDeepLinkHolder` route, so
+ * the tap lands exactly where a reminder tap lands: the booking's month with its card open
  * (deleted booking → the date, no card; foreign business → nothing).
  */
 interface BookingCardOpener {

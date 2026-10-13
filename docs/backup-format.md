@@ -147,8 +147,10 @@ convergence and audit history survive the disaster.
 added by a later schema version appears in newer archives and is simply absent from older
 ones; a restore treats an absent column as `NULL`. Known case: `expenses.booking_id`
 (ADR-101 / shared migration 012, Room v14) — the event an expense was recorded against;
-older archives have no such key → unlinked. Load `bookings` before `expenses` (manifest
-order already does) so the FK (`on delete set null`) resolves.
+older archives have no such key → unlinked. Likewise `parties.booking_id` (ADR-106 / shared
+migration 014, Room v15) — the booking an EVENT PARTY represents; absent in older archives →
+unlinked. Load `bookings` before `expenses` and `parties` (manifest order already does) so both
+FKs (`on delete set null`) resolve.
 
 ## Restore procedure (manual, v1)
 

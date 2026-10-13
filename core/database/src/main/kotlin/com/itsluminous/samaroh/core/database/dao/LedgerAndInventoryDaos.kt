@@ -83,6 +83,22 @@ interface PartyDao {
         name: String,
     ): PartyEntity?
 
+    /**
+     * The LIVE event party linked to [bookingId] (ADR-106 §2.2 step 1 — by link): reused
+     * whatever its current name; several matches (offline race) → earliest `created_at`.
+     */
+    @Query(
+        """
+        SELECT * FROM parties
+        WHERE business_id = :businessId AND deleted_at IS NULL AND booking_id = :bookingId
+        ORDER BY created_at ASC LIMIT 1
+        """,
+    )
+    suspend fun liveByBooking(
+        businessId: String,
+        bookingId: String,
+    ): PartyEntity?
+
     @Query("UPDATE parties SET deleted_at = :at, updated_at = :at WHERE id = :id")
     suspend fun tombstone(
         id: String,
@@ -161,6 +177,19 @@ interface ExpenseDao {
      */
     @Query("SELECT * FROM expenses WHERE party_id = :partyId AND deleted_at IS NULL")
     suspend fun liveForParty(partyId: String): List<ExpenseEntity>
+
+    /**
+     * The booking card's "Expenses history" (ADR-106 §3b): live entries recorded against
+     * [bookingId] (`expenses.booking_id`, never the party link), newest first.
+     */
+    @Query(
+        """
+        SELECT * FROM expenses
+        WHERE booking_id = :bookingId AND deleted_at IS NULL
+        ORDER BY expense_date DESC, created_at DESC
+        """,
+    )
+    fun liveForBooking(bookingId: String): Flow<List<ExpenseEntity>>
 
     /**
      * Live entries of every party dated in [from]..[to] — the cross-party input of the

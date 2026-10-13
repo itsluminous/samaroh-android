@@ -84,7 +84,7 @@ import com.itsluminous.samaroh.core.database.entity.SyncCursorEntity
         SyncCursorEntity::class,
         SyncConflictEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -434,6 +434,18 @@ abstract class SamarohDatabase : RoomDatabase() {
             object : Migration(13, 14) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("ALTER TABLE expenses ADD COLUMN booking_id TEXT")
+                }
+            }
+
+        /**
+         * v14 → v15 (ADR-106): `parties.booking_id` — the booking an EVENT PARTY represents
+         * (shared migration 014, FK `on delete set null` server-side). Nullable, additive;
+         * existing parties stay unlinked (no retroactive linking of v0.22.0 event expenses).
+         */
+        val MIGRATION_14_15: Migration =
+            object : Migration(14, 15) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE parties ADD COLUMN booking_id TEXT")
                 }
             }
     }

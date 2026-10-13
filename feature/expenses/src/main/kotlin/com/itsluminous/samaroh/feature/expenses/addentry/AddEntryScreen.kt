@@ -114,7 +114,7 @@ fun AddEntryScreen(
                 // ADR-101 §2: blocking, nothing saved — the member cannot add the customer as a party.
                 is AddEntryEvent.PartyCreateForbidden ->
                     snackbarHostState.showSnackbar(
-                        context.getString(R.string.expenses_entry_party_create_forbidden, event.customerName),
+                        context.getString(R.string.expenses_entry_party_create_forbidden, event.partyName),
                     )
                 AddEntryEvent.AttachmentLimitReached -> snackbarHostState.showSnackbar(limitText)
                 AddEntryEvent.AttachmentFailed -> snackbarHostState.showSnackbar(failedText)
@@ -199,13 +199,14 @@ fun AddEntryScreen(
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Record-from-booking mode (ADR-101): the route carries no party, so name the
-                // customer the entry will be recorded against (resolved/created on save).
-                state.bookingCustomerName?.let { customer ->
+                // Record-from-booking mode (ADR-106): the route carries no party, so show the
+                // EVENT PARTY's name the entry will be recorded against (read-only here;
+                // resolved by link → name → created on save).
+                state.bookingPartyName?.let { partyName ->
                     Text(
-                        text = customer,
+                        text = partyName,
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.testTag("entry_booking_customer"),
+                        modifier = Modifier.testTag("entry_booking_party"),
                     )
                 }
                 OutlinedTextField(

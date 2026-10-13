@@ -24,6 +24,8 @@ data class PartyEntity(
     @ColumnInfo(name = "deleted_at") val deletedAt: Instant? = null,
     /** false = personal party, excluded from the money reports (ADR-027). */
     @ColumnInfo(name = "business_related", defaultValue = "1") val businessRelated: Boolean = true,
+    /** The booking this event party represents (ADR-106); nullable, additive (v15). */
+    @ColumnInfo(name = "booking_id") val bookingId: String? = null,
 )
 
 @Entity(

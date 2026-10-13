@@ -128,7 +128,7 @@ internal fun BookingPayment.toEntity() =
         deletedAt,
     )
 
-internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt, businessRelated)
+internal fun Party.toEntity() = PartyEntity(id, businessId, name, phone, notes, createdAt, updatedAt, deletedAt, businessRelated, bookingId)
 
 internal fun Expense.toEntity() =
     ExpenseEntity(

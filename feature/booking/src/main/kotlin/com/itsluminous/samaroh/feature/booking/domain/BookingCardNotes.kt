@@ -25,5 +25,19 @@ object BookingCardNotes {
         return "$base $SEPARATOR $extra"
     }
 
+    /**
+     * One "Expenses history" line (ADR-106 §3b): `date` with ` · notes` appended only when the
+     * expense carries non-blank notes, collapsed to ONE line (the row ellipsises it). The
+     * amount is the row's trailing `AmountText`, like a payment line.
+     */
+    fun expenseLine(
+        date: String,
+        notes: String?,
+    ): String {
+        val extra = displayNotes(notes)?.replace(LINE_BREAKS, " ") ?: return date
+        return "$date $SEPARATOR $extra"
+    }
+
     private const val SEPARATOR = "\u00B7"
+    private val LINE_BREAKS = Regex("\\s*\\R+\\s*")
 }

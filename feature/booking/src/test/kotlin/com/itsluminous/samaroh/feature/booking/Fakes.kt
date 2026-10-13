@@ -6,7 +6,9 @@ import com.itsluminous.samaroh.core.data.invoice.InvoiceGenerator
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
 import com.itsluminous.samaroh.core.data.repository.EventTypeRepository
+import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.MemberRepository
+import com.itsluminous.samaroh.core.data.repository.PartyWithNetBalance
 import com.itsluminous.samaroh.core.data.session.CurrentUserProvider
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
@@ -18,6 +20,8 @@ import com.itsluminous.samaroh.core.model.BusinessSettings
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
 import com.itsluminous.samaroh.core.model.EventTypeKind
+import com.itsluminous.samaroh.core.model.Expense
+import com.itsluminous.samaroh.core.model.Party
 import com.itsluminous.samaroh.core.model.PaymentReminder
 import com.itsluminous.samaroh.core.model.ReminderStatus
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -407,4 +411,47 @@ class FakeEventTypeRepository(
     override suspend fun seedDefaults(businessId: String) {
         seededBusinessIds += businessId
     }
+}
+
+/**
+ * Minimal [ExpensesRepository] for the booking card's "Expenses history" (ADR-106 §3b):
+ * only [entriesForBooking] is backed (newest first, live rows); the write paths are never
+ * reached from the Booking module.
+ */
+class FakeExpensesRepository : ExpensesRepository {
+    val expenses = MutableStateFlow<List<Expense>>(emptyList())
+
+    override fun partiesWithBalance(businessId: String): Flow<List<PartyWithNetBalance>> = MutableStateFlow(emptyList())
+
+    override suspend fun searchParties(
+        businessId: String,
+        query: String,
+    ): List<Party> = emptyList()
+
+    override suspend fun saveParty(party: Party) = throw UnsupportedOperationException()
+
+    override suspend fun deleteParty(id: String) = throw UnsupportedOperationException()
+
+    override suspend fun liveParty(
+        businessId: String,
+        name: String,
+    ): Party? = null
+
+    override suspend fun livePartyForBooking(
+        businessId: String,
+        bookingId: String,
+    ): Party? = null
+
+    override fun entriesForParty(partyId: String): Flow<List<Expense>> = MutableStateFlow(emptyList())
+
+    override fun entriesForBooking(bookingId: String): Flow<List<Expense>> =
+        expenses.map { list ->
+            list
+                .filter { it.bookingId == bookingId && it.deletedAt == null }
+                .sortedWith(compareByDescending<Expense> { it.expenseDate }.thenByDescending { it.createdAt })
+        }
+
+    override suspend fun saveExpense(expense: Expense) = throw UnsupportedOperationException()
+
+    override suspend fun deleteExpense(id: String) = throw UnsupportedOperationException()
 }

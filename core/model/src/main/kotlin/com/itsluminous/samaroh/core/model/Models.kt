@@ -210,6 +210,13 @@ data class Party(
      * server without migration 004 decode as business-related.
      */
     @SerialName("business_related") val businessRelated: Boolean = true,
+    /**
+     * The event (booking) this party REPRESENTS — the "event party" expenses recorded from
+     * a booking card are booked against (ADR-106, shared migration 014). Null for ordinary
+     * parties; a navigation/dedup link only (reports ignore it); the server FK is
+     * `on delete set null`. Defaulted so rows from pre-014 servers/backups decode.
+     */
+    @SerialName("booking_id") val bookingId: String? = null,
 )
 
 @Serializable

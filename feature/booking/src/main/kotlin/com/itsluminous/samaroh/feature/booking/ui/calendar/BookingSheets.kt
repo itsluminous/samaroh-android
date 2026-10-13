@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.designsystem.component.AmountText
@@ -69,11 +70,13 @@ import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingPayment
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventType
+import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.displayIcon
 import com.itsluminous.samaroh.feature.booking.domain.BookingCardActionState
 import com.itsluminous.samaroh.feature.booking.domain.BookingCardNotes
 import com.itsluminous.samaroh.feature.booking.domain.BookingColorFallback
+import com.itsluminous.samaroh.feature.booking.domain.BookingExpensesHistory
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.share.BookingShare
 import com.itsluminous.samaroh.feature.booking.ui.BookingColorDot
@@ -125,6 +128,11 @@ internal fun BookingCardSheet(
      * the card hosts the same state itself for as long as it is showing.
      */
     snackbarHostState: SnackbarHostState? = null,
+    /**
+     * `expenses.view_amounts` (ADR-106 §3b): masks the "Expenses history" amounts exactly
+     * as the Expenses tab does — independent of the booking-side [canViewAmounts].
+     */
+    canViewExpenseAmounts: Boolean = true,
 ) {
     val booking = detail.booking
     val context = LocalContext.current
@@ -271,6 +279,57 @@ internal fun BookingCardSheet(
                                 )
                             }
                         }
+                    }
+                }
+
+                // Expenses history (ADR-106 §3b): directly below Payment history, same styling;
+                // ENTIRELY absent (no divider, heading or empty state) when the booking has no
+                // live linked expense — or when the member lacks expenses.view (the detail
+                // then carries no rows). Read-only: no tap, no delete. Informational only —
+                // the total is never subtracted from Due.
+                if (detail.expenses.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        text = stringResource(R.string.booking_card_expenses_history),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.testTag("booking_card_expenses_history"),
+                    )
+                    detail.expenses.forEach { expense ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().testTag("booking_card_expense_row"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = BookingCardNotes.expenseLine(date = formatDate(expense.expenseDate), notes = expense.notes),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            // Received rows carry the ledger's money-in styling, paid rows money-out.
+                            AmountText(
+                                amountPaise = expense.amountPaise,
+                                tone = if (expense.direction == ExpenseDirection.PAID) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
+                                masked = !canViewExpenseAmounts,
+                            )
+                        }
+                    }
+                    val expensesTotal = BookingExpensesHistory.totalPaise(detail.expenses)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().testTag("booking_card_expenses_total"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.booking_card_expenses_total),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AmountText(
+                            amountPaise = if (expensesTotal < 0) -expensesTotal else expensesTotal,
+                            tone = if (expensesTotal >= 0) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
+                            masked = !canViewExpenseAmounts,
+                        )
                     }
                 }
             }

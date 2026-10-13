@@ -9,6 +9,7 @@ import com.itsluminous.samaroh.core.model.BookingStatus
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.DateBlock
 import com.itsluminous.samaroh.core.model.EventTypeKind
+import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.core.model.MemberStatus
 import com.itsluminous.samaroh.core.model.PaymentMethod
 import com.itsluminous.samaroh.core.model.PaymentReminder
@@ -22,6 +23,7 @@ import com.itsluminous.samaroh.feature.booking.FakeBookingRepository
 import com.itsluminous.samaroh.feature.booking.FakeBusinessRepository
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeCatalog
 import com.itsluminous.samaroh.feature.booking.FakeEventTypeRepository
+import com.itsluminous.samaroh.feature.booking.FakeExpensesRepository
 import com.itsluminous.samaroh.feature.booking.FakeInvoiceGenerator
 import com.itsluminous.samaroh.feature.booking.FakeMemberRepository
 import com.itsluminous.samaroh.feature.booking.domain.BookingActor
@@ -57,6 +59,7 @@ class BookingCalendarViewModelTest {
     private val calendarPrefs = FakeBookingCalendarPrefs()
     private val deepLinks = BookingDeepLinkHolder()
     private val expenseDrafts = BookingExpenseDraftHolder()
+    private val expensesRepository = FakeExpensesRepository()
 
     private fun viewModel(actorProvider: FakeActorProvider = FakeActorProvider()) =
         BookingCalendarViewModel(
@@ -72,6 +75,7 @@ class BookingCalendarViewModelTest {
             clock = clock,
             deepLinks = deepLinks,
             expenseDrafts = expenseDrafts,
+            expensesRepository = expensesRepository,
         )
 
     private fun pendingReminder(
@@ -1060,7 +1064,7 @@ class BookingCalendarViewModelTest {
                     com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft(
                         bookingId = "b-1",
                         businessId = booking.businessId,
-                        customerName = booking.customerName,
+                        eventPartyName = "Wedding - 10-Sep-2026 - fixture-customer",
                         customerPhone = null,
                         defaultNotes = "Wedding · 10 Sep 2026",
                     )
@@ -1070,6 +1074,101 @@ class BookingCalendarViewModelTest {
             }
             assertThat(expenseDrafts.pending.value?.bookingId).isEqualTo("b-1")
             assertThat(repository.bookings.value).containsExactly(booking) // nothing written here
+        }
+
+    // ---- Expenses history on the card (ADR-106 §3b) ----
+
+    private fun linkedExpense(
+        id: String,
+        bookingId: String?,
+        date: LocalDate,
+        amountPaise: Long,
+        direction: ExpenseDirection = ExpenseDirection.PAID,
+        createdAt: java.time.Instant = Fixtures.NOW,
+    ) = Fixtures
+        .expense(partyId = "party-1", id = id, direction = direction, amountPaise = amountPaise, expenseDate = date)
+        .copy(bookingId = bookingId, createdAt = createdAt)
+
+    @Test
+    fun `card detail carries no expenses when none are linked (section hidden)`() =
+        runTest {
+            val booking = Fixtures.booking(id = "b-1", startDate = today)
+            repository.bookings.value = listOf(booking)
+            // An expense against ANOTHER booking, and a plain-ledger one, never show here.
+            expensesRepository.expenses.value =
+                listOf(linkedExpense("e-other", "b-9", today, 100_00), linkedExpense("e-plain", null, today, 100_00))
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-1")
+                val detail = awaitItemMatching { it != null }!!
+                assertThat(detail.expenses).isEmpty()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `card detail lists the booking's live linked expenses newest first and keeps the due unchanged`() =
+        runTest {
+            val booking = Fixtures.booking(id = "b-1", startDate = today, totalAmountPaise = 10_000_00)
+            repository.bookings.value = listOf(booking)
+            repository.payments.value = listOf(Fixtures.payment(bookingId = "b-1", amountPaise = 4_000_00))
+            val older = linkedExpense("e-older", "b-1", today.minusDays(2), 500_00)
+            val sameDayEarlier = linkedExpense("e-same-early", "b-1", today, 200_00, createdAt = Fixtures.NOW.minusSeconds(60))
+            val sameDayLater = linkedExpense("e-same-late", "b-1", today, 300_00, direction = ExpenseDirection.RECEIVED)
+            val dead = linkedExpense("e-dead", "b-1", today, 9_999_00).copy(deletedAt = Fixtures.NOW)
+            expensesRepository.expenses.value = listOf(older, sameDayEarlier, dead, sameDayLater)
+            val vm = viewModel()
+            vm.detail.test {
+                assertThat(awaitItem()).isNull()
+                vm.openBooking("b-1")
+                val detail = awaitItemMatching { it != null && it.expenses.isNotEmpty() }!!
+                assertThat(detail.expenses.map { it.id }).containsExactly("e-same-late", "e-same-early", "e-older").inOrder()
+                // Informational total: Σpaid − Σreceived; the due ignores expenses entirely.
+                assertThat(
+                    com.itsluminous.samaroh.feature.booking.domain.BookingExpensesHistory
+                        .totalPaise(detail.expenses),
+                ).isEqualTo(500_00 + 200_00 - 300_00)
+                assertThat(detail.duePaise).isEqualTo(6_000_00)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `a member without expenses view gets no expenses on the card, a member with it does`() =
+        runTest {
+            val booking = Fixtures.booking(id = "b-1", startDate = today)
+            repository.bookings.value = listOf(booking)
+            expensesRepository.expenses.value = listOf(linkedExpense("e-1", "b-1", today, 500_00))
+            val member =
+                BookingActor(
+                    userId = "member-1",
+                    displayName = "Member",
+                    isOwner = false,
+                    permissions = BookingPermissions(view = true),
+                    canViewExpenses = false,
+                )
+
+            run {
+                val vm = viewModel(FakeActorProvider(member))
+                vm.detail.test {
+                    assertThat(awaitItem()).isNull()
+                    vm.openBooking("b-1")
+                    val detail = awaitItemMatching { it != null }!!
+                    assertThat(detail.expenses).isEmpty() // hidden, not greyed: the section does not exist
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+            run {
+                val vm = viewModel(FakeActorProvider(member.copy(canViewExpenses = true)))
+                vm.detail.test {
+                    assertThat(awaitItem()).isNull()
+                    vm.openBooking("b-1")
+                    val detail = awaitItemMatching { it != null && it.expenses.isNotEmpty() }!!
+                    assertThat(detail.expenses.map { it.id }).containsExactly("e-1")
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
         }
 
     // ---- reminder deep link (ADR-098): same card as a calendar tap, graceful fallbacks ----

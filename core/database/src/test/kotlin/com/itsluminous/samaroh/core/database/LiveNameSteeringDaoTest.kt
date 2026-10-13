@@ -122,6 +122,60 @@ class LiveNameSteeringDaoTest {
         }
 
     @Test
+    fun `liveByBooking returns the live event party linked to a booking, earliest first, business-scoped`() =
+        runTest {
+            val dao = db.partyDao()
+            dao.upsert(party("p-dead", "Wedding - 20-Oct-2026 - A", deletedAt = t1).copy(bookingId = "bk-1"))
+            dao.upsert(party("p-newer", "Renamed by owner").copy(bookingId = "bk-1", createdAt = t2, updatedAt = t2))
+            dao.upsert(party("p-older", "Wedding - 20-Oct-2026 - A").copy(bookingId = "bk-1", createdAt = t1, updatedAt = t1))
+            dao.upsert(party("p-other-booking", "Birthday - 01-Jan-2026 - B").copy(bookingId = "bk-2"))
+            dao.upsert(party("p-plain", "Ram Sweets"))
+
+            // ADR-106 §2.2 step 1: by link, whatever the name; tombstones never; earliest created_at.
+            assertThat(dao.liveByBooking(TEST_BUSINESS_ID, "bk-1")?.id).isEqualTo("p-older")
+            assertThat(dao.liveByBooking(TEST_BUSINESS_ID, "bk-2")?.id).isEqualTo("p-other-booking")
+            assertThat(dao.liveByBooking(TEST_BUSINESS_ID, "bk-none")).isNull()
+            assertThat(dao.liveByBooking("other-business", "bk-1")).isNull()
+        }
+
+    @Test
+    fun `liveForBooking lists live linked expenses newest first by expense_date then created_at`() =
+        runTest {
+            db.partyDao().upsert(party("p-1", "Wedding - 20-Oct-2026 - A").copy(bookingId = "bk-1"))
+            val dao = db.expenseDao()
+
+            fun expense(
+                id: String,
+                date: String,
+                createdAt: Instant,
+                bookingId: String? = "bk-1",
+                deletedAt: Instant? = null,
+            ) = com.itsluminous.samaroh.core.database.entity.ExpenseEntity(
+                id = id,
+                businessId = TEST_BUSINESS_ID,
+                partyId = "p-1",
+                amountPaise = 100_00,
+                expenseDate = java.time.LocalDate.parse(date),
+                createdBy = "u-1",
+                createdAt = createdAt,
+                updatedAt = createdAt,
+                deletedAt = deletedAt,
+                bookingId = bookingId,
+            )
+            dao.upsert(expense("e-old", "2026-10-01", t0))
+            dao.upsert(expense("e-same-early", "2026-10-05", t0))
+            dao.upsert(expense("e-same-late", "2026-10-05", t1))
+            dao.upsert(expense("e-dead", "2026-10-09", t2, deletedAt = t2))
+            dao.upsert(expense("e-other", "2026-10-09", t2, bookingId = "bk-2"))
+            dao.upsert(expense("e-plain", "2026-10-09", t2, bookingId = null)) // against the event party, no link → not listed
+
+            assertThat(dao.liveForBooking("bk-1").first().map { it.id })
+                .containsExactly("e-same-late", "e-same-early", "e-old")
+                .inOrder()
+            assertThat(dao.liveForBooking("bk-none").first()).isEmpty()
+        }
+
+    @Test
     fun `master items steering source hides the tombstoned twin and shows only the live re-creation`() =
         runTest {
             val dao = db.masterItemDao()

@@ -609,7 +609,7 @@ class PartyLedgerViewModelTest {
             assertThat(viewModel.openingAttachmentId.value).isNull()
         }
 
-    // ---- Event chips (ADR-101 §3) ----
+    // ---- "Show event" (ADR-106 §3) ----
 
     private fun linkedExpense(
         bookingId: String?,
@@ -617,72 +617,62 @@ class PartyLedgerViewModelTest {
     ) = Fixtures.expense(partyId = party.id).copy(bookingId = bookingId, notes = notes)
 
     @Test
-    fun `entries recorded against a live booking carry a resolvable event chip`() =
+    fun `entries recorded against a live booking get a Show event target, plain and unresolvable ones none`() =
         runTest {
             val booking = Fixtures.booking(id = "bk-1", eventType = "Lagan").copy(customerName = "Priya Sharma")
             bookingRepository.bookings["bk-1"] = booking
+            bookingRepository.bookings["bk-dead"] = Fixtures.booking(id = "bk-dead").copy(deletedAt = Fixtures.NOW)
             val linked = linkedExpense("bk-1", notes = "Lagan · 10 Sep 2026")
             val plain = linkedExpense(null, notes = "cement")
-            expensesRepository.expenses.value = listOf(linked, plain)
-            ledgerRepository.expenses.value = listOf(linked, plain)
-
-            viewModel().state.test {
-                val loaded = awaitItemMatching { it.loaded && it.eventChips.isNotEmpty() }
-                assertThat(loaded.eventChips.keys).containsExactly(linked.id)
-                val chip = loaded.eventChips.getValue(linked.id)
-                assertThat(chip.customerFirstName).isEqualTo("Priya")
-                assertThat(chip.eventType).isEqualTo("Lagan")
-                assertThat(chip.fallbackLabel).isNull()
-                assertThat(chip.resolvable).isTrue()
-                assertThat(chip.bookingId).isEqualTo("bk-1")
-                assertThat(chip.businessId).isEqualTo(booking.businessId)
-                cancelAndIgnoreRemainingEvents()
-            }
-        }
-
-    @Test
-    fun `unresolvable booking falls back to the notes first segment or no chip`() =
-        runTest {
-            bookingRepository.bookings["bk-dead"] = Fixtures.booking(id = "bk-dead").copy(deletedAt = Fixtures.NOW)
             val tombstoned = linkedExpense("bk-dead", notes = "Wedding · 10 Sep 2026")
-            val notPulled = linkedExpense("bk-missing", notes = "Wedding · 10 Sep 2026 · extra")
-            val bareNotes = linkedExpense("bk-missing", notes = "cement bags")
-            val noNotes = linkedExpense("bk-missing", notes = null)
-            val all = listOf(tombstoned, notPulled, bareNotes, noNotes)
+            val notPulled = linkedExpense("bk-missing", notes = "Wedding · 10 Sep 2026")
+            val all = listOf(linked, plain, tombstoned, notPulled)
             expensesRepository.expenses.value = all
             ledgerRepository.expenses.value = all
 
             viewModel().state.test {
-                val loaded = awaitItemMatching { it.loaded && it.eventChips.isNotEmpty() }
-                assertThat(loaded.eventChips.keys).containsExactly(tombstoned.id, notPulled.id)
-                val dead = loaded.eventChips.getValue(tombstoned.id)
-                assertThat(dead.fallbackLabel).isEqualTo("Wedding")
-                assertThat(dead.resolvable).isFalse()
-                assertThat(loaded.eventChips.getValue(notPulled.id).fallbackLabel).isEqualTo("Wedding")
+                val loaded = awaitItemMatching { it.loaded && it.showEventTargets.isNotEmpty() }
+                // Never a bare id: tombstoned / not-yet-pulled bookings yield NO control.
+                assertThat(loaded.showEventTargets.keys).containsExactly(linked.id)
+                assertThat(loaded.showEventTargets.getValue(linked.id))
+                    .isEqualTo(ShowEventTarget(bookingId = "bk-1", businessId = booking.businessId))
+                assertThat(loaded.partyEventTarget).isNull() // an ordinary party, no parties.booking_id
                 cancelAndIgnoreRemainingEvents()
             }
         }
 
     @Test
-    fun `fallback label takes the first separator segment only when the notes have the default shape`() {
-        assertThat(EventChip.fallbackLabel("Wedding · 10 Sep 2026")).isEqualTo("Wedding")
-        assertThat(EventChip.fallbackLabel("  Wedding · 10–12 Sep 2026  ")).isEqualTo("Wedding")
-        assertThat(EventChip.fallbackLabel("cement bags")).isNull()
-        assertThat(EventChip.fallbackLabel(" · 10 Sep")).isNull()
-        assertThat(EventChip.fallbackLabel(null)).isNull()
-    }
+    fun `an event party gets the header Show event target only when its booking resolves`() =
+        runTest {
+            val booking = Fixtures.booking(id = "bk-1", eventType = "Wedding")
+            bookingRepository.bookings["bk-1"] = booking
+            ledgerRepository.parties.value = listOf(party.copy(bookingId = "bk-1"))
+
+            viewModel().state.test {
+                val loaded = awaitItemMatching { it.loaded && it.partyEventTarget != null }
+                assertThat(loaded.partyEventTarget).isEqualTo(ShowEventTarget("bk-1", booking.businessId))
+                assertThat(loaded.showEventTargets).isEmpty() // no linked entries yet
+                cancelAndIgnoreRemainingEvents()
+            }
+
+            // Booking tombstoned since (or never pulled) → header control omitted.
+            bookingRepository.bookings["bk-1"] = booking.copy(deletedAt = Fixtures.NOW)
+            viewModel().state.test {
+                val loaded = awaitItemMatching { it.loaded }
+                assertThat(loaded.partyEventTarget).isNull()
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
 
     @Test
-    fun `tapping a resolvable chip opens the booking card only with booking view`() =
+    fun `Show event opens the booking card via the ADR-098 route only with booking view`() =
         runTest {
-            val resolvable = EventChip(customerFirstName = "Priya", eventType = "Lagan", bookingId = "bk-1", businessId = "biz-1")
-            val fallback = EventChip(fallbackLabel = "Wedding")
+            val target = ShowEventTarget(bookingId = "bk-1", businessId = "biz-1")
 
             val owner = viewModel()
             owner.state.test {
                 awaitItemMatching { it.loaded }
-                owner.openBooking(resolvable)
-                owner.openBooking(fallback) // not resolvable → nothing
+                owner.openBooking(target)
                 cancelAndIgnoreRemainingEvents()
             }
             assertThat(bookingCardOpener.opened).containsExactly("bk-1" to "biz-1")
@@ -703,8 +693,8 @@ class PartyLedgerViewModelTest {
                 )
             noBookingView.state.test {
                 val loaded = awaitItemMatching { it.loaded }
-                assertThat(loaded.canOpenBookings).isFalse()
-                noBookingView.openBooking(resolvable)
+                assertThat(loaded.canOpenBookings).isFalse() // the screen renders no control at all
+                noBookingView.openBooking(target)
                 cancelAndIgnoreRemainingEvents()
             }
             assertThat(bookingCardOpener.opened).isEmpty()

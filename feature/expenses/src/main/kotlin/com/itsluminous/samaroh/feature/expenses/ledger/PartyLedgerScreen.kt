@@ -30,10 +30,12 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -87,7 +89,6 @@ import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
-import com.itsluminous.samaroh.core.i18n.EventTypeLabels
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.BusinessRelatedPill
@@ -258,6 +259,16 @@ fun PartyLedgerScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // Event party (ADR-106 §3): its booking's card is one tap away — the ledger header
+            // carries the control once (the app bar's title slot has no room below the phone).
+            // Rendered only with booking.view AND a locally resolvable booking (hidden otherwise).
+            val partyTarget = state.partyEventTarget
+            if (state.canOpenBookings && partyTarget != null) {
+                ShowEventChip(
+                    onClick = { viewModel.openBooking(partyTarget) },
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp).testTag("ledger_party_show_event"),
+                )
+            }
             NetBalanceHeader(netBalancePaise = state.netBalancePaise, masked = !state.canViewAmounts)
             if (state.loaded && state.rows.isEmpty()) {
                 EmptyState(
@@ -279,8 +290,7 @@ fun PartyLedgerScreen(
                             masked = !state.canViewAmounts,
                             onEdit = { onEditEntry(row.expense.direction, row.expense.id) },
                             onDelete = { confirmDeleteId = row.expense.id },
-                            eventChip = state.eventChips[row.expense.id],
-                            canOpenBooking = state.canOpenBookings,
+                            showEventTarget = state.showEventTargets[row.expense.id]?.takeIf { state.canOpenBookings },
                             onOpenBooking = viewModel::openBooking,
                             modifier = animatedListItem(),
                         )
@@ -522,9 +532,9 @@ private fun LedgerEntryRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
-    eventChip: EventChip? = null,
-    canOpenBooking: Boolean = true,
-    onOpenBooking: (EventChip) -> Unit = {},
+    /** Non-null only when the row's booking resolved AND the member holds booking.view (ADR-106 §3). */
+    showEventTarget: ShowEventTarget? = null,
+    onOpenBooking: (ShowEventTarget) -> Unit = {},
 ) {
     val expense = row.expense
     Row(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -535,15 +545,12 @@ private fun LedgerEntryRow(
             expense.notes?.let {
                 Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 2.dp))
             }
-            // Event chip (ADR-101 §3): content, not a provenance stamp — a normal chip, not
-            // MetadataText. Tap opens the booking card; non-interactive without booking.view
-            // or when the booking is not resolvable locally (label from the notes fallback).
-            eventChip?.let { chip ->
-                EventChipView(
-                    chip = chip,
-                    interactive = canOpenBooking && chip.resolvable,
-                    onClick = { onOpenBooking(chip) },
-                    modifier = Modifier.padding(top = 4.dp),
+            // "Show event" (ADR-106 §3): an ACTION (small outlined chip), not MetadataText.
+            // Absent without booking.view or when the booking is not resolvable locally.
+            showEventTarget?.let { target ->
+                ShowEventChip(
+                    onClick = { onOpenBooking(target) },
+                    modifier = Modifier.padding(top = 4.dp).testTag("ledger_show_event"),
                 )
             }
             if (attachments.isNotEmpty()) {
@@ -592,23 +599,17 @@ private fun LedgerEntryRow(
     }
 }
 
-/** `Event: {first name · event type}` (ADR-101); the event type is localized here, not in the ViewModel. */
+/** "Show event" (ADR-106 §3): opens the linked booking's card — `labelSmall` outlined assist chip. */
 @Composable
-private fun EventChipView(
-    chip: EventChip,
-    /** False → the chip is plain content (never greyed, ADR-038): the tap does nothing. */
-    interactive: Boolean,
+private fun ShowEventChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val label =
-        chip.fallbackLabel
-            ?: (chip.customerFirstName.orEmpty() + EventChip.SEPARATOR + EventTypeLabels.label(context, chip.eventType.orEmpty()))
     AssistChip(
-        onClick = { if (interactive) onClick() },
-        label = { Text(stringResource(R.string.expenses_ledger_event_chip, label), style = MaterialTheme.typography.labelSmall) },
-        modifier = modifier.testTag("ledger_event_chip"),
+        onClick = onClick,
+        label = { Text(stringResource(R.string.expenses_ledger_show_event), style = MaterialTheme.typography.labelSmall) },
+        leadingIcon = { Icon(Icons.Filled.Event, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize)) },
+        modifier = modifier,
     )
 }
 
