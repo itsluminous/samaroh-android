@@ -4738,3 +4738,59 @@ updated); `AddEntryState.bookingCustomerName` → `bookingPartyName`; `AddEntryE
 .partyName`; `PartyLedgerState.eventChips/canOpenBookings` → `showEventTargets/partyEventTarget/
 canOpenBookings`; `BookingCalendarViewModel` gains an `ExpensesRepository` dependency; `BookingCardSheet`
 gains `canViewExpenseAmounts` (defaulted); every `ExpensesRepository` fake implements the two new methods.
+
+## ADR-107 — Every modal bottom sheet is a `ScrollableSheetScaffold`: scrolling body, pinned action footer (2026-10-14)
+
+**Context.** The booking card (`BookingCardSheet`, opened from a calendar tap, the agenda, a
+reminder deep link and "Show event") was a bare `ModalBottomSheet { Column { … } }`. A plain
+column inside the M3 sheet neither scrolls nor grows past the window: with long `bookings.notes`
+(ADR-092) plus a payment history (ADR-105) plus an expenses history (ADR-106) the content
+exceeded the screen, the sheet clipped at full height and everything below the fold — the
+amounts, the histories and the whole ACTION ROW (Record payment, Record expense, Invoice, Share,
+Cancel booking) — was unreachable (emulator: the fully expanded sheet showed notes to "Line 13"
+and swiping did nothing). `RecordPaymentSheet` had its own ad-hoc `weight(1f, fill = false) +
+verticalScroll` body, the day chooser and the Files action sheet had no overflow handling at all.
+
+**Decision.**
+1. **One sheet shell — `core:designsystem ScrollableSheetScaffold`** (cross-feature component,
+   ADR-001 process): `ModalBottomSheet` → `Column { header?; body; footer? }` where the body is a
+   `verticalScroll` column with `weight(1f, fill = false)` (short sheets stay content-height,
+   tall sheets grow to the window and scroll in the middle), and `header` / `footer` are
+   PINNED outside the scroll region, inside the sheet's system-bar insets plus `imePadding`.
+   Tags `sheet_scroll` (body) and `sheet_footer` (footer) for UI tests. Nested scrolling is the
+   M3 sheet's own: dragging the body down scrolls it to its top first, then drags the sheet;
+   the handle always drags.
+2. **Opens FULLY expanded (`skipPartiallyExpanded = true`).** The half-expanded stop would park
+   the pinned footer below the fold, defeating the pinning; the experimental `SheetState` stays
+   internal to the scaffold so feature callers need no Material opt-in. Swipe-down from the top
+   dismisses (verified on the emulator).
+3. **UX per sheet.** *Booking card*: the snackbar host is the pinned header (ADR-105 — it must
+   never scroll away), title/customer/dates/notes/amounts/payment history/expenses history/audit
+   line SCROLL, and `BookingCardActionsFooter` (icon row, Cancel booking, the cancelled card's
+   Restore/Delete pair — the whole `BookingCardActionState` matrix, ADR-054) is the pinned
+   footer: the primary actions are always reachable without scrolling, matching M3's sheet
+   guidance (sticky actions, scrolling content) and the web card's sticky footer. *Record
+   payment*: the title + Cancel/Save row stays the pinned header (the §6 IME rule — the M3 sheet
+   window gets no IME insets, so actions live where the keyboard cannot cover them), the form
+   scrolls. *Day chooser*: date heading pinned, agenda rows scroll (`day_sheet` tag kept on the
+   row column), "Add new event" pinned as footer. *Files action sheet*: the `ListItem` rows
+   scroll (zero horizontal content padding — the items carry their own inset).
+4. **Rule going forward:** no feature renders `ModalBottomSheet` directly; new sheets use the
+   scaffold (the booking form / expense entry remain full screens with their own pinned save row).
+
+**Tests.** `ScrollableSheetScaffoldTest` (Robolectric, 360×480dp: header + footer displayed and
+in-window with 20 rows, body has a scroll action, last row reachable by `performScrollTo`, header/
+footer still displayed afterwards; short content hugs its height), `BookingCardSheetScrollTest`
+(Robolectric, 360×560dp, 12 notes lines + 6 payments + 5 expenses: Record payment / Record expense /
+Invoice / Share displayed and clickable BEFORE any scroll, footer inside the window, every row
+composed, expenses total not displayed until `performScrollTo`, footer position unchanged by the
+scroll), e2e `BookingFlowTest.bookingCard_longContent_actionsPinnedAndHistoryScrolls` (en + hi, real
+sheet on the emulator: pinned actions, scroll action, total reachable, footer still displayed).
+Emulator (medium phone): the long card opens full-height with the action row at the bottom, the
+middle scrolls through amounts → payment history → expenses history → audit line, drag-down on the
+body scrolls back to the top, a second drag dismisses.
+
+**Consequences.** `BookingSheets.kt` no longer imports `ModalBottomSheet`; the card's action
+surface moved into the private `BookingCardActionsFooter`. Web mirrors the UX: `BookingDetail`'s
+action `Stack` became a `position: sticky; bottom: 0` footer of the drawer paper
+(`booking-detail-actions`), Jest + Playwright (360×640, long notes) cover it.

@@ -56,7 +56,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -88,6 +87,7 @@ import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.ImageViewerDialog
 import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
+import com.itsluminous.samaroh.core.designsystem.component.ScrollableSheetScaffold
 import com.itsluminous.samaroh.core.designsystem.imaging.MediaStoreImageSaver
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.FileItem
@@ -336,7 +336,13 @@ fun FilesScreen(
     // ---------------------------------------------------------------- sheets & dialogs
 
     sheetTarget?.let { target ->
-        ModalBottomSheet(onDismissRequest = { sheetTarget = null }) {
+        // ADR-107 scaffold: the action list scrolls when a short (landscape) window cannot
+        // show every row; `ListItem` carries its own 16dp inset, so no horizontal padding.
+        ScrollableSheetScaffold(
+            onDismissRequest = { sheetTarget = null },
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.Top,
+        ) {
             when (target) {
                 is SheetTarget.ForFolder -> {
                     val folder = target.row.folder
@@ -412,8 +418,6 @@ fun FilesScreen(
                     }
                 }
             }
-            androidx.compose.foundation.layout
-                .Spacer(Modifier.padding(bottom = 24.dp))
         }
     }
 

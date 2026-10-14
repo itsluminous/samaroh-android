@@ -8,9 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -32,7 +30,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
@@ -64,6 +61,7 @@ import com.itsluminous.samaroh.core.designsystem.component.AmountTone
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
 import com.itsluminous.samaroh.core.designsystem.component.MetadataText
+import com.itsluminous.samaroh.core.designsystem.component.ScrollableSheetScaffold
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
@@ -101,7 +99,6 @@ import java.time.ZoneOffset
  * CANCELLED bookings (ADR-054) offer exactly two actions: Restore and Delete
  * permanently — [actions] carries the whole status × permission matrix.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingCardSheet(
     detail: BookingDetail,
@@ -143,285 +140,222 @@ internal fun BookingCardSheet(
     // from [detail] so a payment that vanished meanwhile simply closes the dialog.
     var confirmDeletePaymentId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        // Snackbar FIRST: a partially expanded sheet clips its lower content, so a host at
-        // the bottom of the column would sit below the fold while the message plays.
-        snackbarHostState?.let { SnackbarHost(it, modifier = Modifier.fillMaxWidth()) }
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Booking colour (ADR-030): dot announcing its localized colour name;
-                // resolved via the fallback chain (ADR-031: explicit → type default).
-                BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.let { paletteColor ->
-                    paletteColor.fill?.let { dotColor ->
-                        val colorName = stringResource(paletteColor.labelRes)
-                        BookingColorDot(
-                            color = dotColor,
-                            size = 14.dp,
-                            modifier = Modifier.semantics { contentDescription = colorName },
-                        )
-                    }
-                }
-                Text(
-                    text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)}",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                SuggestionChip(onClick = {}, label = { Text(statusLabel(booking.status)) })
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = booking.customerName, style = MaterialTheme.typography.titleMedium)
-                    booking.customerPhone?.let {
-                        Text(text = it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                booking.customerPhone?.let { phone ->
-                    ExplainableIcon(
-                        icon = Icons.Filled.Call,
-                        explanationRes = R.string.booking_card_phone_call,
-                        onClick = { BookingShare.dial(context, phone) },
+    // ADR-107: the card is a ScrollableSheetScaffold — header/customer/dates/notes/amounts/
+    // histories/audit scroll in the middle; the ACTION ROW is a pinned footer so Record
+    // payment / Record expense / Invoice / Share are reachable without scrolling even when
+    // long notes + a payment history + an expenses history overflow a small phone.
+    ScrollableSheetScaffold(
+        onDismissRequest = onDismiss,
+        // Snackbar pinned at the TOP (ADR-105): the sheet is its own window, so the host
+        // lives in the sheet; pinned above the scroll region it is never scrolled away.
+        header = snackbarHostState?.let { host -> { SnackbarHost(host, modifier = Modifier.fillMaxWidth()) } },
+        footer = {
+            BookingCardActionsFooter(
+                actions = actions,
+                onEdit = onEdit,
+                onRecordPayment = onRecordPayment,
+                onRecordExpense = onRecordExpense,
+                onInvoice = { invoiceChooser = true },
+                onWhatsApp = onWhatsApp,
+                onCancel = { confirmCancel = true },
+                onRestoreBooking = onRestoreBooking,
+                onDelete = { confirmDelete = true },
+            )
+        },
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Booking colour (ADR-030): dot announcing its localized colour name;
+            // resolved via the fallback chain (ADR-031: explicit → type default).
+            BookingColorFallback.effectiveColor(booking, bookingColors, presets)?.let { paletteColor ->
+                paletteColor.fill?.let { dotColor ->
+                    val colorName = stringResource(paletteColor.labelRes)
+                    BookingColorDot(
+                        color = dotColor,
+                        size = 14.dp,
+                        modifier = Modifier.semantics { contentDescription = colorName },
                     )
                 }
             }
+            Text(
+                text = "${booking.displayIcon} ${eventTypeLabel(eventTypes, booking.eventType)}",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            SuggestionChip(onClick = {}, label = { Text(statusLabel(booking.status)) })
+        }
 
-            Column {
-                Text(
-                    text = stringResource(R.string.booking_card_dates_label),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(text = formatDateRange(booking.startDate, booking.endDate), style = MaterialTheme.typography.bodyLarge)
-            }
-
-            // Booking notes (the free-text `bookings.notes` column — NOT the Notes tab):
-            // mirrors web's BookingDetail — plain text right under the dates, ungated (no
-            // permission key on either platform), shown for markers too, and omitted
-            // entirely when blank. ADR-092. Rendered as CONTENT (bodyMedium/onSurface) so it
-            // is visibly stronger than the metadata audit line below. ADR-093.
-            BookingCardNotes.displayNotes(booking.notes)?.let { notes ->
-                Text(
-                    text = notes,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.fillMaxWidth().testTag("booking_card_notes"),
-                )
-            }
-
-            if (!detail.isMarker) {
-                AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise, masked = !canViewAmounts)
-                if (booking.securityDepositPaise > 0) {
-                    AmountRow(
-                        labelRes = R.string.booking_card_deposit_label,
-                        amountPaise = booking.securityDepositPaise,
-                        masked = !canViewAmounts,
-                    )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = booking.customerName, style = MaterialTheme.typography.titleMedium)
+                booking.customerPhone?.let {
+                    Text(text = it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            booking.customerPhone?.let { phone ->
+                ExplainableIcon(
+                    icon = Icons.Filled.Call,
+                    explanationRes = R.string.booking_card_phone_call,
+                    onClick = { BookingShare.dial(context, phone) },
+                )
+            }
+        }
+
+        Column {
+            Text(
+                text = stringResource(R.string.booking_card_dates_label),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(text = formatDateRange(booking.startDate, booking.endDate), style = MaterialTheme.typography.bodyLarge)
+        }
+
+        // Booking notes (the free-text `bookings.notes` column — NOT the Notes tab):
+        // mirrors web's BookingDetail — plain text right under the dates, ungated (no
+        // permission key on either platform), shown for markers too, and omitted
+        // entirely when blank. ADR-092. Rendered as CONTENT (bodyMedium/onSurface) so it
+        // is visibly stronger than the metadata audit line below. ADR-093.
+        BookingCardNotes.displayNotes(booking.notes)?.let { notes ->
+            Text(
+                text = notes,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth().testTag("booking_card_notes"),
+            )
+        }
+
+        if (!detail.isMarker) {
+            AmountRow(labelRes = R.string.booking_card_total_label, amountPaise = booking.totalAmountPaise, masked = !canViewAmounts)
+            if (booking.securityDepositPaise > 0) {
                 AmountRow(
-                    labelRes = R.string.booking_card_paid_label,
-                    amountPaise = detail.paidPaise,
-                    tone = AmountTone.MONEY_IN,
+                    labelRes = R.string.booking_card_deposit_label,
+                    amountPaise = booking.securityDepositPaise,
                     masked = !canViewAmounts,
                 )
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(R.string.booking_card_due_label),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // Due: auto-calculated, bold, red when > 0 (§4.1).
-                    AmountText(
-                        amountPaise = detail.duePaise,
-                        tone = if (detail.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        masked = !canViewAmounts,
-                        modifier = Modifier.testTag("booking_card_due"),
-                    )
-                }
+            }
+            AmountRow(
+                labelRes = R.string.booking_card_paid_label,
+                amountPaise = detail.paidPaise,
+                tone = AmountTone.MONEY_IN,
+                masked = !canViewAmounts,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.booking_card_due_label),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                // Due: auto-calculated, bold, red when > 0 (§4.1).
+                AmountText(
+                    amountPaise = detail.duePaise,
+                    tone = if (detail.duePaise > 0) AmountTone.MONEY_OUT else AmountTone.NEUTRAL,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    masked = !canViewAmounts,
+                    modifier = Modifier.testTag("booking_card_due"),
+                )
+            }
 
-                HorizontalDivider()
-                Text(text = stringResource(R.string.booking_card_payments_title), style = MaterialTheme.typography.titleSmall)
-                if (detail.payments.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.booking_card_no_payments),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    detail.payments.forEach { payment ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().testTag("booking_card_payment_row"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            // Payment line mirrors web: "date · method[ · notes]".
-                            Text(
-                                text =
-                                    BookingCardNotes.paymentLine(
-                                        date = formatDate(payment.paidOn),
-                                        method = paymentMethodLabel(payment.method),
-                                        notes = payment.notes,
-                                    ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN, masked = !canViewAmounts)
-                            // Delete payment (ADR-105): same gate as recording; hidden otherwise.
-                            if (actions.showDeletePayment) {
-                                ExplainableIcon(
-                                    icon = Icons.Filled.Delete,
-                                    explanationRes = R.string.booking_payment_delete,
-                                    onClick = { confirmDeletePaymentId = payment.id },
-                                    modifier = Modifier.testTag("booking_card_delete_payment"),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Expenses history (ADR-106 §3b): directly below Payment history, same styling;
-                // ENTIRELY absent (no divider, heading or empty state) when the booking has no
-                // live linked expense — or when the member lacks expenses.view (the detail
-                // then carries no rows). Read-only: no tap, no delete. Informational only —
-                // the total is never subtracted from Due.
-                if (detail.expenses.isNotEmpty()) {
-                    HorizontalDivider()
-                    Text(
-                        text = stringResource(R.string.booking_card_expenses_history),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.testTag("booking_card_expenses_history"),
-                    )
-                    detail.expenses.forEach { expense ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().testTag("booking_card_expense_row"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = BookingCardNotes.expenseLine(date = formatDate(expense.expenseDate), notes = expense.notes),
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            // Received rows carry the ledger's money-in styling, paid rows money-out.
-                            AmountText(
-                                amountPaise = expense.amountPaise,
-                                tone = if (expense.direction == ExpenseDirection.PAID) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
-                                masked = !canViewExpenseAmounts,
-                            )
-                        }
-                    }
-                    val expensesTotal = BookingExpensesHistory.totalPaise(detail.expenses)
+            HorizontalDivider()
+            Text(text = stringResource(R.string.booking_card_payments_title), style = MaterialTheme.typography.titleSmall)
+            if (detail.payments.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.booking_card_no_payments),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                detail.payments.forEach { payment ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().testTag("booking_card_expenses_total"),
+                        modifier = Modifier.fillMaxWidth().testTag("booking_card_payment_row"),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
+                        // Payment line mirrors web: "date · method[ · notes]".
                         Text(
-                            text = stringResource(R.string.booking_card_expenses_total),
-                            style = MaterialTheme.typography.bodyLarge,
+                            text =
+                                BookingCardNotes.paymentLine(
+                                    date = formatDate(payment.paidOn),
+                                    method = paymentMethodLabel(payment.method),
+                                    notes = payment.notes,
+                                ),
+                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )
+                        AmountText(amountPaise = payment.amountPaise, tone = AmountTone.MONEY_IN, masked = !canViewAmounts)
+                        // Delete payment (ADR-105): same gate as recording; hidden otherwise.
+                        if (actions.showDeletePayment) {
+                            ExplainableIcon(
+                                icon = Icons.Filled.Delete,
+                                explanationRes = R.string.booking_payment_delete,
+                                onClick = { confirmDeletePaymentId = payment.id },
+                                modifier = Modifier.testTag("booking_card_delete_payment"),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Expenses history (ADR-106 §3b): directly below Payment history, same styling;
+            // ENTIRELY absent (no divider, heading or empty state) when the booking has no
+            // live linked expense — or when the member lacks expenses.view (the detail
+            // then carries no rows). Read-only: no tap, no delete. Informational only —
+            // the total is never subtracted from Due.
+            if (detail.expenses.isNotEmpty()) {
+                HorizontalDivider()
+                Text(
+                    text = stringResource(R.string.booking_card_expenses_history),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.testTag("booking_card_expenses_history"),
+                )
+                detail.expenses.forEach { expense ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().testTag("booking_card_expense_row"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = BookingCardNotes.expenseLine(date = formatDate(expense.expenseDate), notes = expense.notes),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // Received rows carry the ledger's money-in styling, paid rows money-out.
                         AmountText(
-                            amountPaise = if (expensesTotal < 0) -expensesTotal else expensesTotal,
-                            tone = if (expensesTotal >= 0) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
+                            amountPaise = expense.amountPaise,
+                            tone = if (expense.direction == ExpenseDirection.PAID) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
                             masked = !canViewExpenseAmounts,
                         )
                     }
                 }
-            }
-
-            // Audit line (§4.1 ★): who created the booking and when — metadata, ADR-093.
-            MetadataText(
-                text =
-                    stringResource(
-                        R.string.booking_card_audit_added,
-                        creatorName,
-                        formatDate(booking.createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate()),
-                    ),
-                modifier = Modifier.testTag("booking_card_audit"),
-            )
-
-            HorizontalDivider()
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                if (actions.showEdit) {
-                    ExplainableIcon(icon = Icons.Filled.Edit, explanationRes = R.string.common_action_edit, onClick = onEdit)
-                }
-                if (actions.showRecordPayment) {
-                    ExplainableIcon(
-                        icon = Icons.Filled.CurrencyRupee,
-                        explanationRes = R.string.booking_card_action_record_payment,
-                        onClick = onRecordPayment,
-                    )
-                }
-                // Record expense (ADR-101): beside Record payment; the Expenses-tab wallet
-                // glyph says where the tap lands. Hidden without `expenses.create`.
-                if (actions.showRecordExpense) {
-                    ExplainableIcon(
-                        icon = Icons.Filled.AccountBalanceWallet,
-                        explanationRes = R.string.booking_card_action_record_expense,
-                        onClick = onRecordExpense,
-                        modifier = Modifier.testTag("booking_card_record_expense"),
-                    )
-                }
-                if (actions.showInvoice) {
-                    ExplainableIcon(
-                        icon = Icons.Filled.Print,
-                        explanationRes = R.string.booking_card_action_invoice,
-                        onClick = { invoiceChooser = true },
-                    )
-                }
-                // The share action is specifically a payment REMINDER text (due amount
-                // included), so markers — which have no dues — drop it too (ADR-044).
-                if (actions.showWhatsAppReminder) {
-                    ExplainableIcon(
-                        icon = Icons.Filled.Share,
-                        explanationRes = R.string.booking_card_action_whatsapp,
-                        onClick = onWhatsApp,
-                    )
-                }
-            }
-            if (actions.showCancel) {
-                TextButton(onClick = { confirmCancel = true }) {
+                val expensesTotal = BookingExpensesHistory.totalPaise(detail.expenses)
+                Row(
+                    modifier = Modifier.fillMaxWidth().testTag("booking_card_expenses_total"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        text = stringResource(R.string.booking_card_action_cancel_booking),
-                        color = MaterialTheme.colorScheme.error,
+                        text = stringResource(R.string.booking_card_expenses_total),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
                     )
-                }
-            }
-            // Cancelled card (ADR-054): the two ways forward — bring it back or
-            // remove it for good — replace the whole active-action surface.
-            // Visual weight tells them apart (ADR-054 addendum): Restore is the safe,
-            // encouraged action → filled moneyIn-green button (the "You got" precedent
-            // guarantees green even under dynamic color); Delete is destructive →
-            // error-outlined button, matching the M3 destructive convention.
-            if (actions.showRestore || actions.showDelete) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (actions.showRestore) {
-                        Button(
-                            onClick = onRestoreBooking,
-                            colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyIn),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(text = stringResource(R.string.booking_card_action_restore_booking))
-                        }
-                    }
-                    if (actions.showDelete) {
-                        OutlinedButton(
-                            onClick = { confirmDelete = true },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(text = stringResource(R.string.booking_card_action_delete_booking))
-                        }
-                    }
+                    AmountText(
+                        amountPaise = if (expensesTotal < 0) -expensesTotal else expensesTotal,
+                        tone = if (expensesTotal >= 0) AmountTone.MONEY_OUT else AmountTone.MONEY_IN,
+                        masked = !canViewExpenseAmounts,
+                    )
                 }
             }
         }
+
+        // Audit line (§4.1 ★): who created the booking and when — metadata, ADR-093.
+        MetadataText(
+            text =
+                stringResource(
+                    R.string.booking_card_audit_added,
+                    creatorName,
+                    formatDate(booking.createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate()),
+                ),
+            modifier = Modifier.testTag("booking_card_audit"),
+        )
     }
 
     if (confirmCancel) {
@@ -526,6 +460,103 @@ internal fun BookingCardSheet(
     }
 }
 
+/**
+ * The booking card's pinned action surface (ADR-107): icon actions, the Cancel-booking text
+ * button and the Restore/Delete pair of a cancelled card — the whole status × permission
+ * matrix lives in [actions]. Rendered OUTSIDE the scrolling region so it is always on screen.
+ */
+@Composable
+private fun BookingCardActionsFooter(
+    actions: BookingCardActionState,
+    onEdit: () -> Unit,
+    onRecordPayment: () -> Unit,
+    onRecordExpense: () -> Unit,
+    onInvoice: () -> Unit,
+    onWhatsApp: () -> Unit,
+    onCancel: () -> Unit,
+    onRestoreBooking: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider()
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+            if (actions.showEdit) {
+                ExplainableIcon(icon = Icons.Filled.Edit, explanationRes = R.string.common_action_edit, onClick = onEdit)
+            }
+            if (actions.showRecordPayment) {
+                ExplainableIcon(
+                    icon = Icons.Filled.CurrencyRupee,
+                    explanationRes = R.string.booking_card_action_record_payment,
+                    onClick = onRecordPayment,
+                )
+            }
+            // Record expense (ADR-101): beside Record payment; the Expenses-tab wallet
+            // glyph says where the tap lands. Hidden without `expenses.create`.
+            if (actions.showRecordExpense) {
+                ExplainableIcon(
+                    icon = Icons.Filled.AccountBalanceWallet,
+                    explanationRes = R.string.booking_card_action_record_expense,
+                    onClick = onRecordExpense,
+                    modifier = Modifier.testTag("booking_card_record_expense"),
+                )
+            }
+            if (actions.showInvoice) {
+                ExplainableIcon(
+                    icon = Icons.Filled.Print,
+                    explanationRes = R.string.booking_card_action_invoice,
+                    onClick = onInvoice,
+                )
+            }
+            // The share action is specifically a payment REMINDER text (due amount
+            // included), so markers — which have no dues — drop it too (ADR-044).
+            if (actions.showWhatsAppReminder) {
+                ExplainableIcon(
+                    icon = Icons.Filled.Share,
+                    explanationRes = R.string.booking_card_action_whatsapp,
+                    onClick = onWhatsApp,
+                )
+            }
+        }
+        if (actions.showCancel) {
+            TextButton(onClick = onCancel) {
+                Text(
+                    text = stringResource(R.string.booking_card_action_cancel_booking),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        // Cancelled card (ADR-054): the two ways forward — bring it back or
+        // remove it for good — replace the whole active-action surface.
+        // Visual weight tells them apart (ADR-054 addendum): Restore is the safe,
+        // encouraged action → filled moneyIn-green button (the "You got" precedent
+        // guarantees green even under dynamic color); Delete is destructive →
+        // error-outlined button, matching the M3 destructive convention.
+        if (actions.showRestore || actions.showDelete) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                if (actions.showRestore) {
+                    Button(
+                        onClick = onRestoreBooking,
+                        colors = ButtonDefaults.buttonColors(containerColor = SamarohTheme.semanticColors.moneyIn),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(text = stringResource(R.string.booking_card_action_restore_booking))
+                    }
+                }
+                if (actions.showDelete) {
+                    OutlinedButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(text = stringResource(R.string.booking_card_action_delete_booking))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AmountRow(
     labelRes: Int,
@@ -556,7 +587,6 @@ internal fun paymentMethodLabel(method: PaymentMethod): String =
     )
 
 /** Record-payment sheet (§4.1): amount prefilled with due, date, method chips, notes. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RecordPaymentSheet(
     duePaise: Long,
@@ -570,17 +600,14 @@ internal fun RecordPaymentSheet(
     var notes by rememberSaveable { mutableStateOf("") }
     var amountError by rememberSaveable { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        // IME handling (§6 UX round): the M3 sheet window never receives IME insets on
-        // API 30+ (SOFT_INPUT_ADJUST_NOTHING; imePadding is a no-op inside it), so the
-        // action row is pinned in the HEADER where the keyboard can never cover it.
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+    // IME handling (§6 UX round): the M3 sheet window never receives IME insets on
+    // API 30+ (SOFT_INPUT_ADJUST_NOTHING; imePadding is a no-op inside it), so the
+    // action row is pinned in the HEADER where the keyboard can never cover it; the
+    // form fields scroll beneath it (ADR-107 scaffold).
+    ScrollableSheetScaffold(
+        onDismissRequest = onDismiss,
+        header = {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Text(
                     text = stringResource(R.string.booking_card_action_record_payment),
                     style = MaterialTheme.typography.titleLarge,
@@ -596,45 +623,38 @@ internal fun RecordPaymentSheet(
                     }
                 }) { Text(stringResource(R.string.common_action_save)) }
             }
-            Column(
-                modifier =
-                    Modifier
-                        .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = {
-                        amountText = it
-                        amountError = false
-                    },
-                    label = { Text(stringResource(R.string.booking_payment_amount)) },
-                    isError = amountError,
-                    supportingText = { if (amountError) Text(stringResource(R.string.booking_payment_invalid_amount)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                DateField(labelRes = R.string.booking_payment_date, date = date, onDateChange = { date = it })
-                Text(text = stringResource(R.string.booking_payment_method), style = MaterialTheme.typography.labelLarge)
-                ChipRow {
-                    PaymentMethod.entries.forEach { candidate ->
-                        FilterChip(
-                            selected = method == candidate,
-                            onClick = { method = candidate },
-                            label = { Text(paymentMethodLabel(candidate)) },
-                        )
-                    }
-                }
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text(stringResource(R.string.booking_form_notes)) },
-                    modifier = Modifier.fillMaxWidth(),
+        },
+    ) {
+        OutlinedTextField(
+            value = amountText,
+            onValueChange = {
+                amountText = it
+                amountError = false
+            },
+            label = { Text(stringResource(R.string.booking_payment_amount)) },
+            isError = amountError,
+            supportingText = { if (amountError) Text(stringResource(R.string.booking_payment_invalid_amount)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        DateField(labelRes = R.string.booking_payment_date, date = date, onDateChange = { date = it })
+        Text(text = stringResource(R.string.booking_payment_method), style = MaterialTheme.typography.labelLarge)
+        ChipRow {
+            PaymentMethod.entries.forEach { candidate ->
+                FilterChip(
+                    selected = method == candidate,
+                    onClick = { method = candidate },
+                    label = { Text(paymentMethodLabel(candidate)) },
                 )
             }
         }
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            label = { Text(stringResource(R.string.booking_form_notes)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -714,7 +734,6 @@ internal fun BlockDetailsDialog(
  * agenda row, plus a final "Add new event" row (permission-gated) that opens the add
  * form prefilled with that date as start AND end.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookingChooserSheet(
     date: LocalDate,
@@ -727,20 +746,49 @@ internal fun BookingChooserSheet(
     onPick: (String) -> Unit,
     onAddNew: (LocalDate) -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
-                    .testTag("day_sheet"),
-        ) {
+    // ADR-107 scaffold: a busy day's rows scroll; the date heading and the "Add new
+    // event" row are pinned so the create action is reachable however long the list.
+    ScrollableSheetScaffold(
+        onDismissRequest = onDismiss,
+        verticalArrangement = Arrangement.Top,
+        header = {
             Text(
                 text = formatFullDate(date),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 4.dp).semantics { heading() },
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).semantics { heading() },
             )
+        },
+        footer =
+            if (canCreate) {
+                {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clickable { onAddNew(date) }
+                                .padding(vertical = 12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = stringResource(R.string.booking_calendar_add_new_event),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
+                    }
+                }
+            } else {
+                null
+            },
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().testTag("day_sheet")) {
             bookings.forEach { booking ->
                 BookingAgendaRow(
                     booking = booking,
@@ -749,29 +797,6 @@ internal fun BookingChooserSheet(
                     presets = presets,
                     onClick = { onPick(booking.id) },
                 )
-            }
-            if (canCreate) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .clickable { onAddNew(date) }
-                            .padding(vertical = 12.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        text = stringResource(R.string.booking_calendar_add_new_event),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 12.dp),
-                    )
-                }
             }
         }
     }

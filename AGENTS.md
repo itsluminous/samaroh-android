@@ -18,7 +18,7 @@ Sign-In, Drive backups and Calendar sync.
 |---|---|---|
 | `app` | MainActivity, nav host, bottom bar (modules only) + business-name app bar (tappable sync cloud icon, Menu kebab — ADR-087), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
 | `shared/` | git submodule → `samaroh-shared` (string catalogs, codegen, schema, brand) | external |
-| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `WideDialog` (full-width list dialogs, ADR-090), `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
+| `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `WideDialog` (full-width list dialogs, ADR-090), `ScrollableSheetScaffold` (the ONLY way to render a modal bottom sheet — scrolling body + pinned header/footer, ADR-107), `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
 | `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter`, catalog parity + usage-audit tests | done |
 | `core:model` | enums, domain models, permission types — **FROZEN CONTRACT** | done |
 | `core:database` | Room entities/DAOs/converters, `outbox`, sync cursors/conflict log, exported schemas — **FROZEN CONTRACT** | done |

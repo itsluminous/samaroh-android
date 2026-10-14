@@ -1,17 +1,25 @@
 package com.itsluminous.samaroh.e2e
 
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import com.itsluminous.samaroh.core.designsystem.component.SHEET_SCROLL_TEST_TAG
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -199,6 +207,62 @@ abstract class BookingFlowTest(
             ).performClick()
 
         waitForText(notes)
+    }
+
+    /**
+     * ADR-107: a card taller than the screen (long notes + payment history + expenses history)
+     * keeps its action row PINNED — Record payment is displayed and tappable with no scrolling —
+     * and the histories are reachable by scrolling the middle region.
+     */
+    @Test
+    fun bookingCard_longContent_actionsPinnedAndHistoryScrolls() {
+        val notes = (1..24).joinToString("\n") { "E2E-LONG line $it: stage on the east lawn, caterer at 4 pm, 400 chairs." }
+        val booking =
+            Fixtures
+                .booking(startDate = futureDateInCurrentMonth(), totalAmountPaise = 5_00_000_00L)
+                .copy(customerName = "Meera", notes = notes)
+        val party = Fixtures.party(name = "E2E event party").copy(bookingId = booking.id)
+        runBlocking {
+            bookingRepository.saveBooking(booking)
+            repeat(6) { index ->
+                bookingRepository.recordPayment(
+                    Fixtures.payment(booking.id, amountPaise = 10_000_00L, paidOn = LocalDate.now().minusDays(index.toLong())),
+                )
+            }
+            expensesRepository.saveParty(party)
+            repeat(5) { index ->
+                expensesRepository.saveExpense(
+                    Fixtures
+                        .expense(partyId = party.id, amountPaise = 1_500_00L, expenseDate = LocalDate.now().minusDays(index.toLong()))
+                        .copy(bookingId = booking.id, notes = "Decoration $index"),
+                )
+            }
+        }
+
+        waitForContentDescription("Meera", substring = true).performClick()
+        waitForText(string(R.string.booking_calendar_add_new_event))
+        compose
+            .onNode(
+                hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
+                useUnmergedTree = true,
+            ).performClick()
+
+        // Pinned footer: the action row is on screen and tappable BEFORE any scroll.
+        // (`waitForContentDescription` resolves the UNMERGED icon node, which carries no
+        // click action of its own — the merged node is the clickable ExplainableIcon.)
+        waitForContentDescription(string(R.string.booking_card_action_record_payment))
+        compose.onNodeWithContentDescription(string(R.string.booking_card_action_record_payment)).assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithTag("booking_card_record_expense", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag(SHEET_SCROLL_TEST_TAG, useUnmergedTree = true).assert(hasScrollAction())
+
+        // The expenses total starts below the fold; scrolling the middle region reveals it
+        // while the action row stays where it was.
+        val total = compose.onNodeWithTag("booking_card_expenses_total", useUnmergedTree = true)
+        total.assertIsNotDisplayed()
+        total.performScrollTo()
+        total.assertIsDisplayed()
+        compose.onAllNodesWithTag("booking_card_expense_row", useUnmergedTree = true).assertCountEquals(5)
+        compose.onNodeWithContentDescription(string(R.string.booking_card_action_record_payment)).assertIsDisplayed()
     }
 
     @Test
