@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Clear
@@ -35,10 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,6 +72,8 @@ fun HelpScreen(
     val lang = HelpLanguage.of(LocalConfiguration.current.locales[0])
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     // Expanded tasks ("screen/task" keys); while searching every result shows its steps.
     var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
     val shareTitle = stringResource(R.string.menu_help_share_link)
@@ -110,7 +117,14 @@ fun HelpScreen(
                                 lang = lang,
                                 expanded = state.searching || key in expanded,
                                 onToggle = { expanded = if (key in expanded) expanded - key else expanded + key },
-                                onShowMe = { viewModel.showMe(task) },
+                                onShowMe = {
+                                    // Leave the search field (and its keyboard) before the shell
+                                    // navigates away: a focused field keeps the IME attached to a
+                                    // screen that is about to be popped.
+                                    focusManager.clearFocus(force = true)
+                                    keyboard?.hide()
+                                    viewModel.showMe(task)
+                                },
                             )
                         }
                     }
@@ -158,9 +172,14 @@ private fun HelpSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
 ) {
+    // The keyboard's Search key dismisses the keyboard so the results (and their Show me
+    // buttons at the bottom) are reachable without an extra back press.
+    val focusManager = LocalFocusManager.current
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
         placeholder = { Text(stringResource(R.string.menu_help_search_placeholder)) },
         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
         trailingIcon =

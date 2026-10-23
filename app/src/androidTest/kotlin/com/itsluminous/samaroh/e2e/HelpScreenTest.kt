@@ -1,5 +1,6 @@
 package com.itsluminous.samaroh.e2e
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -7,6 +8,8 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
@@ -43,6 +46,23 @@ abstract class HelpScreenTest(
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.menu_help_search_placeholder)))
             .performTextInput(query)
+        // The keyboard's Search key dismisses it (the owner's gesture too): the Show me
+        // button at the bottom of the result must not be covered by the IME. Re-query:
+        // the placeholder is gone once the field has text.
+        compose.onNode(hasSetTextAction() and hasText(query)).performImeAction()
+        compose.waitForIdle()
+    }
+
+    /**
+     * Taps the first result's Show me through its click action: the soft keyboard the
+     * search opened may still cover the bottom of the list on the emulator, where an
+     * injected touch would land on the IME instead of the button.
+     */
+    private fun clickFirstShowMe() {
+        compose
+            .onAllNodesWithText(string(R.string.menu_help_show_me))
+            .onFirst()
+            .performSemanticsAction(SemanticsActions.OnClick)
     }
 
     private fun openHelpFromMenu() {
@@ -63,7 +83,7 @@ abstract class HelpScreenTest(
         searchHelp(addBooking.title[localeTag])
         waitForText(addBooking.title[localeTag]).performClick()
         waitForText(addBooking.steps.first()[localeTag], substring = true)
-        compose.onAllNodesWithText(string(R.string.menu_help_show_me), useUnmergedTree = true).onFirst().performClick()
+        clickFirstShowMe()
 
         // Show me (booking/form): the Booking tab's add form.
         waitForText(string(R.string.booking_form_customer_name))
@@ -76,7 +96,7 @@ abstract class HelpScreenTest(
         val changeLanguage = task(HelpScreenIds.SETTINGS, "change_language")
         searchHelp(changeLanguage.title[localeTag])
         waitForText(changeLanguage.title[localeTag]).performClick()
-        compose.onAllNodesWithText(string(R.string.menu_help_show_me), useUnmergedTree = true).onFirst().performClick()
+        clickFirstShowMe()
         // menu/settings/language → the language picker, over the Menu home.
         waitForText(string(R.string.settings_language_picker_title))
     }
@@ -95,6 +115,12 @@ abstract class HelpScreenTest(
                 .isEmpty(),
         ).isTrue()
         compose.onAllNodesWithText(string(R.string.common_menu_help), useUnmergedTree = true).onFirst().assertIsDisplayed()
+
+        // A bottom-bar tap from inside the Menu pops it and lands on the tab (ADR-087, fixed
+        // in ADR-108: the Menu is popped WITHOUT being saved as the tab's state).
+        waitForText(string(R.string.common_nav_booking)).performClick()
+        waitForText(string(R.string.booking_summary_this_month))
+        waitForContentDescription(string(R.string.menu_help_for_this_screen)).assertIsDisplayed()
     }
 }
 

@@ -224,6 +224,27 @@ fun SamarohApp(
         }
     }
 
+    /**
+     * The bottom-bar tab switch (Material pattern: save the leaving tab's stack, restore
+     * the target's) — used by the bar items, every deep link / holder and Help "Show me".
+     *
+     * The Menu is PUSHED over the current tab (ADR-087), so from inside it the tab switch
+     * must pop the Menu graph first WITHOUT saving it: `popUpTo(start) { saveState }` would
+     * file the popped Menu entries as the start tab's saved state and the `restoreState`
+     * leg would re-push them at once — the tap visibly did nothing (the bar tap from the
+     * Menu was broken this way until ADR-108 fixed it here).
+     */
+    fun navigateToTab(route: String) {
+        if (navController.currentDestination?.hierarchy?.any { it.route == MENU_TAB_ROUTE } == true) {
+            navController.popBackStack(MENU_TAB_ROUTE, inclusive = true)
+        }
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     // Reminder deep link (§4.1, ADR-098): switch to the Booking tab; the calendar
     // ViewModel lands on the date and opens the card from the holder. A member who lost
     // `booking.view` has no Booking tab at all — the link is dropped on the spot (§3 gate).
@@ -238,11 +259,7 @@ fun SamarohApp(
         if (BOOKING_ROUTE !in visibleTabs) {
             bookingDeepLinks.consume(link)
         } else if (!onBooking) {
-            navController.navigate(BOOKING_ROUTE) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
+            navigateToTab(BOOKING_ROUTE)
         }
     }
 
@@ -258,11 +275,7 @@ fun SamarohApp(
         if (EXPENSES_ROUTE !in visibleTabs) {
             bookingExpenseDrafts.consume(draft)
         } else if (!onExpenses) {
-            navController.navigate(EXPENSES_ROUTE) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
+            navigateToTab(EXPENSES_ROUTE)
         }
     }
 
@@ -310,11 +323,7 @@ fun SamarohApp(
 
         fun switchToTab(route: String): Boolean {
             if (route !in visibleTabs) return false
-            navController.navigate(route) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
+            navigateToTab(route)
             return true
         }
         when (val landing = HelpDeepLinkResolver.resolve(target.deepLinkId)) {
@@ -352,11 +361,7 @@ fun SamarohApp(
                     is AppLink.Menu, AppLink.Reports -> null
                 }
             if (tabRoute != null) {
-                navController.navigate(tabRoute) {
-                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
+                navigateToTab(tabRoute)
             } else {
                 openMenu()
             }
@@ -377,13 +382,6 @@ fun SamarohApp(
 
     // Share-chooser routing (ADR-086): each pick lands on its tab; the feature graph
     // consumes the flag once it took over the parked payload.
-    fun navigateToTab(route: String) {
-        navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
-    }
     // Create-invoice (ADR-078, unchanged): the expenses graph opens the party picker.
     LaunchedEffect(pendingShareInvoice, onboarded) {
         if (pendingShareInvoice && onboarded) navigateToTab(EXPENSES_ROUTE)
@@ -482,13 +480,8 @@ fun SamarohApp(
                             // every destination nested under it, not just its own route;
                             // inside the Menu graph nothing is selected.
                             selected = currentTab == destination.route,
-                            onClick = {
-                                navController.navigate(destination.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            // From inside the Menu the tap pops it first (ADR-087/108).
+                            onClick = { navigateToTab(destination.route) },
                             icon = { Icon(destination.icon, contentDescription = label) },
                             label = { Text(label) },
                         )
