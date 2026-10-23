@@ -6,13 +6,18 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpDeepLinkIds
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.menu.ui.about.AboutScreen
+import com.itsluminous.samaroh.feature.menu.ui.help.HelpScreen
+import com.itsluminous.samaroh.feature.menu.ui.help.HelpViewModel
 import com.itsluminous.samaroh.feature.menu.ui.home.MenuHomeScreen
 import com.itsluminous.samaroh.feature.menu.ui.members.MembersScreen
 import com.itsluminous.samaroh.feature.menu.ui.search.MenuScreenTarget
@@ -67,6 +72,13 @@ fun NavGraphBuilder.syncStatusGraph(
  * @param onBack pops the Menu back to the tab beneath it.
  * @param onSignIn the identity row's "Sign in" while the device has no session (ADR-089)
  *   — the app shell opens the sign-in step on top of the current screen, data intact.
+ * @param openHelp the contextual `?` (ADR-108): open the Help screen scrolled to this guide
+ *   screen id (blank = top). Consumed via [onHelpConsumed]. A [State] (ADR-099).
+ * @param onHelpConsumed clears the pending Help request once the screen is pushed.
+ * @param helpTarget a Help "Show me" deep link this graph owns (the `menu/…` ids, ADR-108): the
+ *   host lands on the matching nested screen over the Menu home. Consumed via
+ *   [onHelpTargetConsumed]; ids outside [HelpDeepLinkIds.menu] are ignored here.
+ * @param onHelpTargetConsumed clears the pending Show-me target once landed.
  */
 fun NavGraphBuilder.menuGraph(
     canGoBack: State<Boolean> = mutableStateOf(false),
@@ -77,10 +89,16 @@ fun NavGraphBuilder.menuGraph(
     onSignedOut: () -> Unit = {},
     onOpenReportDetail: (String) -> Unit = {},
     onSignIn: () -> Unit = {},
+    openHelp: State<String?> = mutableStateOf(null),
+    onHelpConsumed: () -> Unit = {},
+    helpTarget: State<String?> = mutableStateOf(null),
+    onHelpTargetConsumed: () -> Unit = {},
 ) {
     composable(MENU_ROUTE) {
         val hasParent by canGoBack
         val settingsRequested by openSettings
+        val helpRequested by openHelp
+        val pendingHelpTarget by helpTarget
         MenuTabHost(
             onBack = if (hasParent) onBack else null,
             onOpenReports = onOpenReports,
@@ -89,6 +107,10 @@ fun NavGraphBuilder.menuGraph(
             onSignedOut = onSignedOut,
             onOpenReportDetail = onOpenReportDetail,
             onSignIn = onSignIn,
+            openHelp = helpRequested,
+            onHelpConsumed = onHelpConsumed,
+            helpTarget = pendingHelpTarget,
+            onHelpTargetConsumed = onHelpTargetConsumed,
         )
     }
 }
@@ -103,7 +125,29 @@ private object MenuRoutes {
     const val EVENT_TYPES = "menu_settings_event_types"
     const val MEMBERS = "menu_members"
     const val ABOUT = "menu_about"
+    const val HELP = "menu_help?${HelpViewModel.SCREEN_ARG}={${HelpViewModel.SCREEN_ARG}}"
+
+    /** The Help screen, opened on [screenId]'s section (ADR-108); null/blank = the top. */
+    fun help(screenId: String?): String = "menu_help?${HelpViewModel.SCREEN_ARG}=${screenId.orEmpty()}"
 }
+
+/**
+ * Nested route of a Help "Show me" deep-link id this graph owns (ADR-108, `routes.json`
+ * android column). Null for ids other features own.
+ */
+internal fun routeForHelpTarget(deepLinkId: String): String? =
+    when (deepLinkId) {
+        HelpDeepLinkIds.MENU_HOME -> MenuRoutes.HOME
+        HelpDeepLinkIds.MENU_SETTINGS -> MenuRoutes.SETTINGS
+        HelpDeepLinkIds.MENU_SETTINGS_LANGUAGE -> MenuRoutes.LANGUAGE
+        HelpDeepLinkIds.MENU_SETTINGS_SYNC -> MenuRoutes.SYNC_STATUS
+        HelpDeepLinkIds.MENU_SETTINGS_BUSINESS -> MenuRoutes.BUSINESS_PROFILE
+        HelpDeepLinkIds.MENU_SETTINGS_EVENT_TYPES -> MenuRoutes.EVENT_TYPES
+        HelpDeepLinkIds.MENU_SETTINGS_REMINDERS -> MenuRoutes.REMINDERS
+        HelpDeepLinkIds.MENU_MEMBERS -> MenuRoutes.MEMBERS
+        HelpDeepLinkIds.MENU_ABOUT -> MenuRoutes.ABOUT
+        else -> null
+    }
 
 /**
  * Nested route of a Menu-search screen target (ADR-075). Search results deep-link into
@@ -120,6 +164,7 @@ internal fun routeFor(target: MenuScreenTarget): String =
         MenuScreenTarget.EVENT_TYPES -> MenuRoutes.EVENT_TYPES
         MenuScreenTarget.MEMBERS -> MenuRoutes.MEMBERS
         MenuScreenTarget.ABOUT -> MenuRoutes.ABOUT
+        MenuScreenTarget.HELP -> MenuRoutes.help(null)
     }
 
 /**
@@ -134,6 +179,8 @@ internal fun helpScreenIdFor(route: String?): String? =
         MenuRoutes.BUSINESS_PROFILE, MenuRoutes.EVENT_TYPES,
         -> HelpScreenIds.SETTINGS
         MenuRoutes.MEMBERS -> HelpScreenIds.MEMBERS
+        // The Help screen itself: reported so the shell hides the `?` while it is open.
+        MenuRoutes.HELP -> HelpScreenIds.HELP
         else -> null
     }
 
@@ -146,6 +193,10 @@ private fun MenuTabHost(
     onSignedOut: () -> Unit,
     onOpenReportDetail: (String) -> Unit,
     onSignIn: () -> Unit,
+    openHelp: String?,
+    onHelpConsumed: () -> Unit,
+    helpTarget: String?,
+    onHelpTargetConsumed: () -> Unit,
 ) {
     val navController = rememberNavController()
     // App-Link settings target (ADR-033): push Settings over Home once, then consume.
@@ -154,6 +205,21 @@ private fun MenuTabHost(
             navController.navigate(MenuRoutes.SETTINGS) { launchSingleTop = true }
             onSettingsDeepLinkConsumed()
         }
+    }
+    // Contextual help (ADR-108): push Help (scrolled to the requested screen) over Home.
+    LaunchedEffect(openHelp) {
+        if (openHelp != null) {
+            navController.navigate(MenuRoutes.help(openHelp)) { launchSingleTop = true }
+            onHelpConsumed()
+        }
+    }
+    // Help "Show me" for a Menu screen (ADR-108): land on it over Home — so back returns
+    // to the Menu home, not to the Help screen the request came from — then consume.
+    LaunchedEffect(helpTarget) {
+        val route = helpTarget?.let(::routeForHelpTarget) ?: return@LaunchedEffect
+        navController.popBackStack(MenuRoutes.HOME, inclusive = false)
+        if (route != MenuRoutes.HOME) navController.navigate(route) { launchSingleTop = true }
+        onHelpTargetConsumed()
     }
     // Help/assistant context (ADR-108): report the guide screen of the inner destination.
     val currentRoute =
@@ -209,6 +275,18 @@ private fun MenuTabHost(
         }
         composable(MenuRoutes.ABOUT) {
             AboutScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = MenuRoutes.HELP,
+            arguments =
+                listOf(
+                    navArgument(HelpViewModel.SCREEN_ARG) {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                ),
+        ) {
+            HelpScreen(onBack = { navController.popBackStack() })
         }
     }
 }

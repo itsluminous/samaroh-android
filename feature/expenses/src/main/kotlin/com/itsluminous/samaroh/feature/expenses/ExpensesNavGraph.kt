@@ -16,6 +16,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpDeepLinkIds
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_BOOKING_ID
@@ -74,21 +75,31 @@ private fun addEntryRoute(
  *   route to the party picker, then add-entry with the file pre-attached. Cleared via
  *   [onShareTargetConsumed].
  * @param onShareTargetConsumed clears the pending share-target request once routed.
+ * @param helpTarget a Help "Show me" deep link (ADR-108) this host lands on: the party
+ *   list for `expenses/home`, `expenses/ledger` and `expenses/add_entry` (their routes need a
+ *   party the guide cannot know), the add-party form for `expenses/add_party`. A [State]
+ *   (ADR-099); consumed via [onHelpTargetConsumed].
+ * @param onHelpTargetConsumed clears the pending Show-me target once landed.
  */
 fun NavGraphBuilder.expensesGraph(
     partyIdToOpen: State<String?> = mutableStateOf(null),
     onPartyDeepLinkConsumed: () -> Unit = {},
     shareTargetRequested: State<Boolean> = mutableStateOf(false),
     onShareTargetConsumed: () -> Unit = {},
+    helpTarget: State<String?> = mutableStateOf(null),
+    onHelpTargetConsumed: () -> Unit = {},
 ) {
     composable(EXPENSES_ROUTE) {
         val partyId by partyIdToOpen
         val shareRequested by shareTargetRequested
+        val pendingHelpTarget by helpTarget
         ExpensesTabNavHost(
             partyIdToOpen = partyId,
             onPartyDeepLinkConsumed = onPartyDeepLinkConsumed,
             shareTargetRequested = shareRequested,
             onShareTargetConsumed = onShareTargetConsumed,
+            helpTarget = pendingHelpTarget,
+            onHelpTargetConsumed = onHelpTargetConsumed,
         )
     }
 }
@@ -99,10 +110,19 @@ private fun ExpensesTabNavHost(
     onPartyDeepLinkConsumed: () -> Unit,
     shareTargetRequested: Boolean,
     onShareTargetConsumed: () -> Unit,
+    helpTarget: String?,
+    onHelpTargetConsumed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
     val deepLinkViewModel: ExpensesDeepLinkViewModel = hiltViewModel()
+    // Help "Show me" (ADR-108): party list, or the add-party form over it; then consume.
+    LaunchedEffect(helpTarget) {
+        if (helpTarget !in HelpDeepLinkIds.expenses) return@LaunchedEffect
+        navController.popBackStack(ROUTE_HOME, inclusive = false)
+        if (helpTarget == HelpDeepLinkIds.EXPENSES_ADD_PARTY) navController.navigate(ROUTE_ADD_PERSON) { launchSingleTop = true }
+        onHelpTargetConsumed()
+    }
     // App-Link ledger target (ADR-033): only navigate when the party exists locally —
     // a stale/foreign id lands on the party list instead of an empty ledger.
     LaunchedEffect(partyIdToOpen) {

@@ -13,6 +13,9 @@ enum class MenuScreenTarget {
     EVENT_TYPES,
     MEMBERS,
     ABOUT,
+
+    /** The in-app Help (user guide), ADR-108. */
+    HELP,
 }
 
 /** Where tapping a search result lands. */
@@ -129,6 +132,12 @@ object MenuSearchIndex {
                 target = MenuSearchTarget.Screen(MenuScreenTarget.MEMBERS),
                 keywordRes = listOf(R.string.menu_section_members_subtitle, R.string.menu_members_add),
                 ownerOnly = true,
+            ),
+            MenuSearchEntry(
+                id = "help",
+                titleRes = R.string.common_menu_help,
+                target = MenuSearchTarget.Screen(MenuScreenTarget.HELP),
+                keywordRes = listOf(R.string.menu_help_subtitle, R.string.menu_help_search_placeholder),
             ),
             MenuSearchEntry(
                 id = "about",

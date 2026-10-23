@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudDone
@@ -71,6 +72,9 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.itsluminous.samaroh.applink.AppLink
 import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraftHolder
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpNavigationHolder
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.core.data.share.ShareAction
 import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.data.share.ShareRouting
@@ -79,6 +83,7 @@ import com.itsluminous.samaroh.core.designsystem.component.OfflineBanner
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohMotion
 import com.itsluminous.samaroh.core.designsystem.theme.rememberReducedMotion
 import com.itsluminous.samaroh.core.i18n.R
+import com.itsluminous.samaroh.di.HelpBookingCardOpener
 import com.itsluminous.samaroh.feature.booking.BOOKING_ROUTE
 import com.itsluminous.samaroh.feature.booking.bookingGraph
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinkHolder
@@ -277,6 +282,64 @@ fun SamarohApp(
     fun openSignIn() {
         navController.navigate(ONBOARDING_SIGN_IN_ROUTE) { launchSingleTop = true }
     }
+
+    // Contextual help (ADR-108): the `?` app-bar icon opens Help scrolled to the section of
+    // the screen on display (CurrentScreenTracker, kept current by the feature hosts).
+    // The requested screen id travels to the Menu host as a State (ADR-099); "" = top.
+    val currentScreen by CurrentScreenTracker.state.collectAsStateWithLifecycle()
+    val pendingHelpScreenState = remember { mutableStateOf<String?>(null) }
+
+    fun openHelpForCurrentScreen() {
+        pendingHelpScreenState.value = currentScreen.effective?.takeIf { it != HelpScreenIds.HELP }.orEmpty()
+        openMenu()
+    }
+
+    // Help "Show me" (ADR-108): the Help screen parks the task's deep-link id in the
+    // holder; the shell switches to the owning tab (hidden tab → dropped, hide-not-grey)
+    // and the feature host lands on the inner screen and consumes it. Menu targets are
+    // landed by the Menu host; `booking/card` opens the nearest booking's card through
+    // the ADR-098 holder; Reports and Sign in are landed right here.
+    val helpNavigation = remember(activityContext) { ShellEntryPoints.of(activityContext).helpNavigation() }
+    val helpBookingCardOpener = remember(activityContext) { ShellEntryPoints.of(activityContext).helpBookingCardOpener() }
+    val pendingHelpTargetState = helpNavigation.pending.collectAsStateWithLifecycle()
+    val pendingHelpTarget by pendingHelpTargetState
+    val helpTargetIdState = remember { derivedStateOf { pendingHelpTargetState.value?.deepLinkId } }
+    LaunchedEffect(pendingHelpTarget, onboarded, visibleTabs) {
+        val target = pendingHelpTarget ?: return@LaunchedEffect
+        if (!onboarded) return@LaunchedEffect
+
+        fun switchToTab(route: String): Boolean {
+            if (route !in visibleTabs) return false
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+            return true
+        }
+        when (val landing = HelpDeepLinkResolver.resolve(target.deepLinkId)) {
+            null -> helpNavigation.consume(target)
+            is HelpLanding.Tab -> {
+                val switched = switchToTab(landing.route)
+                if (!switched || !landing.featureLands) helpNavigation.consume(target)
+            }
+            HelpLanding.BookingCard -> {
+                if (switchToTab(BOOKING_ROUTE)) helpBookingCardOpener.openNearestCard()
+                helpNavigation.consume(target)
+            }
+            HelpLanding.Menu -> openMenu()
+            HelpLanding.Reports -> {
+                openMenu()
+                navController.navigate(reportsRoute()) { launchSingleTop = true }
+                helpNavigation.consume(target)
+            }
+            HelpLanding.SignIn -> {
+                openSignIn()
+                helpNavigation.consume(target)
+            }
+        }
+    }
+
     LaunchedEffect(pendingAppLink, onboarded) {
         val link = pendingAppLink
         if (link != null && onboarded) {
@@ -384,6 +447,15 @@ fun SamarohApp(
                             // Badge > 0 or signed out → open the Sync-status screen (§4.5, ADR-089).
                             onOpenSyncStatus = { navController.navigate(SYNC_STATUS_ROUTE) },
                         )
+                        // Contextual help (ADR-108): opens Help at the current screen's
+                        // section; hidden while the Help screen itself is open.
+                        if (currentScreen.effective != HelpScreenIds.HELP) {
+                            ExplainableIcon(
+                                icon = Icons.AutoMirrored.Outlined.HelpOutline,
+                                explanationRes = R.string.menu_help_for_this_screen,
+                                onClick = ::openHelpForCurrentScreen,
+                            )
+                        }
                         // Menu kebab (ADR-087): right of the sync icon; pushes the Menu
                         // graph over the current tab. Hidden while the Menu is open.
                         if (NavPermissions.showsMenuKebab(hierarchyRoutes)) {
@@ -470,18 +542,28 @@ fun SamarohApp(
             // reach the feature graphs as States / holders, never as captured values.
             val graph =
                 rememberStableNavGraph(navController, startDestination) {
-                    bookingGraph()
+                    // Help "Show me" targets (ADR-108) reach every feature host as the same
+                    // State; each host lands only on the ids it owns and consumes them.
+                    val consumeHelpTarget: () -> Unit = { pendingHelpTargetState.value?.let(helpNavigation::consume) }
+                    bookingGraph(
+                        helpTarget = helpTargetIdState,
+                        onHelpTargetConsumed = consumeHelpTarget,
+                    )
                     expensesGraph(
                         partyIdToOpen = derivedStateOf { (pendingAppLinkState.value as? AppLink.Expenses)?.partyId },
                         onPartyDeepLinkConsumed = { onAppLinkConsumedState.value() },
                         shareTargetRequested = derivedStateOf { pendingShareInvoiceState.value && onboardedState.value },
                         onShareTargetConsumed = { pendingShareInvoiceState.value = false },
+                        helpTarget = helpTargetIdState,
+                        onHelpTargetConsumed = consumeHelpTarget,
                     )
                     inventoryGraph(
                         openMasterlist = derivedStateOf { (pendingAppLinkState.value as? AppLink.Inventory)?.masterlist == true },
                         onMasterlistDeepLinkConsumed = { onAppLinkConsumedState.value() },
                         sharedPhotoUri = pendingItemPhotoState,
                         onSharedPhotoConsumed = { pendingItemPhotoState.value = null },
+                        helpTarget = helpTargetIdState,
+                        onHelpTargetConsumed = consumeHelpTarget,
                     )
                     notesGraph()
                     // FILES tab (ADR-085); the share chooser's Save to Files lands here (ADR-086).
@@ -514,6 +596,11 @@ fun SamarohApp(
                             },
                             // Identity row "Sign in" while signed out (ADR-089).
                             onSignIn = ::openSignIn,
+                            // Contextual `?` + Help "Show me" for Menu screens (ADR-108).
+                            openHelp = pendingHelpScreenState,
+                            onHelpConsumed = { pendingHelpScreenState.value = null },
+                            helpTarget = helpTargetIdState,
+                            onHelpTargetConsumed = consumeHelpTarget,
                         )
                         reportsGraph()
                         syncStatusGraph(onBack = { navController.popBackStack() }, onSignIn = ::openSignIn)
@@ -717,6 +804,12 @@ interface ShellEntryPoints {
 
     /** Pending record-expense-from-booking draft (ADR-101). */
     fun bookingExpenseDrafts(): BookingExpenseDraftHolder
+
+    /** Pending Help "Show me" target (ADR-108). */
+    fun helpNavigation(): HelpNavigationHolder
+
+    /** Lands `booking/card` Show-me requests on the nearest booking (ADR-108). */
+    fun helpBookingCardOpener(): HelpBookingCardOpener
 
     companion object {
         fun of(context: android.content.Context): ShellEntryPoints =

@@ -2,7 +2,9 @@ package com.itsluminous.samaroh.feature.booking
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -14,6 +16,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpDeepLinkIds
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.booking.reminders.reminderDeepLinks
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarScreen
@@ -41,14 +44,41 @@ private fun formRoute(
  * in the singleton `BookingDeepLinkHolder` and the calendar ViewModel applies them (date
  * + card — the same card a calendar tap opens, never the edit form). Threading them
  * through this builder would rebuild the shell graph and re-create this host.
+ *
+ * @param helpTarget a Help "Show me" deep link (ADR-108) this host lands on:
+ *   `booking/calendar` pops to the calendar, `booking/form` opens the blank add form.
+ *   (`booking/card` is landed by the app shell through the ADR-098 holder — nearest
+ *   booking's card.) A [State] (ADR-099); consumed via [onHelpTargetConsumed].
+ * @param onHelpTargetConsumed clears the pending Show-me target once landed.
  */
-fun NavGraphBuilder.bookingGraph() {
-    composable(BOOKING_ROUTE) { BookingFeatureHost() }
+fun NavGraphBuilder.bookingGraph(
+    helpTarget: State<String?> = mutableStateOf(null),
+    onHelpTargetConsumed: () -> Unit = {},
+) {
+    composable(BOOKING_ROUTE) {
+        val pendingHelpTarget by helpTarget
+        BookingFeatureHost(helpTarget = pendingHelpTarget, onHelpTargetConsumed = onHelpTargetConsumed)
+    }
 }
 
 @Composable
-private fun BookingFeatureHost() {
+private fun BookingFeatureHost(
+    helpTarget: String?,
+    onHelpTargetConsumed: () -> Unit,
+) {
     val navController = rememberNavController()
+    // Help "Show me" (ADR-108): land on the calendar or the blank add form, then consume.
+    LaunchedEffect(helpTarget) {
+        when (helpTarget) {
+            HelpDeepLinkIds.BOOKING_CALENDAR -> navController.popBackStack(CALENDAR_ROUTE, inclusive = false)
+            HelpDeepLinkIds.BOOKING_FORM -> {
+                navController.popBackStack(CALENDAR_ROUTE, inclusive = false)
+                navController.navigate(formRoute()) { launchSingleTop = true }
+            }
+            else -> return@LaunchedEffect
+        }
+        onHelpTargetConsumed()
+    }
     // A warm deep link may arrive while the add/edit form is open: return to the
     // calendar so the card has a host (the calendar ViewModel consumes the link itself).
     val context = LocalContext.current

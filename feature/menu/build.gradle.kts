@@ -35,6 +35,10 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all { test ->
+                // Help drift tests read the canonical guide in the submodule (ADR-108).
+                test.systemProperty("samaroh.sharedHelpDir", rootProject.file("shared/help").absolutePath)
+            }
         }
     }
 }
@@ -47,6 +51,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:auth"))
     implementation(project(":core:google"))
+    implementation(project(":core:help"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

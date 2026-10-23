@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -48,7 +49,7 @@ import com.itsluminous.samaroh.feature.menu.ui.search.ResolvedMenuSearchEntry
 /**
  * Menu home (§4.4, reached from the title-bar kebab since ADR-087): search bar over
  * every menu destination (ADR-075), identity row, Settings, Reports, Members (owner
- * only), About. A non-blank query replaces the section rows with live-filtered results
+ * only), Help (ADR-108), About. A non-blank query replaces the section rows with live-filtered results
  * that navigate straight to their destination.
  *
  * @param onBack pops the Menu back to the tab it was opened over; null hides the arrow
@@ -111,6 +112,14 @@ fun MenuHomeScreen(
                     onClick = { onOpenMenuScreen(MenuScreenTarget.MEMBERS) },
                 )
             }
+            HorizontalDivider()
+            // Help (ADR-108): the in-app user guide, reachable by every member.
+            MenuSectionRow(
+                icon = Icons.Filled.HelpOutline,
+                titleRes = R.string.common_menu_help,
+                subtitleRes = R.string.menu_help_subtitle,
+                onClick = { onOpenMenuScreen(MenuScreenTarget.HELP) },
+            )
             HorizontalDivider()
             MenuSectionRow(
                 icon = Icons.Filled.Info,

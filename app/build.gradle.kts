@@ -91,6 +91,10 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all { test ->
+                // Help drift tests read the canonical guide in the submodule (ADR-108).
+                test.systemProperty("samaroh.sharedHelpDir", rootProject.file("shared/help").absolutePath)
+            }
         }
     }
 
@@ -172,6 +176,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
+    testImplementation(project(":core:testing"))
     // Share-intent parsing needs a ContentResolver (ADR-086) — Robolectric like the feature modules.
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core.ktx)

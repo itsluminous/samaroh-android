@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpDeepLinkIds
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.inventory.ui.CurrentInventoryScreen
 import com.itsluminous.samaroh.feature.inventory.ui.ItemDetailScreen
@@ -52,21 +53,31 @@ private enum class InventoryScreen {
  * @param sharedPhotoUri share-sheet "Set as item photo" (ADR-086): opens the Masterlist,
  *   asks which item, then the editor with the picture pre-staged; consumed via
  *   [onSharedPhotoConsumed].
+ * @param helpTarget a Help "Show me" deep link (ADR-108) this host lands on: the stock
+ *   list for `inventory/stock` and `inventory/item` (an item id the guide cannot know),
+ *   the masterlist for `inventory/masterlist`. A [State] (ADR-099); consumed via
+ *   [onHelpTargetConsumed].
+ * @param onHelpTargetConsumed clears the pending Show-me target once landed.
  */
 fun NavGraphBuilder.inventoryGraph(
     openMasterlist: State<Boolean> = mutableStateOf(false),
     onMasterlistDeepLinkConsumed: () -> Unit = {},
     sharedPhotoUri: State<Uri?> = mutableStateOf(null),
     onSharedPhotoConsumed: () -> Unit = {},
+    helpTarget: State<String?> = mutableStateOf(null),
+    onHelpTargetConsumed: () -> Unit = {},
 ) {
     composable(INVENTORY_ROUTE) {
         val masterlist by openMasterlist
         val photoUri by sharedPhotoUri
+        val pendingHelpTarget by helpTarget
         InventoryHost(
             openMasterlist = masterlist || photoUri != null,
             onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
             sharedPhotoUri = photoUri,
             onSharedPhotoConsumed = onSharedPhotoConsumed,
+            helpTarget = pendingHelpTarget,
+            onHelpTargetConsumed = onHelpTargetConsumed,
         )
     }
 }
@@ -77,8 +88,14 @@ private fun InventoryHost(
     onMasterlistDeepLinkConsumed: () -> Unit,
     sharedPhotoUri: Uri?,
     onSharedPhotoConsumed: () -> Unit,
+    helpTarget: String?,
+    onHelpTargetConsumed: () -> Unit,
 ) {
     val navController = rememberNavController()
+    // Help "Show me" (ADR-108): back to the home destination; InventoryRoute picks the view.
+    LaunchedEffect(helpTarget) {
+        if (helpTarget in HelpDeepLinkIds.inventory) navController.popBackStack(INVENTORY_HOME_ROUTE, inclusive = false)
+    }
     NavHost(navController = navController, startDestination = INVENTORY_HOME_ROUTE) {
         composable(INVENTORY_HOME_ROUTE) {
             InventoryRoute(
@@ -87,6 +104,8 @@ private fun InventoryHost(
                 onMasterlistDeepLinkConsumed = onMasterlistDeepLinkConsumed,
                 sharedPhotoUri = sharedPhotoUri,
                 onSharedPhotoConsumed = onSharedPhotoConsumed,
+                helpTarget = helpTarget,
+                onHelpTargetConsumed = onHelpTargetConsumed,
             )
         }
         composable(
@@ -106,6 +125,8 @@ private fun InventoryRoute(
     onMasterlistDeepLinkConsumed: () -> Unit,
     sharedPhotoUri: Uri? = null,
     onSharedPhotoConsumed: () -> Unit = {},
+    helpTarget: String? = null,
+    onHelpTargetConsumed: () -> Unit = {},
 ) {
     var screen by rememberSaveable { mutableStateOf(InventoryScreen.STOCK) }
     // App-Link masterlist target (ADR-033): flip the toggle once, then consume.
@@ -114,6 +135,12 @@ private fun InventoryRoute(
             screen = InventoryScreen.MASTERLIST
             onMasterlistDeepLinkConsumed()
         }
+    }
+    // Help "Show me" (ADR-108): masterlist for its id, the stock list for the others.
+    LaunchedEffect(helpTarget) {
+        if (helpTarget !in HelpDeepLinkIds.inventory) return@LaunchedEffect
+        screen = if (helpTarget == HelpDeepLinkIds.INVENTORY_MASTERLIST) InventoryScreen.MASTERLIST else InventoryScreen.STOCK
+        onHelpTargetConsumed()
     }
     // Help/assistant context (ADR-108): stock and masterlist are distinct guide screens.
     LaunchedEffect(screen) {
