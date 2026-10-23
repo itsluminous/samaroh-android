@@ -4863,7 +4863,17 @@ data per screen; the owner needs the same steps inside the app, in Hindi, withou
    pushes Help scrolled to the current screen's section (flat LazyColumn index: header +
    tasks + divider per screen; `helpListIndexOfScreen`). Current screen = the tracker's
    effective id, so over the booking card it lands on the card's section.
-7. **Guide and UI ship together** (AGENTS.md hard rule 7): any UI change to a flow the guide
+7. **Found and fixed on the way — tab switch from inside the Menu.** Every tab switch in
+   the shell used `navigate(tab) { popUpTo(start) { saveState = true }; launchSingleTop;
+   restoreState }`. From inside the Menu graph (pushed over a tab, ADR-087) this is a no-op:
+   `popUpTo … saveState` files the popped `menu_tab`/`menu` entries as the START tab's saved
+   state (`backStackMap[start] = <popped stack>`) and `restoreState` re-pushes them in the same
+   call — the bar tap, a reminder deep link, Record expense, App Links and Help "Show me"
+   all visibly did nothing while the Menu was open (verified on `4e98b34`, pre-ADR-108).
+   One `navigateToTab(route)` now pops `MENU_TAB_ROUTE` inclusive and UNSAVED first, then
+   performs the Material switch; every caller, the bar items included, goes through it.
+   e2e `HelpScreenTest.questionMark_…` pins the bar tap from the Menu.
+8. **Guide and UI ship together** (AGENTS.md hard rule 7): any UI change to a flow the guide
    describes updates `guide.json` in the same CR. Machine-checked part: `core:i18n
    HelpGuideCatalogKeysTest` (every `keys` entry of the guide resolves to a generated
    string in `values/` and `values-hi/`), `HelpGuideContractTest` / `HelpDeepLinkResolverTest`
