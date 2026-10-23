@@ -8,7 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.menu.ui.about.AboutScreen
 import com.itsluminous.samaroh.feature.menu.ui.home.MenuHomeScreen
 import com.itsluminous.samaroh.feature.menu.ui.members.MembersScreen
@@ -36,6 +39,8 @@ fun NavGraphBuilder.syncStatusGraph(
     onSignIn: () -> Unit = {},
 ) {
     composable(SYNC_STATUS_ROUTE) {
+        // Help/assistant context (ADR-108): the guide files Sync status under Settings.
+        LaunchedEffect(Unit) { CurrentScreenTracker.setScreen(HelpScreenIds.SETTINGS) }
         SyncStatusScreen(onBack = onBack, onSignIn = onSignIn)
     }
 }
@@ -117,6 +122,21 @@ internal fun routeFor(target: MenuScreenTarget): String =
         MenuScreenTarget.ABOUT -> MenuRoutes.ABOUT
     }
 
+/**
+ * Guide screen id of a Menu-graph route (ADR-108 mapping table): every Settings subscreen
+ * (incl. Sync status) is the guide's `settings` page, About has no page of its own and
+ * falls under `menu`.
+ */
+internal fun helpScreenIdFor(route: String?): String? =
+    when (route) {
+        MenuRoutes.HOME, MenuRoutes.ABOUT -> HelpScreenIds.MENU
+        MenuRoutes.SETTINGS, MenuRoutes.LANGUAGE, MenuRoutes.REMINDERS, MenuRoutes.SYNC_STATUS,
+        MenuRoutes.BUSINESS_PROFILE, MenuRoutes.EVENT_TYPES,
+        -> HelpScreenIds.SETTINGS
+        MenuRoutes.MEMBERS -> HelpScreenIds.MEMBERS
+        else -> null
+    }
+
 @Composable
 private fun MenuTabHost(
     onBack: (() -> Unit)?,
@@ -134,6 +154,16 @@ private fun MenuTabHost(
             navController.navigate(MenuRoutes.SETTINGS) { launchSingleTop = true }
             onSettingsDeepLinkConsumed()
         }
+    }
+    // Help/assistant context (ADR-108): report the guide screen of the inner destination.
+    val currentRoute =
+        navController
+            .currentBackStackEntryAsState()
+            .value
+            ?.destination
+            ?.route
+    LaunchedEffect(currentRoute) {
+        helpScreenIdFor(currentRoute)?.let(CurrentScreenTracker::setScreen)
     }
     NavHost(navController = navController, startDestination = MenuRoutes.HOME) {
         composable(MenuRoutes.HOME) {

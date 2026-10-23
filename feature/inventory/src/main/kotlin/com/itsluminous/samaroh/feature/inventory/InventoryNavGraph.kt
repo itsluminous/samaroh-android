@@ -15,6 +15,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.inventory.ui.CurrentInventoryScreen
 import com.itsluminous.samaroh.feature.inventory.ui.ItemDetailScreen
 import com.itsluminous.samaroh.feature.inventory.ui.MasterlistScreen
@@ -91,6 +93,7 @@ private fun InventoryHost(
             route = ITEM_DETAIL_ROUTE,
             arguments = listOf(navArgument(ITEM_DETAIL_ID_ARG) { type = NavType.StringType }),
         ) {
+            LaunchedEffect(Unit) { CurrentScreenTracker.setScreen(HelpScreenIds.INVENTORY_ITEM) }
             ItemDetailScreen(onBack = { navController.popBackStack() })
         }
     }
@@ -111,6 +114,12 @@ private fun InventoryRoute(
             screen = InventoryScreen.MASTERLIST
             onMasterlistDeepLinkConsumed()
         }
+    }
+    // Help/assistant context (ADR-108): stock and masterlist are distinct guide screens.
+    LaunchedEffect(screen) {
+        CurrentScreenTracker.setScreen(
+            if (screen == InventoryScreen.MASTERLIST) HelpScreenIds.INVENTORY_MASTERLIST else HelpScreenIds.INVENTORY_STOCK,
+        )
     }
     when (screen) {
         InventoryScreen.STOCK ->

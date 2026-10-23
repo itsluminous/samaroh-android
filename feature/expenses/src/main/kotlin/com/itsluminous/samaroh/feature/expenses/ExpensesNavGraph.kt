@@ -12,8 +12,11 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_BOOKING_ID
 import com.itsluminous.samaroh.feature.expenses.addentry.ARG_DIRECTION
@@ -121,6 +124,20 @@ private fun ExpensesTabNavHost(
     // Record expense from a booking card (ADR-101): the draft waits in the core:data
     // holder; the add-entry ViewModel consumes it once it has copied the fields into its
     // saved state. Home stays underneath so Back/Save land on the party list.
+    // Help/assistant context (ADR-108): report the guide screen of the inner destination.
+    val currentRoute =
+        navController
+            .currentBackStackEntryAsState()
+            .value
+            ?.destination
+            ?.route
+    LaunchedEffect(currentRoute) {
+        when (currentRoute) {
+            ROUTE_HOME, ROUTE_ADD_PERSON, ROUTE_SHARE_PICK -> CurrentScreenTracker.setScreen(HelpScreenIds.EXPENSES_HOME)
+            ROUTE_LEDGER -> CurrentScreenTracker.setScreen(HelpScreenIds.EXPENSES_LEDGER)
+            ROUTE_ADD_ENTRY, ROUTE_ADD_BOOKING_ENTRY -> CurrentScreenTracker.setScreen(HelpScreenIds.ADD_EXPENSE)
+        }
+    }
     val pendingBookingDraft by deepLinkViewModel.pendingBookingDraft.collectAsStateWithLifecycle()
     LaunchedEffect(pendingBookingDraft?.bookingId) {
         val bookingId = pendingBookingDraft?.bookingId ?: return@LaunchedEffect

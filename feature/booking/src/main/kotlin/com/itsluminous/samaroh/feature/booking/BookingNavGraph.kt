@@ -10,8 +10,11 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.booking.reminders.reminderDeepLinks
 import com.itsluminous.samaroh.feature.booking.ui.calendar.BookingCalendarScreen
 import com.itsluminous.samaroh.feature.booking.ui.form.BookingFormScreen
@@ -53,6 +56,20 @@ private fun BookingFeatureHost() {
         .collectAsStateWithLifecycle()
     LaunchedEffect(pendingLink) {
         if (pendingLink != null) navController.popBackStack(CALENDAR_ROUTE, inclusive = false)
+    }
+    // Help/assistant context (ADR-108): report the inner destination; the calendar screen
+    // layers its sheets (card / record payment) on top via the tracker's overlay.
+    val currentRoute =
+        navController
+            .currentBackStackEntryAsState()
+            .value
+            ?.destination
+            ?.route
+    LaunchedEffect(currentRoute) {
+        when (currentRoute) {
+            CALENDAR_ROUTE -> CurrentScreenTracker.setScreen(HelpScreenIds.BOOKING_CALENDAR)
+            FORM_ROUTE -> CurrentScreenTracker.setScreen(HelpScreenIds.BOOKING_FORM)
+        }
     }
     NavHost(navController = navController, startDestination = CALENDAR_ROUTE) {
         composable(CALENDAR_ROUTE) {

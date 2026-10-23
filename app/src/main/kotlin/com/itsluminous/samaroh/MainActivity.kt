@@ -1,6 +1,8 @@
 package com.itsluminous.samaroh
 
+import android.app.assist.AssistContent
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,9 +14,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.itsluminous.samaroh.applink.AppLink
 import com.itsluminous.samaroh.core.data.share.ShareIntakeHolder
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
+import com.itsluminous.samaroh.core.help.AssistContextProvider
+import com.itsluminous.samaroh.core.help.HelpGuideSource
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLink
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinkHolder
 import com.itsluminous.samaroh.feature.booking.reminders.BookingDeepLinks
@@ -36,6 +41,8 @@ import javax.inject.Inject
  * ADR-098) — arrival also acknowledges the delivery (ADR-094). Android App Links (ADR-033):
  * `https://samaroh-web.vercel.app/…` VIEW intents are parsed into an [AppLink] the shell
  * routes on, both cold start ([onCreate]) and warm ([onNewIntent], `singleTask`).
+ * Assistant context (ADR-108): [onProvideAssistContent] hands the default assistant the
+ * public help page + JSON-LD of the screen on display, in the app language, never user data.
  */
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -46,6 +53,12 @@ class MainActivity : AppCompatActivity() {
 
     /** Parks the reminder deep link for the Booking feature (ADR-098) — never Compose state, see the holder. */
     @Inject lateinit var bookingDeepLinks: BookingDeepLinkHolder
+
+    /** Builds the per-screen assistant payload from the bundled guide (ADR-108). */
+    @Inject lateinit var assistContextProvider: AssistContextProvider
+
+    /** The bundled guide — warmed off the main thread so the first assist call never parses. */
+    @Inject lateinit var helpGuideSource: HelpGuideSource
 
     /** Web App-Link destination from the latest VIEW intent, cleared once routed. */
     private var pendingAppLink by mutableStateOf<AppLink?>(null)
@@ -62,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         consumeBookingDeepLink(intent)
         pendingAppLink = appLinkFrom(intent)
         consumeShareTarget(intent)
+        helpGuideSource.preload(lifecycleScope)
         setContent {
             val themePrefs by viewModel.themePrefs.collectAsStateWithLifecycle()
             SamarohTheme(
@@ -81,6 +95,27 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * Assistant context (ADR-108, contract `shared/docs/assistant-context.md`): the help page
+     * of the CURRENT screen (route + open sheet, from `CurrentScreenTracker`) in the APP
+     * language as the web URI, plus the screen's guide tasks as compact JSON-LD (≤ 8 KB).
+     * Tasks the member cannot perform are left out. Only public guide text, the screen id
+     * and the language leave the device — never customer names, phones, amounts or ids.
+     * Unknown screen → the guide index.
+     */
+    override fun onProvideAssistContent(outContent: AssistContent) {
+        super.onProvideAssistContent(outContent)
+        val member = viewModel.shareContext.value
+        val context =
+            assistContextProvider.current(
+                appLocale = resources.configuration.locales[0],
+                isOwner = member?.isOwner ?: true,
+                permissions = member?.permissions,
+            )
+        outContent.webUri = Uri.parse(context.pageUrl)
+        outContent.structuredData = context.jsonLd
     }
 
     override fun onNewIntent(intent: Intent) {

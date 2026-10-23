@@ -1,10 +1,13 @@
 package com.itsluminous.samaroh.feature.files
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.files.ui.FilesScreen
 
 /** Route of the Files tab's destination (ADR-085). */
@@ -25,6 +28,8 @@ fun NavGraphBuilder.filesGraph(
 ) {
     composable(FILES_ROUTE) {
         val requested by saveToFilesRequested
+        // Help/assistant context (ADR-108).
+        LaunchedEffect(Unit) { CurrentScreenTracker.setScreen(HelpScreenIds.FILES) }
         FilesScreen(
             saveToFilesRequested = requested,
             onSaveToFilesConsumed = onSaveToFilesConsumed,

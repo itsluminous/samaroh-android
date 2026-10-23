@@ -9,6 +9,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.reports.domain.ReportType
 import com.itsluminous.samaroh.feature.reports.ui.detail.ReportDetailScreen
 import com.itsluminous.samaroh.feature.reports.ui.detail.ReportDetailViewModel
@@ -74,6 +76,8 @@ private fun ReportsHost(initialReportArg: String?) {
             }
         }
     }
+    // Help/assistant context (ADR-108): home and detail share the guide's reports screen.
+    LaunchedEffect(Unit) { CurrentScreenTracker.setScreen(HelpScreenIds.REPORTS) }
     NavHost(navController = navController, startDestination = ReportsRoutes.HOME) {
         composable(ReportsRoutes.HOME) {
             ReportsHomeScreen(

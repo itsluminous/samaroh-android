@@ -10,6 +10,8 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.feature.onboarding.ui.CreateBusinessScreen
 import com.itsluminous.samaroh.feature.onboarding.ui.ForkScreen
 import com.itsluminous.samaroh.feature.onboarding.ui.JoinScreen
@@ -78,6 +80,8 @@ internal fun OnboardingRoute(
     LaunchedEffect(state.step) {
         if (state.step == OnboardingStep.DONE) onOnboardingComplete()
     }
+    // Help/assistant context (ADR-108): every onboarding step maps to the guide's sign-in screen.
+    LaunchedEffect(Unit) { CurrentScreenTracker.setScreen(HelpScreenIds.SIGN_IN) }
 
     when (state.step) {
         OnboardingStep.LANGUAGE ->

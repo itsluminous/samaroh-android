@@ -133,6 +133,7 @@ dependencies {
     implementation(project(":core:sync"))
     implementation(project(":core:auth"))
     implementation(project(":core:google"))
+    implementation(project(":core:help"))
     implementation(project(":core:invoice"))
     implementation(project(":feature:booking"))
     implementation(project(":feature:expenses"))

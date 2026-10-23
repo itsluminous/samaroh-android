@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.itsluminous.samaroh.core.data.color.BookingColorCatalog
 import com.itsluminous.samaroh.core.data.navigation.BookingExpenseDraft
+import com.itsluminous.samaroh.core.data.navigation.CurrentScreenTracker
+import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.core.designsystem.component.EmptyState
 import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
@@ -118,6 +120,20 @@ fun BookingCalendarScreen(
     // initialized in plain unit tests, hence the runCatching guard.
     LaunchedEffect(Unit) {
         runCatching { BookingReminderWorker.ensureScheduled(context) }
+    }
+
+    // Help/assistant context (ADR-108): the card and the record-payment sheet are guide
+    // screens of their own — report whichever is on top; null once both are closed.
+    val cardOpen = detail != null
+    val paymentOpen = paymentSheet != null
+    LaunchedEffect(cardOpen, paymentOpen) {
+        CurrentScreenTracker.setOverlay(
+            when {
+                paymentOpen -> HelpScreenIds.RECORD_PAYMENT
+                cardOpen -> HelpScreenIds.BOOKING_CARD
+                else -> null
+            },
+        )
     }
 
     // Transient confirmations/errors ride the scaffold's snackbar (AGENTS convention; the
