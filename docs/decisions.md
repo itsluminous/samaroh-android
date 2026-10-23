@@ -4794,3 +4794,90 @@ body scrolls back to the top, a second drag dismisses.
 surface moved into the private `BookingCardActionsFooter`. Web mirrors the UX: `BookingDetail`'s
 action `Stack` became a `position: sticky; bottom: 0` footer of the drawer paper
 (`booking-detail-actions`), Jest + Playwright (360×640, long notes) cover it.
+
+## ADR-108 — Assistant context + in-app Help from the single-source guide (2026-10-23)
+
+**Status:** accepted (owner request: "summon Gemini over any screen and ask how to do X").
+Consumes `samaroh-shared` `help/guide.json` + `help/routes.json` (shared commit `25ec3a4`)
+and the contract `shared/docs/assistant-context.md`. New module `core:help`; additive seams
+in `core:data`; `feature:menu` gains the Help screen; `app` wires the shell.
+
+**Context.** The guide track made one JSON the source of every how-to — 18 screens, 74 tasks,
+en + hi, button names validated against the string catalog — and publishes it as a public
+help site (GitHub Pages). Android had no way to tell an assistant WHICH screen is open, no
+in-app Help, and no "take me there" from a how-to. Gemini needs a public URL + structured
+data per screen; the owner needs the same steps inside the app, in Hindi, without network.
+
+**Decision.**
+
+1. **The guide ships in the APK, never duplicated.** `core:help`'s `generateHelpAssets`
+   copies `shared/help/guide.json` + `routes.json` into a generated asset dir on every build
+   (the `copySharedDataAssets` / `generateStrings` pattern). `HelpGuideSource` parses it once
+   per process (lazy; `MainActivity` preloads on IO). `HelpGuide.forPlatform("android")`
+   drops web-only screens/tasks/steps. Unit tests read the SHARED file (system property),
+   never the copy, so a stale copy cannot pass.
+2. **`CurrentScreenTracker` (core:data) is the screen-of-record.** A plain singleton
+   (`StateFlow<CurrentScreen(screen, overlay)>`): every feature host reports its INNER
+   destination (`setScreen`, the shell graph only knows the tab), the booking calendar
+   reports the card / record-payment sheet as an `overlay` (the deeper sheet wins). Writers
+   only SET — never clear on dispose, because during a nav transition the incoming
+   destination reports before the outgoing one leaves. The mapping is the contract's table:
+   `HelpScreenIds` mirrors `guide.json` screen ids (drift-tested); About → `menu`, every
+   Settings subscreen + Sync status → `settings`, onboarding → `sign_in`; the Help screen
+   reports the `HELP` sentinel (hides the `?`, resolves to the index).
+3. **`onProvideAssistContent`** = `AssistContextProvider.current(appLocale, isOwner,
+   permissions)`: `webUri` = the Pages URL of the current screen in the APP language
+   (`resources.configuration.locales[0]`, i.e. the per-app locale), `structuredData` = compact
+   JSON-LD `WebPage` {name, description, url, inLanguage, samaroh{screenId, language,
+   app:"android", guideIndexUrl, tasks[{id, title, steps[]}]}} with tasks filtered to the
+   member's grants (hide-not-grey — the assistant must not explain a button the member does
+   not have; grants from `MainViewModel.shareContext`, owner mode when signed out). Unknown
+   screen → index URL + envelope without name/tasks. Cap 8 KB with the contract's
+   deterministic order (drop step text from the LAST task with steps, then whole tasks from
+   the end; envelope never dropped). **No user data by construction:** `AssistContextBuilder`
+   is pure — its only inputs are the public guide, a screen id and a language; the no-PII
+   test feeds fixture names/phones/amounts/ids and greps every screen × language payload.
+   Payloads are memoised per (screen, lang, grants) — the call is on the main thread.
+4. **In-app Help** (`feature:menu/ui/help`, route `menu_help?screen=`): Menu → Help row
+   (`common.menu.help`, shared with web) + a Menu-search entry. `HelpCatalog.visible` =
+   platform + permission filter (a screen or task whose `permission` the member lacks is
+   not listed; a screen left with no task disappears); `HelpCatalog.search` is
+   language-agnostic like ADR-075 (every token must substring-match some text in EITHER
+   language; a screen-level match keeps all its tasks). UI: section header (title, summary,
+   share icon → `ACTION_SEND` of the public page URL), collapsible task rows (title + step
+   count; expanded while searching), numbered steps in the app language, **Show me**.
+5. **Show me = ADR-098 holder pattern.** `HelpNavigationHolder` (core:data) parks the
+   task's `deepLink` id; the shell resolves it with `HelpDeepLinkResolver` (exhaustive over
+   `routes.json` — `HelpDeepLinkResolverTest` iterates the shared file) and switches to the
+   owning tab (hidden tab → dropped); the Booking / Expenses / Inventory / Menu hosts
+   receive the id as a `State` (ADR-099) and land on the inner screen, then consume.
+   Argument-carrying routes (`expenses/ledger/{partyId}`, `inventory/item/{id}`,
+   `reports/detail/{type}`) land on their parent list, as `routes.json` prescribes.
+   `booking/card` is landed by `HelpBookingCardOpener` (app): the soonest upcoming live
+   booking, else the most recent one, routed onto `BookingDeepLinkHolder` — exactly a
+   reminder tap's landing (month + card open); no booking → calendar only. Menu targets
+   pop to the Menu home first so back returns there, not to Help. `auth/sign_in` →
+   ADR-089's sign-in step.
+6. **Contextual `?`** (`menu.help.for_this_screen`): an `ExplainableIcon` in the shell app
+   bar, left of the kebab, on every signed-in screen except Help itself; opens the Menu and
+   pushes Help scrolled to the current screen's section (flat LazyColumn index: header +
+   tasks + divider per screen; `helpListIndexOfScreen`). Current screen = the tracker's
+   effective id, so over the booking card it lands on the card's section.
+7. **Guide and UI ship together** (AGENTS.md hard rule 7): any UI change to a flow the guide
+   describes updates `guide.json` in the same CR. Machine-checked part: `core:i18n
+   HelpGuideCatalogKeysTest` (every `keys` entry of the guide resolves to a generated
+   string in `values/` and `values-hi/`), `HelpGuideContractTest` / `HelpDeepLinkResolverTest`
+   (ids and routes), `GrantedPermissionsTest` (every `permission` the guide gates on exists in
+   the shared schema and resolves on `MemberPermissions`).
+
+**Consequences.** New strings: `menu.help.share_link`, `menu.help.step_number` (Android);
+`common.menu.help`, `menu.help.subtitle/search_placeholder/no_results/show_me/for_this_screen/
+step_count` are shared with the web track. `guide.json` gained `app_shell/get_help` and a Help
+step in `menu/menu_sections` (Android-only). `bookingGraph`/`expensesGraph`/`inventoryGraph`/
+`menuGraph` gain `helpTarget`/`onHelpTargetConsumed` (+ `openHelp`/`onHelpConsumed` on the
+Menu) — additive `State` parameters with defaults. `ShellEntryPoints` exposes the holder and
+the card opener. Web: mirrors the Help screen from the same `guide.json` (its own track);
+`onProvideAssistContent` has no web equivalent (browsers expose the URL). Emulator has no
+Gemini: `AssistContentTest` (e2e, en + hi) calls `activity.onProvideAssistContent` on the
+calendar, the open booking card, the record-payment sheet, Expenses and Settings and asserts
+URL + JSON-LD; the real-phone check is `~/.luminous/handoff/gemini-phone-test.md`.

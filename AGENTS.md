@@ -26,13 +26,14 @@ Sign-In, Drive backups and Calendar sync.
 | `core:sync` | full sync engine (keyset pull, LWW, post-sync hooks), `SyncWorker`, `SyncRunState` (drives `SyncStatus.isSyncing`, ADR-029), human-readable sync entries (ADR-022), WorkManager scheduler | done |
 | `core:auth` | Supabase auth (`SessionHolder`), `PermissionGuard`, `SyncAuthGate` (ADR-089: sync never runs as `anon`; lost-session banner), debug `SamarohAuthz` request-role log (ADR-088) | done |
 | `core:google` | Google linking, Drive backups/attachments, Calendar sync | done |
+| `core:help` | the single-source user guide (`shared/help/guide.json` + `routes.json` copied into assets by `generateHelpAssets`, ADR-108): parsed models, `GrantedPermissions` (guide `permission` gates), `AssistContextBuilder`/`AssistContextProvider` (`onProvideAssistContent` payload) | done |
 | `core:invoice` | PDF renderer + invoice numbering (layout per `shared/invoice/layout-spec.md`) | done |
 | `core:testing` | `MainDispatcherRule`, `inMemoryDatabase`, `Fixtures` builders | done |
 | `feature:booking` | month calendar (crossfade cells; one day colour, most severe wins — ADR-102), **events-view agenda** (windowed loading, ADR-029), booking card sheet (incl. **Record expense** + **Expenses history**, ADR-101/ADR-106), add/edit form, reminders/follow-ups, invoicing (display number `INV-0088`, ADR-100) | done |
 | `feature:files` | Drive-indexed file storage (ADR-085): folder tree + breadcrumbs, global search, grid/list, upload staging via system picker (`FileUploadIntake`), owner access editor, `FilesSession` perm gate; share-chooser "Save to Files" landing (ADR-086); rename/move + lazy `FolderPickerDialog`, non-image open via `FilesFileProvider` `ACTION_VIEW` (ADR-090) | done |
 | `feature:expenses` | party ledger, business/personal party flag (ADR-027), party edit/cascade delete (ADR-028), attachments, `ExpensesSession` perm gate, **expense against an event** (ADR-101/ADR-106: `expenses.booking_id` + `parties.booking_id` ← shared migrations 012/014 / Room v15, the English **event party** `EventPartyName`, `entry_for_booking` route, ledger **Show event** → booking card) | done |
 | `feature:inventory` | stock + masterlist, FIFO (ADR-012), item detail w/ txn history, `ui/MasterItemDialogs.kt` (shared add/edit/delete dialogs), `InventorySession` perm gate | done |
-| `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate) | done |
+| `feature:menu` | settings (language/theme/reminders/icon-crossfade slider/form fields), sync-status screen (`SyncEntryDisplay`), members, business profile, about (version, source link, UPI donate), **Help** (`ui/help/`: the guide in the app language, search, Show me — ADR-108) | done |
 | `feature:onboarding` | sign-in/sign-up, create/join business, Google link, offline continue | done |
 | `feature:reports` | ten reports, Compose charts, totals rows, personal-expenses report, CSV/PDF export | done |
 
@@ -59,6 +60,8 @@ ownership; the integrator resolves (additive JSON) merge conflicts.
 git submodule update --init --recursive   # once per checkout
 
 ./gradlew generateStrings                 # catalog → generated res (git-ignored)
+./gradlew :core:help:generateHelpAssets   # shared/help/{guide,routes}.json → core:help assets
+                                          # (also runs on every build via preBuild)
 ./gradlew ktlintCheck                     # style (ktlint_official, run ktlintFormat to fix)
 ./gradlew lintDebug                       # Android lint — HardcodedText/SetTextI18n are ERRORS
 ./gradlew testDebugUnitTest               # unit tests (Robolectric DAO tests included)
@@ -102,6 +105,18 @@ sees). The `hiltJavaCompileDebugAndroidTest` task in the gate catches this on ev
 5. **Offline-first**: reads from Room only; writes to Room + outbox via repositories.
    UI never blocks on network.
 6. Every icon-only control uses `ExplainableIcon` (long-press → localized toast).
+7. **Guide and UI ship together (ADR-108).** `shared/help/guide.json` is the single source
+   of every how-to (in-app Help, assistant context, public help site). **Any UI change to a
+   flow the guide describes — a renamed/moved button, a new or removed step, a new sheet or
+   screen — MUST update `guide.json` in the same CR** (shared repo first, then bump the
+   submodule here). Enforced in part: `core:i18n HelpGuideCatalogKeysTest` fails when a
+   step cites a catalog key this build no longer generates; `core:help
+   HelpGuideContractTest` + `app HelpDeepLinkResolverTest` fail when the guide's screen ids
+   / `routes.json` ids drift from `HelpScreenIds` / `HelpDeepLinkIds` / the shell resolver.
+   Wording drift (a step that no longer matches what the screen does) is NOT machine-checked —
+   re-read the affected screen's tasks when you touch its UI. Every feature host reports its
+   destination to `CurrentScreenTracker`; a new screen needs a `HelpScreenIds` entry (or a
+   mapping onto an existing one) so the `?` icon and Gemini land on the right page.
 
 ## Commit convention
 
