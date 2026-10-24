@@ -1,6 +1,5 @@
 package com.itsluminous.samaroh.e2e
 
-import android.app.NotificationManager
 import android.content.Context
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.core.app.ActivityScenario
@@ -61,12 +60,8 @@ abstract class ReminderDeepLinkTest(
         waitForText(monthHeader(LocalDate.now()))
         notifier.postUpcomingReminder(booking.id, "Meera", 1, ledgerKey(), business.id)
 
-        val app = ApplicationProvider.getApplicationContext<Context>()
-        val posted =
-            app
-                .getSystemService(NotificationManager::class.java)
-                .activeNotifications
-                .first { it.tag == BookingNotifier.UPCOMING_NOTIFICATION_TAG }
+        // The system posts asynchronously — wait for THIS booking's reminder (tag + id).
+        val posted = awaitNotification(BookingNotifier.UPCOMING_NOTIFICATION_TAG, booking.id.hashCode())
         // The content PendingIntent is what the shade fires on tap (singleTask → onNewIntent).
         posted.notification.contentIntent.send()
 

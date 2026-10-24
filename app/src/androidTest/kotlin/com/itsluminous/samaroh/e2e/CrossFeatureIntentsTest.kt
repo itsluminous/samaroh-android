@@ -6,7 +6,6 @@ import android.content.Intent
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.performClick
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.Intents.intending
 import androidx.test.espresso.intent.matcher.IntentMatchers.anyIntent
@@ -57,21 +56,21 @@ abstract class CrossFeatureIntentsTest(
         // Tap the booked DAY CELL (its a11y description carries the booking label) —
         // deterministic, unlike picking the first of several "Meera" text nodes. The
         // day sheet opens (even for a single booking); tap its row to reach the card.
-        waitForContentDescription("Meera", substring = true).performClick()
+        waitForContentDescription("Meera", substring = true).tap()
         waitForText(string(R.string.booking_calendar_add_new_event))
         compose
             .onNode(
                 hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
                 useUnmergedTree = true,
-            ).performClick()
+            ).tap()
         waitForText(string(R.string.booking_card_payments_title))
     }
 
     @Test
     fun invoicePdf_firesShareChooserIntent() {
         openBookingCard()
-        waitForContentDescription(string(R.string.booking_card_action_invoice)).performClick()
-        waitForText(string(R.string.booking_card_invoice_pdf)).performClick()
+        waitForContentDescription(string(R.string.booking_card_action_invoice)).tap()
+        waitForText(string(R.string.booking_card_invoice_pdf)).tap()
 
         // PDF rendering is async — wait for the chooser to be recorded. Assertions run
         // on Intents.getIntents() directly: Intents.intended() synchronizes through
@@ -92,7 +91,7 @@ abstract class CrossFeatureIntentsTest(
     @Test
     fun whatsAppReminder_carriesPrefilledLocalizedText() {
         openBookingCard()
-        waitForContentDescription(string(R.string.booking_card_action_whatsapp)).performClick()
+        waitForContentDescription(string(R.string.booking_card_action_whatsapp)).tap()
 
         compose.waitUntil(UI_TIMEOUT_MS) {
             Intents.getIntents().any { it.`package` == "com.whatsapp" }
@@ -110,15 +109,15 @@ abstract class CrossFeatureIntentsTest(
         // The seeded Room writes queued outbox ops; sync is unconfigured in tests, so
         // the app-bar cloud shows the pending state with a badge — tapping opens the
         // Sync-status screen (§4.5).
-        waitForContentDescription(string(R.string.common_state_pending)).performClick()
+        waitForContentDescription(string(R.string.common_state_pending)).tap()
         waitForText(string(R.string.settings_sync_title))
     }
 
     @Test
     fun menu_opensReports() {
         // The Menu sits behind the title-bar kebab (ADR-087), an ExplainableIcon.
-        waitForContentDescription(string(R.string.common_nav_menu)).performClick()
-        waitForText(string(R.string.menu_section_reports)).performClick()
+        waitForContentDescription(string(R.string.common_nav_menu)).tap()
+        waitForText(string(R.string.menu_section_reports)).tap()
         waitForText(string(R.string.reports_home_title))
     }
 }

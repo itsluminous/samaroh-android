@@ -2,8 +2,6 @@ package com.itsluminous.samaroh.e2e
 
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.testing.Fixtures
@@ -23,7 +21,7 @@ abstract class ExpensesFlowTest(
     }
 
     private fun openExpensesTab() {
-        waitForText(string(R.string.common_nav_expenses)).performClick()
+        waitForText(string(R.string.common_nav_expenses)).tap()
         waitForText(string(R.string.expenses_home_you_gave))
     }
 
@@ -31,12 +29,12 @@ abstract class ExpensesFlowTest(
         buttonText: String,
         amountRupees: String,
     ) {
-        waitForText(buttonText).performClick()
+        waitForText(buttonText).tap()
         waitForText(string(R.string.expenses_entry_amount_label), substring = true)
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.expenses_entry_amount_label)))
-            .performTextInput(amountRupees)
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+            .typeText(amountRupees)
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
         // Back on the ledger.
         waitForText(string(R.string.expenses_ledger_net_balance_label))
     }
@@ -45,14 +43,14 @@ abstract class ExpensesFlowTest(
     fun typeAheadSteersToExisting_entriesUpdateRunningBalance() {
         openExpensesTab()
         // Icon-only FAB (ADR-071): the label lives in the contentDescription, not as text.
-        waitForContentDescription(string(R.string.expenses_home_add_person)).performClick()
+        waitForContentDescription(string(R.string.expenses_home_add_person)).tap()
 
         // Debounced type-ahead (§4.2): a prefix of an existing party surfaces it.
         waitForText(string(R.string.expenses_add_person_name_label), substring = true)
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.expenses_add_person_name_label)))
-            .performTextInput("Mahe")
-        waitForSuggestion("Mahesh Caterers").performClick()
+            .typeText("Mahe")
+        waitForSuggestion("Mahesh Caterers").tap()
 
         // Steered straight to the existing party's ledger — no duplicate created.
         waitForText(string(R.string.expenses_ledger_net_balance_label))
@@ -72,12 +70,12 @@ abstract class ExpensesFlowTest(
     fun addNewPerson_opensEmptyLedger() {
         openExpensesTab()
         // Icon-only FAB (ADR-071): the label lives in the contentDescription, not as text.
-        waitForContentDescription(string(R.string.expenses_home_add_person)).performClick()
+        waitForContentDescription(string(R.string.expenses_home_add_person)).tap()
         waitForText(string(R.string.expenses_add_person_name_label), substring = true)
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.expenses_add_person_name_label)))
-            .performTextInput("Kavita Decorators")
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+            .typeText("Kavita Decorators")
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
 
         waitForText(string(R.string.expenses_ledger_empty_title))
         waitForText("Kavita Decorators")

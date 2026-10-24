@@ -2,8 +2,6 @@ package com.itsluminous.samaroh.e2e
 
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import com.itsluminous.samaroh.core.i18n.R
 import dagger.hilt.android.testing.HiltAndroidTest
 import org.junit.Test
@@ -23,30 +21,30 @@ abstract class OnboardingFlowTest(
         waitForText(string(R.string.onboarding_language_title))
         val ownScriptName =
             string(if (localeTag == "hi") R.string.common_language_hi else R.string.common_language_en)
-        compose.onNode(hasText(ownScriptName)).performClick()
-        compose.onNode(hasText(string(R.string.onboarding_action_continue))).performClick()
+        compose.onNode(hasText(ownScriptName)).tap()
+        compose.onNode(hasText(string(R.string.onboarding_action_continue))).tap()
 
         // Step 2 — welcome carousel, skippable.
-        waitForText(string(R.string.onboarding_welcome_skip)).performClick()
+        waitForText(string(R.string.onboarding_welcome_skip)).tap()
 
         // Step 3 — sign-in; offline-first path is never a dead end.
-        waitForText(string(R.string.onboarding_sign_in_continue_offline)).performClick()
+        waitForText(string(R.string.onboarding_sign_in_continue_offline)).tap()
 
         // Step 4 — fork: create a new business.
-        waitForText(string(R.string.onboarding_fork_create)).performClick()
+        waitForText(string(R.string.onboarding_fork_create)).tap()
 
         // Step 5 — create-business form (name* + owner name*).
         waitForText(string(R.string.onboarding_create_title))
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.onboarding_create_name_label)))
-            .performTextInput("Sunrise Gardens")
+            .typeText("Sunrise Gardens")
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.onboarding_create_owner_label)))
-            .performTextInput("Asha")
-        compose.onNode(hasText(string(R.string.onboarding_create_submit))).performClick()
+            .typeText("Asha")
+        compose.onNode(hasText(string(R.string.onboarding_create_submit))).tap()
 
         // Step 6 — Google linking is optional with a prominent "later".
-        waitForText(string(R.string.onboarding_link_google_later)).performClick()
+        waitForText(string(R.string.onboarding_link_google_later)).tap()
 
         // Step 7 — Booking tab: month summary card + the business name in the app bar.
         waitForText(string(R.string.booking_summary_this_month))

@@ -4,7 +4,6 @@ import android.app.assist.AssistContent
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.performClick
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.core.help.AssistContextBuilder
@@ -68,16 +67,16 @@ abstract class AssistContentTest(
         assertScreen(provideAssistContent(), HelpScreenIds.BOOKING_CALENDAR)
 
         // Open the booking card (day sheet → row).
-        waitForContentDescription(customer, substring = true).performClick()
+        waitForContentDescription(customer, substring = true).tap()
         waitForText(string(R.string.booking_calendar_add_new_event))
         compose
             .onNode(hasAnyAncestor(hasTestTag("day_sheet")) and hasText(customer, substring = true), useUnmergedTree = true)
-            .performClick()
+            .tap()
         waitForText(string(R.string.booking_card_payments_title))
         assertScreen(provideAssistContent(), HelpScreenIds.BOOKING_CARD)
 
         // Record payment sheet over the card.
-        waitForContentDescription(string(R.string.booking_card_action_record_payment)).performClick()
+        waitForContentDescription(string(R.string.booking_card_action_record_payment)).tap()
         waitForText(string(R.string.booking_payment_amount), substring = true)
         assertScreen(provideAssistContent(), HelpScreenIds.RECORD_PAYMENT)
     }
@@ -85,14 +84,14 @@ abstract class AssistContentTest(
     @Test
     fun expensesTab_and_settings_reportTheirPages() {
         waitForText(string(R.string.booking_summary_this_month))
-        waitForText(string(R.string.common_nav_expenses)).performClick()
+        waitForText(string(R.string.common_nav_expenses)).tap()
         waitForText(string(R.string.expenses_home_you_gave))
         assertScreen(provideAssistContent(), HelpScreenIds.EXPENSES_HOME)
 
-        waitForContentDescription(string(R.string.common_nav_menu)).performClick()
+        waitForContentDescription(string(R.string.common_nav_menu)).tap()
         waitForText(string(R.string.menu_section_settings))
         assertScreen(provideAssistContent(), HelpScreenIds.MENU)
-        waitForText(string(R.string.menu_section_settings)).performClick()
+        waitForText(string(R.string.menu_section_settings)).tap()
         waitForText(string(R.string.settings_language_title))
         assertScreen(provideAssistContent(), HelpScreenIds.SETTINGS)
     }

@@ -7,10 +7,8 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.test.performTextInput
 import com.google.common.truth.Truth.assertThat
 import com.itsluminous.samaroh.core.data.navigation.HelpScreenIds
 import com.itsluminous.samaroh.core.help.HelpGuideSource
@@ -45,7 +43,7 @@ abstract class HelpScreenTest(
     private fun searchHelp(query: String) {
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.menu_help_search_placeholder)))
-            .performTextInput(query)
+            .typeText(query)
         // The keyboard's Search key dismisses it (the owner's gesture too): the Show me
         // button at the bottom of the result must not be covered by the IME. Re-query:
         // the placeholder is gone once the field has text.
@@ -66,8 +64,8 @@ abstract class HelpScreenTest(
     }
 
     private fun openHelpFromMenu() {
-        waitForContentDescription(string(R.string.common_nav_menu)).performClick()
-        waitForText(string(R.string.common_menu_help)).performClick()
+        waitForContentDescription(string(R.string.common_nav_menu)).tap()
+        waitForText(string(R.string.common_menu_help)).tap()
         waitForText(string(R.string.menu_help_search_placeholder))
     }
 
@@ -81,7 +79,7 @@ abstract class HelpScreenTest(
         // Search by the add-booking task title → that task row appears; tap it → steps + Show me.
         val addBooking = task(HelpScreenIds.BOOKING_CALENDAR, "add_booking")
         searchHelp(addBooking.title[localeTag])
-        waitForText(addBooking.title[localeTag]).performClick()
+        waitForText(addBooking.title[localeTag]).tap()
         waitForText(addBooking.steps.first()[localeTag], substring = true)
         clickFirstShowMe()
 
@@ -95,7 +93,7 @@ abstract class HelpScreenTest(
         openHelpFromMenu()
         val changeLanguage = task(HelpScreenIds.SETTINGS, "change_language")
         searchHelp(changeLanguage.title[localeTag])
-        waitForText(changeLanguage.title[localeTag]).performClick()
+        waitForText(changeLanguage.title[localeTag]).tap()
         clickFirstShowMe()
         // menu/settings/language → the language picker, over the Menu home.
         waitForText(string(R.string.settings_language_picker_title))
@@ -104,7 +102,7 @@ abstract class HelpScreenTest(
     @Test
     fun questionMark_opensHelpAtCurrentScreen_andIsHiddenOnHelp() {
         waitForText(string(R.string.booking_summary_this_month))
-        waitForContentDescription(string(R.string.menu_help_for_this_screen)).performClick()
+        waitForContentDescription(string(R.string.menu_help_for_this_screen)).tap()
         // Help opened pre-scrolled: the calendar section header is on screen.
         waitForText(screen(HelpScreenIds.BOOKING_CALENDAR).title[localeTag]).assertIsDisplayed()
         // The `?` is gone while Help is open (no second Help over Help).
@@ -118,7 +116,7 @@ abstract class HelpScreenTest(
 
         // A bottom-bar tap from inside the Menu pops it and lands on the tab (ADR-087, fixed
         // in ADR-108: the Menu is popped WITHOUT being saved as the tab's state).
-        waitForText(string(R.string.common_nav_booking)).performClick()
+        waitForText(string(R.string.common_nav_booking)).tap()
         waitForText(string(R.string.booking_summary_this_month))
         waitForContentDescription(string(R.string.menu_help_for_this_screen)).assertIsDisplayed()
     }

@@ -244,6 +244,16 @@ in-app switcher once W1-F lands.
   the DataStore test modules keep one process-wide instance per preferences file
   (Hilt builds a fresh component per test class, and DataStore crashes if two
   instances open the same file).
+- **Never race the system (ADR-109).** The CI emulator renders ~2 frames/s under load, so
+  anything the OS does asynchronously lands hundreds of milliseconds after the call that
+  requested it. Interact only through the `LocalizedE2eTest` helpers that wait for it:
+  `node.tap()` instead of `performClick()` (injects the touch only once the node's window
+  bounds are unchanged across a rendered frame — a pinned Save row moves by the keyboard
+  height when the IME arrives), `node.typeText(…)` instead of `performTextInput(…)` (waits
+  for the soft keyboard the focus requested to be laid out), `awaitNotification(tag, id)`
+  instead of reading `activeNotifications` right after `notify()` (the notification manager
+  posts on its own thread), and `waitFor*` instead of bare `onNode…assert`. A bare
+  `performClick()`/`performTextInput()` in `app/src/androidTest` is a review blocker.
 - `core:i18n` unit tests audit the catalog: `CatalogKeyParityTest` walks the base
   catalog PLUS every `fragments/*.json`, and `CatalogUsageAuditTest` FAILS the build
   when Kotlin code references a string resource with no catalog key; unused keys are

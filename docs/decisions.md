@@ -4891,3 +4891,76 @@ the card opener. Web: mirrors the Help screen from the same `guide.json` (its ow
 Gemini: `AssistContentTest` (e2e, en + hi) calls `activity.onProvideAssistContent` on the
 calendar, the open booking card, the record-payment sheet, Expenses and Settings and asserts
 URL + JSON-LD; the real-phone check is `~/.luminous/handoff/gemini-phone-test.md`.
+
+## ADR-109 — e2e harness never races the system: posted notifications, keyboard arrival, settled layout (2026-10-24)
+
+**Context.** The nightly instrumented run (`CI / Instrumented tests (emulator)`, API 35 x86_64
+software GL, ~2 rendered frames/s under load) failed on 6 of the 12 scheduled runs between
+2026-10-12 and 2026-10-23 — all on the same commit (`6c64a11`, v0.23.2), alternating red and
+green with no code change in between, i.e. pure harness flakiness. Logcat from the uploaded
+`connected-reports` artifacts and the system's own timestamps pin three mechanisms, none of
+them a product bug (every failing flow works on the device and passes on every green run):
+
+1. **`ReminderDeepLink{En,Hi}Test.warm_notificationTapOpensBookingCard` →
+   `NoSuchElementException: Array contains no element matching the predicate`** (10-12, 10-13,
+   10-15, 10-16, 10-19, 10-21). The test called `notifier.postUpcomingReminder(...)` and read
+   `NotificationManager.activeNotifications` on the very next line. `notify()` only hands the
+   record to `NotificationManagerService`, which enqueues it on its own handler thread and
+   posts it later — a further `DELAY_FOR_ASSISTANT_TIME` (200 ms) behind when a notification
+   assistant is installed, which every emulator image has (`android.ext.services`). In the
+   10-19 run the post (`FlashNotifController: startFlashNotification`) is logged ~300 ms after
+   the read that found nothing. Locally the window is a few milliseconds, so it never failed on
+   a developer machine.
+2. **`ReminderDeepLinkHiTest.warm_…` → `timed out waiting for text 'भुगतान का ब्योरा'`**
+   (10-16, 10-19 — always in the run where the `En` twin had just failed with #1). The `En`
+   test's reminder was posted AFTER it had already failed, and nothing cancelled it. The `Hi`
+   test then matched `first { it.tag == UPCOMING_NOTIFICATION_TAG }` against the shade, which
+   returned the OLDER, stale `En` notification whose content intent names a booking the `Hi`
+   test's `clearAllTables()` had erased; the shell routed it as "unknown booking → calendar"
+   (ADR-098) and the card never opened. Logcat: the `onNewIntent` pause/resume cycle at
+   `58.574`, the `Hi` reminder's own post at `58.761` — after the tap.
+3. **`BookingFlowHiTest.tentativeBooking_showsPersonIconOnCalendar` → `timed out waiting for
+   text '👤'`** (10-23). The dump shows the Add-booking form still open: status Tentative,
+   customer "Sunil" typed and FOCUSED, no blocker dialog — the Save tap never reached the
+   button. The tap was `performClick()` on the very next line after the first
+   `performTextInput`: the text field's focus requests the IME (`ImeTracker … onRequestShow
+   57.573`, `onShown 57.749`), and when the keyboard insets arrive the form's `imePadding()`
+   column shrinks, moving the pinned Save row up by the keyboard height (from ≈2200 px to
+   1285 px in the dump). `performClick()` reads the node's bounds on the test thread and
+   injects the touch on the main thread a moment later; with the keyboard landing in between
+   the touch went to the OLD coordinates — the empty keyboard gap — and the form stayed open
+   (`waitForText("Sunil")` then passed trivially on the field's own text). Measured locally:
+   the keyboard is laid out 90–105 ms after `performTextInput` returns on a form's first
+   field; on the CI emulator that is several frames.
+
+A seventh red run (10-13, `ReminderDeepLinkHiTest.cold_…` timing out right after #1 in the same
+class, 4m42s total vs the usual ~3m) has no surviving artifact; it is consistent with a slow
+run plus the class's stale-state cascade and is covered by the same hygiene below.
+
+**Decision.** The suite interacts with the system only through helpers that wait for the
+system's asynchronous effect, never through the raw Compose/Android call:
+
+- `awaitNotification(tag, id)` polls `activeNotifications` for the notification with THIS
+  tag AND id (`bookingId.hashCode()`, as the notifier posts it) up to `UI_TIMEOUT_MS`; the
+  failure message lists the shade. `clearStaleNotifications()` (`cancelAll`) runs in
+  `@Before` next to the permission grant, so nothing a failed test posted can be picked up
+  by the next one.
+- `SemanticsNodeInteraction.tap()` replaces every `performClick()` in `app/src/androidTest`:
+  it waits for Compose idle, then re-reads the node's `boundsInWindow` across one REAL rendered
+  frame (`Choreographer.postFrameCallback` on the main thread, which also drains any queued
+  insets/layout message) until two consecutive reads agree, then injects the click. Cost: one
+  frame per tap (≈16 ms locally, ≈0.5 s on the CI emulator).
+- `SemanticsNodeInteraction.typeText(text)` replaces every `performTextInput(text)`: after
+  typing it waits (≤ 2 s) for `rootWindowInsets.isVisible(ime())` on the resumed activity's
+  decor view, then for Compose idle, so the keyboard-shifted layout is what the next helper
+  measures. Logs how long the keyboard took (`SamarohE2e: soft keyboard laid out …`) for
+  post-mortems; gives up quietly on a device that shows no soft keyboard.
+
+Verified: `ReminderDeepLinkEnTest` + `ReminderDeepLinkHiTest` + `BookingFlowHiTest` in isolation
+and the full `connectedDebugAndroidTest` on `Android_16_AOSP_Medium` (API 36, swiftshader, no
+window — the CI rendering path), then the dispatched `CI` workflow.
+
+**Consequences.** Harness only — no production code, resources or schema change, no release.
+AGENTS.md (e2e section) names the four helpers and makes a bare `performClick()` /
+`performTextInput()` in `app/src/androidTest` a review blocker. `InventoryFlowTest`'s explicit
+IME hide before the FAB stays (the FAB really is under the keyboard window there).

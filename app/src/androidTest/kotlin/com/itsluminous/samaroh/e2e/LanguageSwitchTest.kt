@@ -2,7 +2,6 @@ package com.itsluminous.samaroh.e2e
 
 import android.content.res.Configuration
 import android.os.LocaleList
-import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.itsluminous.samaroh.core.i18n.R
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -33,15 +32,15 @@ abstract class LanguageSwitchTest(
     @Test
     fun languageSwitch_liveSwapsUi() {
         // Title-bar Menu kebab (ADR-087) → Settings → Language picker.
-        waitForContentDescription(string(R.string.common_nav_menu)).performClick()
-        waitForText(string(R.string.menu_section_settings)).performClick()
-        waitForText(string(R.string.settings_language_title)).performClick()
+        waitForContentDescription(string(R.string.common_nav_menu)).tap()
+        waitForText(string(R.string.menu_section_settings)).tap()
+        waitForText(string(R.string.settings_language_title)).tap()
         waitForText(string(R.string.settings_language_picker_title))
 
         // Every language renders in its OWN script; pick the other one.
         val otherOwnScriptName =
             string(if (otherTag == "hi") R.string.settings_language_name_hi else R.string.settings_language_name_en)
-        waitForText(otherOwnScriptName).performClick()
+        waitForText(otherOwnScriptName).tap()
 
         // The activity recreates and the SAME screen re-renders localized: picker title
         // and the bottom-bar tab label both resolve under the new locale.

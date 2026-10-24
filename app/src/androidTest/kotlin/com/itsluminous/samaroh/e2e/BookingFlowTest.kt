@@ -16,9 +16,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTextInput
 import com.itsluminous.samaroh.core.designsystem.component.SHEET_SCROLL_TEST_TAG
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
 import com.itsluminous.samaroh.core.i18n.R
@@ -45,11 +43,11 @@ abstract class BookingFlowTest(
         label: String,
         value: String,
     ) {
-        compose.onNode(hasSetTextAction() and hasText(label)).performTextInput(value)
+        compose.onNode(hasSetTextAction() and hasText(label)).typeText(value)
     }
 
     private fun openAddBookingForm() {
-        waitForContentDescription(string(R.string.booking_calendar_add)).performClick()
+        waitForContentDescription(string(R.string.booking_calendar_add)).tap()
         waitForText(string(R.string.booking_form_customer_name))
     }
 
@@ -58,14 +56,14 @@ abstract class BookingFlowTest(
         openAddBookingForm()
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.booking_form_customer_name)))
-            .performTextInput("Radha")
+            .typeText("Radha")
         fillAmountField(string(R.string.booking_form_total_amount), "200000")
         fillAmountField(string(R.string.booking_form_advance), "50000")
 
         // Due is auto-calculated and live: ₹2,00,000 − ₹50,000 = ₹1,50,000 (§4.1).
         waitForText(AmountFormatter.format(1_50_000_00L))
 
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
 
         // Back on the calendar: the booked cell shows the event icon as a translucent
         // watermark behind the date number, and the agenda lists the booking.
@@ -76,11 +74,11 @@ abstract class BookingFlowTest(
     @Test
     fun tentativeBooking_showsPersonIconOnCalendar() {
         openAddBookingForm()
-        compose.onNode(hasText(string(R.string.booking_status_tentative))).performClick()
+        compose.onNode(hasText(string(R.string.booking_status_tentative))).tap()
         compose
             .onNode(hasSetTextAction() and hasText(string(R.string.booking_form_customer_name)))
-            .performTextInput("Sunil")
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+            .typeText("Sunil")
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
 
         // ADR-020: tentative bookings render 👤 everywhere regardless of event type.
         waitForText("Sunil", substring = true)
@@ -91,7 +89,7 @@ abstract class BookingFlowTest(
     fun emptyDateTap_prefillsStartAndEndDate() {
         val date = emptyMidMonthDate()
         waitForText(string(R.string.booking_summary_this_month))
-        waitForContentDescription(formatFullDate(date), substring = true).performClick()
+        waitForContentDescription(formatFullDate(date), substring = true).tap()
 
         // The Add form opens with the tapped date pre-selected as start AND end (§13.4).
         waitForText(string(R.string.booking_form_start_date), substring = true)
@@ -111,22 +109,22 @@ abstract class BookingFlowTest(
 
         // Tap the booked day cell (a11y description carries the booking label) — the
         // day sheet opens (even for a single booking); tap its row to open the card.
-        waitForContentDescription("Meera", substring = true).performClick()
+        waitForContentDescription("Meera", substring = true).tap()
         waitForText(string(R.string.booking_calendar_add_new_event))
         compose
             .onNode(
                 hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
                 useUnmergedTree = true,
-            ).performClick()
+            ).tap()
 
         // Booking card: due = ₹1,50,000, bold red (asserting the text).
         waitForText(AmountFormatter.format(1_50_000_00L))
-        waitForContentDescription(string(R.string.booking_card_action_record_payment)).performClick()
+        waitForContentDescription(string(R.string.booking_card_action_record_payment)).tap()
 
         // Record-payment sheet prefills the due in rupees; saving settles the booking.
         waitForText(string(R.string.booking_payment_amount), substring = true)
-        compose.onNode(hasText("150000")).performClick() // focus prefilled amount field
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+        compose.onNode(hasText("150000")).tap() // focus prefilled amount field
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
 
         waitForText(AmountFormatter.format(0L))
     }
@@ -143,23 +141,23 @@ abstract class BookingFlowTest(
                 .copy(customerName = "Meera")
         runBlocking { bookingRepository.saveBooking(booking) }
 
-        waitForContentDescription("Meera", substring = true).performClick()
+        waitForContentDescription("Meera", substring = true).tap()
         waitForText(string(R.string.booking_calendar_add_new_event))
         compose
             .onNode(
                 hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
                 useUnmergedTree = true,
-            ).performClick()
+            ).tap()
 
         // No payment yet; no trash icon either (nothing to delete).
         waitForText(string(R.string.booking_card_no_payments))
         compose.onAllNodesWithTag("booking_card_delete_payment", useUnmergedTree = true).assertCountEquals(0)
 
         // Record the full due through the sheet (prefilled 200000) → due ₹0, one row.
-        waitForContentDescription(string(R.string.booking_card_action_record_payment)).performClick()
+        waitForContentDescription(string(R.string.booking_card_action_record_payment)).tap()
         waitForText(string(R.string.booking_payment_amount), substring = true)
-        compose.onNode(hasText("200000")).performClick()
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+        compose.onNode(hasText("200000")).tap()
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
         waitForText(string(R.string.booking_payment_recorded))
         compose.onNodeWithTag("booking_card_due", useUnmergedTree = true).assertTextEquals(AmountFormatter.format(0L))
         compose.onAllNodesWithTag("booking_card_payment_row", useUnmergedTree = true).assertCountEquals(1)
@@ -168,7 +166,7 @@ abstract class BookingFlowTest(
         // prefilled `paid_on` with the app clock's date (UTC), which is not necessarily the
         // device-local date around midnight IST — read the row instead of assuming it.
         val recorded = runBlocking { bookingRepository.paymentsForBooking(booking.id).first().single() }
-        waitForContentDescription(string(R.string.booking_payment_delete)).performClick()
+        waitForContentDescription(string(R.string.booking_payment_delete)).tap()
         waitForText(string(R.string.booking_payment_delete_confirm_title))
         waitForText(
             string(
@@ -179,7 +177,7 @@ abstract class BookingFlowTest(
         )
         compose
             .onNode(hasText(string(R.string.common_action_delete)) and hasAnyAncestor(isDialog()), useUnmergedTree = true)
-            .performClick()
+            .tap()
 
         // Row gone, due restored, snackbar confirms.
         waitForText(string(R.string.booking_card_no_payments))
@@ -198,13 +196,13 @@ abstract class BookingFlowTest(
                 .copy(customerName = "Kavita", notes = notes)
         runBlocking { bookingRepository.saveBooking(booking) }
 
-        waitForContentDescription("Kavita", substring = true).performClick()
+        waitForContentDescription("Kavita", substring = true).tap()
         waitForText(string(R.string.booking_calendar_add_new_event))
         compose
             .onNode(
                 hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Kavita", substring = true),
                 useUnmergedTree = true,
-            ).performClick()
+            ).tap()
 
         waitForText(notes)
     }
@@ -239,13 +237,13 @@ abstract class BookingFlowTest(
             }
         }
 
-        waitForContentDescription("Meera", substring = true).performClick()
+        waitForContentDescription("Meera", substring = true).tap()
         waitForText(string(R.string.booking_calendar_add_new_event))
         compose
             .onNode(
                 hasAnyAncestor(hasTestTag("day_sheet")) and hasText("Meera", substring = true),
                 useUnmergedTree = true,
-            ).performClick()
+            ).tap()
 
         // Pinned footer: the action row is on screen and tappable BEFORE any scroll.
         // (`waitForContentDescription` resolves the UNMERGED icon node, which carries no
@@ -268,10 +266,10 @@ abstract class BookingFlowTest(
     @Test
     fun blockDates_marksCellBlocked() {
         waitForText(string(R.string.booking_summary_this_month))
-        waitForContentDescription(string(R.string.booking_calendar_more_options)).performClick()
-        waitForText(string(R.string.booking_calendar_block_dates)).performClick()
+        waitForContentDescription(string(R.string.booking_calendar_more_options)).tap()
+        waitForText(string(R.string.booking_calendar_block_dates)).tap()
         waitForText(string(R.string.booking_block_reason_label), substring = true)
-        compose.onNode(hasText(string(R.string.common_action_save))).performClick()
+        compose.onNode(hasText(string(R.string.common_action_save))).tap()
 
         // The blocked (grey-striped) cell announces its state for TalkBack — the
         // reliable semantic proof the stripe rendering path is active.
@@ -283,7 +281,7 @@ abstract class BookingFlowTest(
         openAddBookingForm()
         // Open the type dropdown: the seeded presets include two marker kinds (Tilak,
         // Lagan — ADR-041 seed template), each row carrying the marker badge (ADR-096).
-        compose.onNode(hasText(string(R.string.booking_form_event_type))).performClick()
+        compose.onNode(hasText(string(R.string.booking_form_event_type))).tap()
         val badge = string(R.string.booking_event_type_marker_badge)
         waitForText(badge)
         compose.onAllNodesWithText(badge).assertCountEquals(2)
@@ -293,7 +291,7 @@ abstract class BookingFlowTest(
         // so match on `seededPresetLabel`, not the run-locale catalog string.
         compose
             .onNode(hasText(seededPresetLabel(R.string.booking_event_type_lagan), substring = true))
-            .performClick()
+            .tap()
         waitForText(string(R.string.booking_event_type_marker_hint))
         compose.onAllNodesWithText(string(R.string.booking_form_total_amount)).assertCountEquals(0)
     }

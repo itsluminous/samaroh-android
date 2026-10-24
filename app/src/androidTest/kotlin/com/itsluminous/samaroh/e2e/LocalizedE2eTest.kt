@@ -1,11 +1,14 @@
 package com.itsluminous.samaroh.e2e
 
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.LocaleList
 import android.os.SystemClock
+import android.service.notification.StatusBarNotification
+import android.view.Choreographer
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
@@ -23,8 +26,12 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
 import androidx.core.os.LocaleListCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -32,6 +39,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.itsluminous.samaroh.MainActivity
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
@@ -51,6 +60,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /** Default wait for reactive UI state (Room flows, nav transitions) to land on screen. */
@@ -59,6 +70,15 @@ const val UI_TIMEOUT_MS = 15_000L
 /** Upper bound for the framework to apply a per-app locale to the test process. */
 private const val LOCALE_APPLY_TIMEOUT_MS = 5_000L
 private const val LOCALE_POLL_MS = 25L
+
+/** Poll interval while waiting for the system to post a notification. */
+private const val NOTIFICATION_POLL_MS = 50L
+
+/** Upper bound for the soft keyboard to be laid out after a text field took focus. */
+private const val IME_SHOW_TIMEOUT_MS = 2_000L
+
+/** Upper bound for the main thread to render one frame (CI emulators run ~2 fps under load). */
+private const val FRAME_TIMEOUT_MS = 5_000L
 
 /**
  * Base class of the e2e suite (spec §11 W2-B): every acceptance flow runs TWICE — an
@@ -111,6 +131,7 @@ abstract class LocalizedE2eTest(
     fun setUpHarness() {
         hiltRule.inject()
         grantNotificationPermission()
+        clearStaleNotifications()
         runBlocking {
             database.clearAllTables()
             settings.edit { it.clear() }
@@ -187,6 +208,19 @@ abstract class LocalizedE2eTest(
             .getInstrumentation()
             .uiAutomation
             .grantRuntimePermission(app.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    /**
+     * Drops every notification a previous test left in the shade. A test that failed
+     * between posting a reminder and tapping it leaves that reminder behind, and its
+     * content intent points at a booking the next test's `clearAllTables()` has already
+     * erased — the next `ReminderDeepLink*` test must never be able to pick it up.
+     */
+    private fun clearStaleNotifications() {
+        ApplicationProvider
+            .getApplicationContext<Context>()
+            .getSystemService(NotificationManager::class.java)
+            .cancelAll()
     }
 
     /**
@@ -339,6 +373,119 @@ abstract class LocalizedE2eTest(
         }
         return compose.onAllNodes(matcher, useUnmergedTree = true).onFirst()
     }
+
+    /**
+     * The notification posted under [tag]/[id], once the system has actually posted it.
+     *
+     * `NotificationManager.notify()` only hands the record to the system; the notification
+     * manager service enqueues and posts it on its own handler thread (a further ~200 ms
+     * behind when a notification assistant is installed, as on every emulator image), so
+     * `activeNotifications` read straight after `notify()` is EMPTY on a loaded CI runner.
+     * That read was the Oct 2026 nightly's recurring `NoSuchElementException` in
+     * `ReminderDeepLink*Test.warm_…`; matching on the id too keeps a stale reminder of an
+     * earlier test from being mistaken for this one.
+     */
+    protected fun awaitNotification(
+        tag: String,
+        id: Int,
+        timeoutMillis: Long = UI_TIMEOUT_MS,
+    ): StatusBarNotification {
+        val manager = ApplicationProvider.getApplicationContext<Context>().getSystemService(NotificationManager::class.java)
+        val deadline = SystemClock.uptimeMillis() + timeoutMillis
+        while (true) {
+            manager.activeNotifications.firstOrNull { it.tag == tag && it.id == id }?.let { return it }
+            check(SystemClock.uptimeMillis() < deadline) {
+                "notification tag=$tag id=$id was not posted within ${timeoutMillis}ms; shade: " +
+                    manager.activeNotifications.joinToString { "${it.tag}/${it.id}" }
+            }
+            Thread.sleep(NOTIFICATION_POLL_MS)
+        }
+    }
+
+    /**
+     * Click that lands where the node IS, not where it WAS.
+     *
+     * `performClick()` reads the node's bounds on the test thread and injects the touch on
+     * the main thread a moment later. Whenever the layout is still moving in between — the
+     * soft keyboard arriving after a text field took focus shifts every `imePadding()`-pinned
+     * action row by the keyboard height; a sheet or dialog settling — the touch is injected
+     * at the OLD coordinates and hits nothing (observed: `BookingFlowHiTest.tentativeBooking_…`
+     * on the CI emulator, where frames take ~500 ms; the Save tap right after the first
+     * `performTextInput` landed in the keyboard gap below the row). This waits until the
+     * node's window bounds are unchanged across a REAL rendered frame plus Compose idling
+     * before injecting, so the coordinates it uses are the ones on screen.
+     */
+    protected fun SemanticsNodeInteraction.tap(): SemanticsNodeInteraction {
+        awaitStableBounds()
+        performClick()
+        return this
+    }
+
+    private fun SemanticsNodeInteraction.awaitStableBounds(timeoutMillis: Long = UI_TIMEOUT_MS) {
+        val deadline = SystemClock.uptimeMillis() + timeoutMillis
+        compose.waitForIdle()
+        var bounds = fetchSemanticsNode().boundsInWindow
+        while (true) {
+            awaitRenderedFrame()
+            compose.waitForIdle()
+            val next = fetchSemanticsNode().boundsInWindow
+            if (next == bounds) return
+            check(SystemClock.uptimeMillis() < deadline) { "node kept moving for ${timeoutMillis}ms: $bounds -> $next" }
+            bounds = next
+        }
+    }
+
+    /** Blocks until the main thread has rendered one more frame (Choreographer vsync). */
+    private fun awaitRenderedFrame() {
+        val frame = CountDownLatch(1)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            Choreographer.getInstance().postFrameCallback { frame.countDown() }
+        }
+        check(frame.await(FRAME_TIMEOUT_MS, TimeUnit.MILLISECONDS)) { "no frame rendered within ${FRAME_TIMEOUT_MS}ms" }
+    }
+
+    /**
+     * Types into a text field and waits for the soft keyboard its focus requested to be
+     * laid out before returning, so the next interaction sees the keyboard-shifted layout
+     * (see [tap]). The keyboard arrives asynchronously from the IME process; on a fast
+     * machine that is one frame, on the CI emulator hundreds of milliseconds — exactly the
+     * window in which a follow-up tap used to be injected at stale coordinates. Gives up
+     * quietly after [IME_SHOW_TIMEOUT_MS] (a device with a hardware keyboard shows none).
+     */
+    protected fun SemanticsNodeInteraction.typeText(text: String): SemanticsNodeInteraction {
+        performTextInput(text)
+        awaitImeShown()
+        compose.waitForIdle()
+        return this
+    }
+
+    private fun awaitImeShown() {
+        val start = SystemClock.uptimeMillis()
+        val deadline = start + IME_SHOW_TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (isImeVisible()) {
+                android.util.Log.d("SamarohE2e", "soft keyboard laid out ${SystemClock.uptimeMillis() - start}ms after text input")
+                return
+            }
+            Thread.sleep(LOCALE_POLL_MS)
+        }
+        android.util.Log.w("SamarohE2e", "soft keyboard did not appear within ${IME_SHOW_TIMEOUT_MS}ms after text input")
+    }
+
+    private fun isImeVisible(): Boolean {
+        var visible = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val view = currentActivityOrNull()?.window?.decorView ?: return@runOnMainSync
+            visible = ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        }
+        return visible
+    }
+
+    private fun currentActivityOrNull(): android.app.Activity? =
+        ActivityLifecycleMonitorRegistry
+            .getInstance()
+            .getActivitiesInStage(Stage.RESUMED)
+            .firstOrNull()
 
     protected fun waitUntilGone(
         text: String,
