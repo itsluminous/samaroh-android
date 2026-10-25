@@ -77,14 +77,27 @@ data class HelpSite(
             .replace("{lang}", lang)
 }
 
-/** A text in every guide language. */
+/**
+ * A text in every guide language (`en`, `hi`, `hi-Latn` — ADR-110). The Hinglish field is
+ * nullable only so a guide predating the third language still parses; the shared validator
+ * requires all three, and [get] falls back to English for a missing one.
+ */
 @Serializable
 data class LocalizedText(
     val en: String,
     val hi: String,
+    @SerialName(HelpLanguage.HI_LATN) val hiLatn: String? = null,
 ) {
-    /** The text in [lang]; anything but `hi` falls back to English. */
-    operator fun get(lang: String): String = if (lang == HelpLanguage.HI) hi else en
+    /** The text in [lang]; an unknown language falls back to English. */
+    operator fun get(lang: String): String =
+        when (lang) {
+            HelpLanguage.HI -> hi
+            HelpLanguage.HI_LATN -> hiLatn ?: en
+            else -> en
+        }
+
+    /** Every language's text, for language-agnostic search (ADR-075 / ADR-108 §4). */
+    fun all(): List<String> = listOfNotNull(en, hi, hiLatn)
 }
 
 @Serializable
@@ -116,12 +129,21 @@ data class HelpTask(
 data class HelpStep(
     val en: String,
     val hi: String,
+    @SerialName(HelpLanguage.HI_LATN) val hiLatn: String? = null,
     val keys: List<String>? = null,
     val platforms: List<String>? = null,
 ) {
     fun appliesTo(platform: String): Boolean = platforms == null || platform in platforms
 
-    operator fun get(lang: String): String = if (lang == HelpLanguage.HI) hi else en
+    operator fun get(lang: String): String =
+        when (lang) {
+            HelpLanguage.HI -> hi
+            HelpLanguage.HI_LATN -> hiLatn ?: en
+            else -> en
+        }
+
+    /** Every language's text, for language-agnostic search. */
+    fun all(): List<String> = listOfNotNull(en, hi, hiLatn)
 }
 
 /** `shared/help/routes.json`: deepLink id → per-platform route (null = no equivalent). */

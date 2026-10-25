@@ -183,6 +183,30 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `the picker offers Hinglish as the third language and selecting it keeps the script tag`() {
+        val vm = viewModel()
+        assertThat(vm.uiState.value.supportedLocales).containsExactly("en", "hi", "hi-Latn").inOrder()
+
+        vm.selectLanguage("hi-Latn")
+
+        assertThat(fakeLocale.applied).containsExactly("hi-Latn")
+        assertThat(vm.uiState.value.selectedLanguage).isEqualTo("hi-Latn")
+        assertThat(vm.uiState.value.selectedLanguage).isNotEqualTo("hi")
+    }
+
+    @Test
+    fun `a stored Hinglish locale pre-selects Hinglish, a stored regional Hindi pre-selects Hindi`() {
+        fakeLocale.apply("hi-Latn")
+        assertThat(viewModel().uiState.value.selectedLanguage).isEqualTo("hi-Latn")
+
+        fakeLocale.apply("hi-IN")
+        assertThat(viewModel().uiState.value.selectedLanguage).isEqualTo("hi")
+
+        fakeLocale.apply("en-US")
+        assertThat(viewModel().uiState.value.selectedLanguage).isEqualTo("en")
+    }
+
+    @Test
     fun `welcome carousel is skippable to sign-in`() {
         val vm = viewModel()
         vm.continueFromLanguage()
@@ -657,7 +681,7 @@ private class FakeMemberRepository : MemberRepository {
 
 private class FakeLocaleApplier : LocaleApplier {
     val applied = mutableListOf<String>()
-    override val supportedLocales: List<String> = listOf("en", "hi")
+    override val supportedLocales: List<String> = listOf("en", "hi", "hi-Latn")
 
     override fun apply(languageTag: String) {
         applied += languageTag

@@ -18,6 +18,13 @@ class AppLinkParserTest {
     }
 
     @Test
+    fun `hinglish locale (hi-Latn web route) is stripped like english`() {
+        assertThat(AppLink.parse("/hi-Latn/booking")).isEqualTo(AppLink.Booking)
+        assertThat(AppLink.parse("/hi-latn/expenses/party-123")).isEqualTo(AppLink.Expenses(partyId = "party-123"))
+        assertThat(AppLink.parse("/hi-Latn/menu/settings")).isEqualTo(AppLink.Menu(settings = true))
+    }
+
+    @Test
     fun `booking with trailing slash routes to booking tab`() {
         assertThat(AppLink.parse("/en/booking/")).isEqualTo(AppLink.Booking)
     }

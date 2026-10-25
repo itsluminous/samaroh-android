@@ -49,6 +49,7 @@ import com.itsluminous.samaroh.core.data.repository.ExpensesRepository
 import com.itsluminous.samaroh.core.data.repository.InventoryRepository
 import com.itsluminous.samaroh.core.data.settings.SettingsDataStore
 import com.itsluminous.samaroh.core.database.SamarohDatabase
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.testing.Fixtures
 import dagger.hilt.android.testing.HiltAndroidRule
@@ -81,11 +82,12 @@ private const val IME_SHOW_TIMEOUT_MS = 2_000L
 private const val FRAME_TIMEOUT_MS = 5_000L
 
 /**
- * Base class of the e2e suite (spec §11 W2-B): every acceptance flow runs TWICE — an
- * `En`/`Hi` subclass pair per suite — with the per-app locale set to [localeTag] before
- * the activity launches (§5). Assertions resolve expected strings from the app's own
- * resources under that locale, so a test failing in `hi` but passing in `en` is a real
- * localization bug, never a hardcoded expectation.
+ * Base class of the e2e suite (spec §11 W2-B): every acceptance flow runs per locale — an
+ * `En`/`Hi` subclass pair per suite, plus a `HiLatn` (Hinglish, ADR-110) variant for the
+ * language-facing flows — with the per-app locale set to [localeTag] before the activity
+ * launches (§5). Assertions resolve expected strings from the app's own resources under that
+ * locale, so a test failing in `hi` but passing in `en` is a real localization bug, never a
+ * hardcoded expectation.
  *
  * Per test: Hilt injection, a clean Room database + settings DataStore, optional
  * [seed]ing through the production repositories (Room + outbox, §4.5), then a real
@@ -187,7 +189,8 @@ abstract class LocalizedE2eTest(
         val deadline = SystemClock.uptimeMillis() + LOCALE_APPLY_TIMEOUT_MS
         while (SystemClock.uptimeMillis() < deadline) {
             val locales = app.resources.configuration.locales
-            if (!locales.isEmpty && locales[0].language == testLocale.language) return
+            // Language AND script: a stale `hi` must not pass for the `hi-Latn` run (or vice versa).
+            if (!locales.isEmpty && locales[0].language == testLocale.language && locales[0].script == testLocale.script) return
             Thread.sleep(LOCALE_POLL_MS)
         }
         error("per-app locale '$localeTag' did not reach the process configuration within ${LOCALE_APPLY_TIMEOUT_MS}ms")
@@ -304,13 +307,16 @@ abstract class LocalizedE2eTest(
         @StringRes id: Int,
     ): String = english.getString(id)
 
-    /** Mirrors `feature:booking` Formatting.formatDate (MEDIUM style, app locale). */
+    /** The locale the app FORMATS dates in under [testLocale] (Hinglish → en-IN, ADR-110). */
+    protected val formatLocale: Locale get() = FormatLocale.of(testLocale)
+
+    /** Mirrors `feature:booking` Formatting.formatDate (MEDIUM style, app formatting locale). */
     protected fun formatDate(date: LocalDate): String =
-        date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(testLocale))
+        date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(formatLocale))
 
     /** Mirrors Formatting.formatFullDate — the calendar day-cell a11y prefix. */
     protected fun formatFullDate(date: LocalDate): String =
-        date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(testLocale))
+        date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(formatLocale))
 
     // ---- synchronization helpers ----
 

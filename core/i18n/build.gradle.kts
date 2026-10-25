@@ -50,6 +50,9 @@ android {
     }
 
     testOptions {
+        // The Hinglish resolution tests resolve the GENERATED resource table under
+        // b+hi+Latn / hi / en configurations on the minSdk and a per-app-locale SDK.
+        unitTests.isIncludeAndroidResources = true
         unitTests.all { test ->
             // The catalog key-parity test walks the canonical catalogs in the submodule.
             test.systemProperty("samaroh.sharedStringsDir", rootProject.file("shared/strings").absolutePath)
@@ -70,4 +73,6 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core.ktx)
 }

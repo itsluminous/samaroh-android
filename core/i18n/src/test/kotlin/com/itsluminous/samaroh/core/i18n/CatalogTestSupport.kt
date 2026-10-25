@@ -19,6 +19,22 @@ internal object CatalogTestSupport {
             .sorted()
 
     /**
+     * The generated `res/<values dir>` of [locale], mirroring gen-android.mjs /
+     * `androidValuesQualifier`: `values` for the canonical `en`, `values-hi` for a bare
+     * language, the BCP-47 form `values-b+hi+Latn` for a tag with a script subtag.
+     */
+    fun valuesDirOf(locale: String): String =
+        when {
+            locale == "en" -> "values"
+            locale.contains('-') -> "values-b+" + locale.split('-').joinToString("+")
+            else -> "values-$locale"
+        }
+
+    /** The generated `strings.xml` of [locale] (`./gradlew generateStrings` must have run). */
+    fun generatedStringsFile(locale: String): File =
+        File(repoRootDir(), "core/i18n/build/generated/sharedStrings/res/${valuesDirOf(locale)}/strings.xml")
+
+    /**
      * Every catalog source of [locale], mirroring gen-android.mjs: the base
      * `catalog.<locale>.json` merged with each `<name>.<locale>.json` under `fragments`.
      */

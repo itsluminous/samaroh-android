@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Locales shipped in v1 (§5). Adding a language: new catalog in shared/strings,
-     entry here, and LocaleManager.supportedLocales. -->
+<!-- Locales the app ships (§5, ADR-110). Adding a language: new catalog in shared/strings,
+     entry here, and LocaleManager.supportedLocales. `hi-Latn` is Hinglish — BCP-47 Hindi in
+     Latin script; its resources live in values-b+hi+Latn/. -->
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
     <locale android:name="en" />
     <locale android:name="hi" />
+    <locale android:name="hi-Latn" />
 </locale-config>

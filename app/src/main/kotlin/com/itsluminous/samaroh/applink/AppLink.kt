@@ -37,7 +37,8 @@ sealed interface AppLink {
     data object Files : AppLink
 
     companion object {
-        private val LOCALES = setOf("en", "hi")
+        /** The web app's route locales (`/en/…`, `/hi/…`, `/hi-Latn/…`), compared case-insensitively. */
+        private val LOCALES = setOf("en", "hi", "hi-latn")
 
         /**
          * Maps a URI path (e.g. `Uri.path`) to its [AppLink]. Null, blank, malformed and

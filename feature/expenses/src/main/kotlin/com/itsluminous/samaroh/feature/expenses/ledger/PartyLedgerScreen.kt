@@ -89,6 +89,7 @@ import com.itsluminous.samaroh.core.designsystem.component.PermissionGate
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
 import com.itsluminous.samaroh.core.designsystem.theme.animatedListItem
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.BusinessRelatedPill
@@ -541,7 +542,9 @@ private fun LedgerEntryRow(
         Column(modifier = Modifier.weight(1f)) {
             // Entry date stamp above the notes = metadata (ADR-093 reconciliation, web
             // PartyLedger parity) so the stamp and the free-text notes never read as one block.
-            MetadataText(text = expense.expenseDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)))
+            MetadataText(
+                text = expense.expenseDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(FormatLocale.default())),
+            )
             expense.notes?.let {
                 Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 2.dp))
             }

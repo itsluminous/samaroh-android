@@ -23,8 +23,18 @@ class LocaleApplierTest {
     }
 
     @Test
-    fun `v1 ships english and hindi`() {
-        assertThat(applier.supportedLocales).containsExactly("en", "hi").inOrder()
+    fun `ships english, hindi and hinglish`() {
+        assertThat(applier.supportedLocales).containsExactly("en", "hi", "hi-Latn").inOrder()
+    }
+
+    @Test
+    fun `applying hinglish persists the BCP-47 tag with its script`() {
+        applier.apply("hi-Latn")
+        assertThat(applier.current()).isEqualTo("hi-Latn")
+        assertThat(
+            com.itsluminous.samaroh.core.i18n.LocaleManager
+                .supportedTagOf(applier.current()),
+        ).isEqualTo("hi-Latn")
     }
 
     @Test

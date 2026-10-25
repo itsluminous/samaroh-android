@@ -6,6 +6,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import com.itsluminous.samaroh.core.data.invoice.InvoiceNumberAllocator
 import com.itsluminous.samaroh.core.data.repository.BookingRepository
 import com.itsluminous.samaroh.core.data.repository.BusinessRepository
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingPayment
@@ -94,8 +95,8 @@ internal fun Context.withAppLocale(): Context {
     return createConfigurationContext(config)
 }
 
-/** Current display locale of a (possibly locale-wrapped) context. */
-internal fun Context.displayLocale(): Locale = resources.configuration.locales[0] ?: Locale.getDefault()
+/** The FORMATTING locale of a (possibly locale-wrapped) context: its display locale, Hinglish → en-IN (ADR-110). */
+internal fun Context.displayLocale(): Locale = FormatLocale.of(resources.configuration.locales[0])
 
 /**
  * Built-in event types (shared/event-types.json) map to catalog labels; a custom event

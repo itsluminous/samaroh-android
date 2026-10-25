@@ -40,13 +40,13 @@ import com.itsluminous.samaroh.core.data.sync.ConflictResolution
 import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.designsystem.component.EmptyStateCompact
 import com.itsluminous.samaroh.core.i18n.AmountFormatter
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 import com.itsluminous.samaroh.feature.menu.ui.formatInstant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import java.util.Locale
 
 /**
  * Sync status (§4.4/§4.5): human-readable pending list ("Add booking — Sharma"),
@@ -320,6 +320,6 @@ private fun SyncEntryDisplay.line(): String {
 /** Locale-formatted date identifier, e.g. "28 Jan 2027" / "28 जन॰ 2027". */
 @Composable
 private fun formatSyncDate(date: LocalDate): String {
-    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    val locale = FormatLocale.of(LocalConfiguration.current.locales[0])
     return date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
 }

@@ -4964,3 +4964,93 @@ window — the CI rendering path), then the dispatched `CI` workflow.
 AGENTS.md (e2e section) names the four helpers and makes a bare `performClick()` /
 `performTextInput()` in `app/src/androidTest` a review blocker. `InventoryFlowTest`'s explicit
 IME hide before the FAB stays (the FAB really is under the keyboard window there).
+
+## ADR-110 — Hinglish (`hi-Latn`) as the third app language (2026-10-25)
+
+**Status:** accepted (owner request). Consumes `samaroh-shared` `df242d0` — `strings/catalog.hi-Latn.json`
++ 15 `hi-Latn` fragments (1097 keys × 3 locales), the Hinglish guide (`guide.json` `hi-Latn`
+texts, 18 screens / 74 tasks / 211 steps), the Pages site `help/hi-Latn/`, and
+`codegen/lib.mjs androidValuesQualifier`. Decision record for the tag and the register:
+`shared/docs/hinglish.md`.
+
+**Context.** The owner's staff speak Hindi but type and read it in Roman letters with English
+nouns ("Payment record karein"). Neither `en` nor Devanagari `hi` is what they read fastest.
+The shared track added the register as a THIRD locale, not a transliteration of `hi`; this ADR
+is the Android consumption: resources, pickers, formatters, Help/assistant, invoice, tests.
+
+**Decision.**
+
+1. **Tag `hi-Latn`, directory `values-b+hi+Latn/`.** A script subtag has no two-letter
+   resource qualifier; Android's BCP-47 form is `b+hi+Latn` (API 24+, minSdk 26). Codegen emits
+   it (`GeneratedStringsTest` pins the three directories, name parity and Latin-only values).
+   **Resolution verified**, not assumed: `HinglishResourceResolutionTest` (Robolectric against
+   the real compiled table, `sdk = [26, 35]` — the AppCompat backport path and a per-app-locale
+   OS) proves a `hi-Latn` / `hi-Latn-IN` request lands on `values-b+hi+Latn` ("Kharche"), a
+   `hi` / `hi-IN` request on `values-hi` ("खर्च") and never the other way round — the matcher
+   compares the request's script against each directory's (explicit or likely) script, so
+   `values-hi` (likely `Deva`) is excluded for a `Latn` request and vice versa; non-translatable
+   keys fall back to `values/` under every locale. `HinglishQualifierTest` drives the same via the
+   configuration qualifier string. On the device (API 36, `connectedDebugAndroidTest`) the three
+   `HiLatn` e2e classes resolve their expectations from a `hi-Latn` configuration context and
+   find them on screen after `LocaleManager.setApplicationLocales("hi-Latn")`.
+2. **`LocaleManager`** (core:i18n): `supportedLocales = [en, hi, hi-Latn]` (picker order),
+   `supportedTagOf(tag)` = exact **language + script** match (region ignored, locale lists take
+   their head) — replaces every `startsWith("hi")` / `startsWith(tag)` in the Settings picker,
+   the Settings row and onboarding: `"hi-Latn".startsWith("hi")` ticked Hindi for Hinglish.
+   `settingsNameRes` / `commonNameRes` map a tag to its own-script name key
+   (`settings.language.name_hi_latn` / `common.language.hi_latn` = "Hinglish" in every
+   catalog). `locales_config.xml` advertises `hi-Latn` to the Android 13+ system picker;
+   `MenuSearch` indexes every supported locale; `AppLink` strips the web's `/hi-Latn/` segment;
+   the Calendar-sync managed-by markers cover every supported locale.
+3. **Formatting locale: Hinglish → `en-IN`** (`FormatLocale`, core:i18n). Hinglish has no
+   formatting data of its own: ICU has `hi_Latn` only since CLDR 38 (API 31+) and there it
+   inherits `en_IN`; on 26–30 the script is dropped and `hi` formats dates as `25 अक्तू॰ 2026` —
+   Devanagari inside a Latin-script UI. `FormatLocale.of(appLocale)` returns `Locale("en","IN")`
+   for any Latin-script Hindi locale and the locale itself otherwise (so `en`/`hi` output is
+   byte-identical to before). Every formatting site resolves through it: booking
+   `Formatting.currentLocale`, reports `ReportLabels.currentLocale`, Sync-status dates, Menu
+   `formatInstant`, snooze labels, expenses entry dates, inventory dates / `formatQuantity`
+   decimal symbols, Files size labels, and the invoice (`Context.displayLocale`). The e2e
+   harness mirrors it (`LocalizedE2eTest.formatLocale`). Money is untouched (`AmountFormatter`
+   is locale-free Indian grouping). Result under Hinglish: Latin digits, English month/day names,
+   Indian day-month order (`25 Oct 2026`), `1,06,51,161` groups — what Hinglish speakers write.
+   Seeded event-type labels stay English (ADR-032 §3; `seededPresetLabel` rule unchanged).
+4. **Help + assistant (ADR-108) in Hinglish.** `HelpLanguage.of(locale)` returns `hi-Latn` for
+   Latin-script Hindi, `hi` for other Hindi, `en` otherwise (script, never region);
+   `LocalizedText` / `HelpStep` gain `@SerialName("hi-Latn") hiLatn` (nullable only for parse
+   tolerance — the contract test requires it on every text and rejects Devanagari outside a
+   quoted own-script label); `all()` feeds the language-agnostic search (`HelpCatalog`), which
+   now matches a Hinglish query too. `onProvideAssistContent` under `hi-Latn` reports
+   `…/help/hi-Latn/<screen>.html`, `inLanguage: "hi-Latn"`, Hinglish title/steps
+   (`AssistContextBuilderTest`); Gemini's Hinglish lane (`help/gemini/saved-info.hi-Latn.md`)
+   is the shared track's.
+5. **Invoice follows the app language** (unchanged mechanism: `Context.withAppLocale()` reads
+   `AppCompatDelegate.getApplicationLocales()`), so a Hinglish app produces a Hinglish PDF with
+   the Latin font and `en-IN` dates. Allowed by the owner; no Devanagari font needed for it.
+6. **Notifications / receivers / workers** use the application context. **Verified on API 33+**
+   (the e2e emulator, API 36): the framework applies the per-app locale to the whole process
+   configuration, so `context.getString` in `UpcomingReminderAlarmReceiver`, the reminder
+   workers and `SyncWorker` resolves `values-b+hi+Latn` — the Settings "Test reminder" posts a
+   Hinglish notification. **Known, pre-existing gap on API 26–32** (AppCompat backport): only
+   AppCompat activity contexts carry the per-app locale; a cold receiver/worker process renders
+   notifications in the DEVICE language until an activity has run. This is exactly as it was for
+   `hi` and is not widened by Hinglish; fixing it (persisting the chosen tag in the settings
+   DataStore and wrapping receiver contexts) is its own change — see `docs/backlog.md`.
+
+**Tests.** core:i18n: `GeneratedStringsTest` (3 dirs, name parity, catalog mirror,
+Latin-only), `HinglishResourceResolutionTest` + `HinglishQualifierTest` (Robolectric sdk 26 +
+35), `LocaleManagerTest`, `FormatLocaleTest`; `HelpGuideCatalogKeysTest` walks every locale's
+generated dir. core:help: `HelpLanguageTest`, contract test "every text carries all three
+languages", builder test Hinglish payload. feature:onboarding: VM offers/keeps `hi-Latn`,
+pre-selects from stored `hi-Latn` / `hi-IN` / `en-US`; `LocaleApplierTest` persists the tag.
+app: `AppLinkParserTest` `/hi-Latn/…`. e2e: `OnboardingFlowHiLatnTest`,
+`LanguageSwitchHiLatnTest` (the suite now walks en → hi → hi-Latn → en, asserting the target
+strings DIFFER from the start's — `hi` and `hi-Latn` share a language, only the script-qualified
+resources tell them apart), `HelpScreenHiLatnTest`; `awaitProcessLocale` compares language AND
+script. Not tripled: the other classes stay `En`/`Hi` (suite time).
+
+**Consequences.** `LocaleManager` gains constants, `supportedTagOf`, two name-res helpers;
+`FormatLocale` is new; `HelpLanguage.HI_LATN` / `ALL`; `LocalizedText.hiLatn` / `all()`,
+`HelpStep.hiLatn` / `all()` (additive, defaulted). No schema, repository or string-key change
+(the keys came from the shared track). AGENTS.md: "en + hi + hi-Latn", the formatter rule
+(resolve through `FormatLocale`), the e2e third variant. No release.

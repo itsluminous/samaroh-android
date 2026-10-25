@@ -39,8 +39,14 @@ never reference third-party products (see the legal-hygiene rule in AGENTS.md).
   drop the losing party row and op. Today the op is held and retried (never dead-lettered);
   the race needs two devices creating the same event party offline before either syncs.
 
-- **More languages** — extend the catalog beyond English + Hindi toward the 10-language
-  target (Marathi, Gujarati, Telugu, Tamil, Kannada, Bengali, Punjabi, Malayalam);
-  translation-only work by design.
+- **More languages** — extend the catalog beyond English + Hindi + Hinglish toward the
+  10-language target (Marathi, Gujarati, Telugu, Tamil, Kannada, Bengali, Punjabi,
+  Malayalam); translation-only work by design (ADR-110 is the recipe: catalog + `b+` dir if a
+  script subtag is involved + `LocaleManager` + `locales_config` + name keys).
+- **Per-app locale for notifications on API 26–32 (ADR-110 §6)** — the AppCompat backport
+  applies the chosen language only to activity contexts; a reminder posted from a cold
+  receiver/worker process renders in the DEVICE language until an activity has run. Persist
+  the chosen tag in the settings DataStore and wrap receiver/worker contexts with it. Android
+  13+ is unaffected (the framework applies the per-app locale process-wide).
 - **Realtime sync channels** — push-based updates in addition to periodic pull (§8 notes
   periodic pull is sufficient for v1).

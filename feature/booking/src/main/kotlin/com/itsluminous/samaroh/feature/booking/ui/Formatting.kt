@@ -3,6 +3,7 @@ package com.itsluminous.samaroh.feature.booking.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.feature.booking.domain.EventTypeCatalog
 import java.time.LocalDate
 import java.time.YearMonth
@@ -10,10 +11,11 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 
-/** Locale-aware date/label formatting helpers (§5 — never hand-rolled strings). */
+// Locale-aware date/label formatting helpers (§5 — never hand-rolled strings).
 
+/** The FORMATTING locale of the current composition: the app locale, Hinglish → en-IN (ADR-110). */
 @Composable
-fun currentLocale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+fun currentLocale(): Locale = FormatLocale.of(LocalConfiguration.current.locales[0])
 
 @Composable
 fun formatDate(date: LocalDate): String = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(currentLocale()))

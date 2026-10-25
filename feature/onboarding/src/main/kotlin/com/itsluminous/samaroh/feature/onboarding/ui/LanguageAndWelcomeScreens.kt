@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.i18n.LocaleManager
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.onboarding.OnboardingUiState
 import kotlinx.coroutines.launch
@@ -61,7 +62,8 @@ internal fun LanguageScreen(
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
         state.supportedLocales.forEach { tag ->
-            val selected = state.selectedLanguage?.startsWith(tag) == true
+            // Exact tag match (ADR-110): "hi-Latn".startsWith("hi") would tick both rows.
+            val selected = state.selectedLanguage == tag
             Row(
                 modifier =
                     Modifier
@@ -87,14 +89,10 @@ internal fun LanguageScreen(
     }
 }
 
-/** Locale tag → display name in its OWN script, from the catalog. Unknown tags render raw. */
+/** Locale tag → display name in its OWN script, from the catalog (`common.language.*`). Unknown tags render raw. */
 @Composable
 internal fun languageDisplayName(tag: String): String =
-    when (tag) {
-        "en" -> stringResource(R.string.common_language_en)
-        "hi" -> stringResource(R.string.common_language_hi)
-        else -> tag
-    }
+    if (tag in LocaleManager.supportedLocales) stringResource(LocaleManager.commonNameRes(tag)) else tag
 
 private const val SLIDE_COUNT = 3
 

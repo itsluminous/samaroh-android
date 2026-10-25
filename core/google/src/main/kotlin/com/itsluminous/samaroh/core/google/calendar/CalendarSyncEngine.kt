@@ -13,6 +13,7 @@ import com.itsluminous.samaroh.core.database.entity.GoogleAccountLinkEntity
 import com.itsluminous.samaroh.core.google.GoogleServicesConfig
 import com.itsluminous.samaroh.core.google.drive.DriveNotAvailableException
 import com.itsluminous.samaroh.core.google.rest.GoogleApiException
+import com.itsluminous.samaroh.core.i18n.LocaleManager
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.Booking
 import com.itsluminous.samaroh.core.model.BookingSource
@@ -584,10 +585,10 @@ class CalendarSyncEngine
 
         /** The managed-by description line in every supported locale — legacy-event matching. */
         private fun managedByMarkers(): Set<String> =
-            setOf("en", "hi")
+            LocaleManager.supportedLocales
                 .map { lang ->
                     val config = Configuration(context.resources.configuration)
-                    config.setLocale(Locale(lang))
+                    config.setLocale(Locale.forLanguageTag(lang))
                     context.createConfigurationContext(config).getString(R.string.settings_gcal_event_managed_by)
                 }.toSet()
 

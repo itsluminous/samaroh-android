@@ -89,6 +89,7 @@ import com.itsluminous.samaroh.core.designsystem.component.MetadataText
 import com.itsluminous.samaroh.core.designsystem.component.SamarohFab
 import com.itsluminous.samaroh.core.designsystem.component.ScrollableSheetScaffold
 import com.itsluminous.samaroh.core.designsystem.imaging.MediaStoreImageSaver
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.FileItem
 import com.itsluminous.samaroh.core.model.Folder
@@ -104,7 +105,6 @@ import com.itsluminous.samaroh.feature.files.domain.MoveError
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.NumberFormat
-import java.util.Locale
 
 /** A pending long-press target for the action sheet. */
 private sealed interface SheetTarget {
@@ -869,7 +869,7 @@ private fun itemCountLabel(count: Int): String =
 /** `{size} KB` under 1 MB (no decimals), `{size} MB` otherwise (one decimal), locale-formatted. */
 @Composable
 internal fun sizeLabel(sizeBytes: Long): String {
-    val locale = Locale.getDefault()
+    val locale = FormatLocale.default()
     return if (sizeBytes < 1_048_576L) {
         val kb = NumberFormat.getIntegerInstance(locale).format(maxOf(1L, sizeBytes / 1024L))
         stringResource(R.string.files_file_size_kb, kb)

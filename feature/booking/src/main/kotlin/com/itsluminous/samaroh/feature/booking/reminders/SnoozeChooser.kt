@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.lifecycleScope
 import com.itsluminous.samaroh.core.designsystem.theme.SamarohTheme
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -28,7 +29,6 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import java.util.Locale
 
 /** Localized label for a snooze preset; "tomorrow" carries the formatted local morning time. */
 @Composable
@@ -41,7 +41,7 @@ fun snoozePresetLabel(preset: SnoozePreset): String =
         SnoozePreset.TOMORROW_MORNING ->
             stringResource(
                 R.string.booking_reminder_snooze_tomorrow,
-                SnoozePresets.MORNING.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale.getDefault())),
+                SnoozePresets.MORNING.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(FormatLocale.default())),
             )
     }
 
@@ -88,7 +88,7 @@ object SnoozeFormatting {
         zone: ZoneId = now.zone,
     ): String {
         val at = fireAt.atZone(zone)
-        val locale = Locale.getDefault()
+        val locale = FormatLocale.default()
         val formatter =
             if (at.toLocalDate() == now.toLocalDate()) {
                 DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)

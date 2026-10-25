@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.menu.ui.search
 
 import android.content.Context
 import android.content.res.Configuration
+import com.itsluminous.samaroh.core.i18n.LocaleManager
 import java.util.Locale
 
 /** A [MenuSearchEntry] with its display texts and search haystack resolved. */
@@ -17,14 +18,14 @@ data class ResolvedMenuSearchEntry(
 
 /**
  * Menu search resolution + filtering (ADR-075). The index resolves ONCE per screen:
- * every entry's title, context and keywords in BOTH catalog locales (en + hi), so the
+ * every entry's title, context and keywords in EVERY catalog locale (en, hi, hi-Latn), so the
  * query matches whichever language the user types in, regardless of the app locale.
  * Matching is normalized-substring: every whitespace-separated query token must be a
  * substring of some indexed text.
  */
 object MenuSearch {
-    /** The catalog locales the index resolves in (parity-tested in `core:i18n`). */
-    private val INDEX_LOCALES = listOf("en", "hi")
+    /** The catalog locales the index resolves in (parity-tested in `core:i18n`) — every shipped language. */
+    private val INDEX_LOCALES: List<String> get() = LocaleManager.supportedLocales
 
     fun resolve(
         context: Context,

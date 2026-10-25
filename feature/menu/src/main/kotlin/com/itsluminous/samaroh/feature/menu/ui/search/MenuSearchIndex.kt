@@ -161,6 +161,7 @@ object MenuSearchIndex {
                     listOf(
                         R.string.settings_language_name_en,
                         R.string.settings_language_name_hi,
+                        R.string.settings_language_name_hi_latn,
                         R.string.settings_language_system,
                     ),
             ),

@@ -127,3 +127,7 @@ class HelpScreenEnTest : HelpScreenTest("en")
 
 @HiltAndroidTest
 class HelpScreenHiTest : HelpScreenTest("hi")
+
+/** Hinglish (ADR-110): the guide's `hi-Latn` texts render, search and Show me in Hinglish. */
+@HiltAndroidTest
+class HelpScreenHiLatnTest : HelpScreenTest("hi-Latn")

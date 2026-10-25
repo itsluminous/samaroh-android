@@ -64,12 +64,20 @@ class AssistContextBuilderTest {
         assertThat(jsonLd(en)["name"]!!.jsonPrimitive.content).isEqualTo(screen.title.en)
         assertThat(jsonLd(hi)["name"]!!.jsonPrimitive.content).isEqualTo(screen.title.hi)
         assertThat(jsonLd(en)["samaroh"]!!.jsonObject["guideIndexUrl"]!!.jsonPrimitive.content).endsWith("/en/index.html")
+        // Hinglish (ADR-110): the hi-Latn page, Hinglish title, `inLanguage` = the BCP-47 tag.
+        val hinglish = AssistContextBuilder.build(guide, HelpScreenIds.RECORD_PAYMENT, "hi-Latn")
+        assertThat(hinglish.pageUrl).isEqualTo("${guide.site.baseUrl}hi-Latn/record_payment.html")
+        assertThat(jsonLd(hinglish)["name"]!!.jsonPrimitive.content).isEqualTo(screen.title.hiLatn)
+        assertThat(jsonLd(hinglish)["inLanguage"]!!.jsonPrimitive.content).isEqualTo("hi-Latn")
+        assertThat(jsonLd(hinglish)["samaroh"]!!.jsonObject["language"]!!.jsonPrimitive.content).isEqualTo("hi-Latn")
+        assertThat(jsonLd(hinglish)["samaroh"]!!.jsonObject["guideIndexUrl"]!!.jsonPrimitive.content).endsWith("/hi-Latn/index.html")
+        assertThat(hinglish.jsonLd).doesNotContainMatch("[\\u0900-\\u097F]")
     }
 
     @Test
-    fun `every guide screen builds in both languages within the cap`() {
+    fun `every guide screen builds in every language within the cap`() {
         for (screenId in HelpScreenIds.all) {
-            for (lang in listOf("en", "hi")) {
+            for (lang in HelpLanguage.ALL) {
                 val context = AssistContextBuilder.build(guide, screenId, lang)
                 assertWithMessage("$screenId/$lang").that(context.jsonLd.length).isAtMost(AssistContextBuilder.MAX_JSON_LD_CHARS)
                 assertWithMessage("$screenId/$lang").that(context.pageUrl).isEqualTo(guide.pageUrl(lang, screenId))
@@ -164,7 +172,7 @@ class AssistContextBuilderTest {
         val bookingId = "bkg_7f3a9c"
         val businessName = "Sunrise Gardens"
         for (screenId in HelpScreenIds.all) {
-            for (lang in listOf("en", "hi")) {
+            for (lang in HelpLanguage.ALL) {
                 val payload = AssistContextBuilder.build(guide, screenId, lang).jsonLd
                 for (secret in listOf(customerName, phone, amount, bookingId, businessName)) {
                     assertWithMessage("$screenId/$lang leaks '$secret'").that(payload).doesNotContain(secret)

@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.InventoryTransaction
 import com.itsluminous.samaroh.core.model.TxnType
@@ -142,7 +143,7 @@ fun EditTransactionDialog(
                 }
                 Box {
                     OutlinedTextField(
-                        value = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
+                        value = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(FormatLocale.default())),
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(stringResource(R.string.inventory_txn_date_label)) },

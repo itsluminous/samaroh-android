@@ -23,12 +23,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import java.util.Locale
 
 /**
  * Shared scaffold for every Menu tab screen: localized title, optional back arrow
@@ -99,6 +99,6 @@ fun MenuScreenScaffold(
 fun formatInstant(instant: Instant): String =
     DateTimeFormatter
         .ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
-        .withLocale(Locale.getDefault())
+        .withLocale(FormatLocale.default())
         .withZone(ZoneId.systemDefault())
         .format(instant)

@@ -46,6 +46,7 @@ import com.itsluminous.samaroh.core.designsystem.component.CalendarDayCrossfade
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.google.auth.GoogleLinkState
 import com.itsluminous.samaroh.core.google.backup.BackupFrequency
+import com.itsluminous.samaroh.core.i18n.LocaleManager
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.menu.data.SettingsPreferencesDataSource
 import com.itsluminous.samaroh.feature.menu.data.ThemeMode
@@ -498,15 +499,12 @@ private fun BackupFrequencyChip(
     )
 }
 
-/** The current app language rendered in its own script (never translated). */
+/** The current app language rendered in its own script (never translated); exact tag match (ADR-110). */
 @Composable
 private fun currentLanguageName(): String {
-    val currentTag =
-        com.itsluminous.samaroh.core.i18n.LocaleManager
-            .currentAppLocale()
-    return when {
-        currentTag == null -> stringResource(R.string.settings_language_system)
-        currentTag.startsWith("hi") -> stringResource(R.string.settings_language_name_hi)
-        else -> stringResource(R.string.settings_language_name_en)
+    val currentTag = LocaleManager.supportedTagOf(LocaleManager.currentAppLocale())
+    return when (currentTag) {
+        null -> stringResource(R.string.settings_language_system)
+        else -> stringResource(LocaleManager.settingsNameRes(currentTag))
     }
 }

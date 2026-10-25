@@ -4,7 +4,7 @@ Instructions for AI agents (and humans) working in this repo. Read fully before 
 
 ## Project overview
 
-Samaroh is an offline-first, multilingual (en + hi) Material You Android app for small
+Samaroh is an offline-first, multilingual (en + hi + hi-Latn "Hinglish", ADR-110) Material You Android app for small
 venue businesses: calendar-first **Booking**, party-ledger **Expenses**, photo-per-item
 **Inventory**, **Notes**, Drive-indexed **Files** (ADR-085) as the bottom-bar tabs, and a
 **Menu** (Settings/Reports/Members/About) behind the title-bar kebab, right of the sync
@@ -16,10 +16,10 @@ Sign-In, Drive backups and Calendar sync.
 
 | Module | Contents | Status |
 |---|---|---|
-| `app` | MainActivity, nav host, bottom bar (modules only) + business-name app bar (tappable sync cloud icon, Menu kebab — ADR-087), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi) | done |
+| `app` | MainActivity, nav host, bottom bar (modules only) + business-name app bar (tappable sync cloud icon, Menu kebab — ADR-087), DI wiring, locale config, offline banner, e2e suite (`src/androidTest`, en+hi, hi-Latn for language-facing flows) | done |
 | `shared/` | git submodule → `samaroh-shared` (string catalogs, codegen, schema, brand) | external |
 | `core:designsystem` | theme (dynamic color + #6750A4 fallback), typography ≥16sp body, `SamarohCard`, `AmountText`, `EmptyState`, `OfflineBanner`, `PermissionGate`, `ExplainableIcon`, `TypeAheadField`, `ChipRow` (scrollable single-line filter pills), `SamarohFab`, `WideDialog` (full-width list dialogs, ADR-090), `ScrollableSheetScaffold` (the ONLY way to render a modal bottom sheet — scrolling body + pinned header/footer, ADR-107), `CalendarDayCrossfade`, `cropper/` (interactive square photo crop, ADR-025), motion spec | done |
-| `core:i18n` | `generateStrings` codegen task, `LocaleManager`, `AmountFormatter`, catalog parity + usage-audit tests | done |
+| `core:i18n` | `generateStrings` codegen task, `LocaleManager` (3 locales, exact tag match), `FormatLocale` (Hinglish → en-IN formatting, ADR-110), `AmountFormatter`, catalog parity + usage-audit + resource-resolution tests | done |
 | `core:model` | enums, domain models, permission types — **FROZEN CONTRACT** | done |
 | `core:database` | Room entities/DAOs/converters, `outbox`, sync cursors/conflict log, exported schemas — **FROZEN CONTRACT** | done |
 | `core:data` | repository interfaces (**FROZEN**, additive extensions via ADRs) + Room-backed impls, `OutboxWriter`/`SyncScheduler`/`SyncStatusProvider` contracts, settings DataStore, session providers | done |
@@ -92,10 +92,14 @@ sees). The `hiltJavaCompileDebugAndroidTest` task in the gate catches this on ev
    are fine.
 2. **i18n — NEVER hardcode a user-visible string.** Not in Kotlin, not in Compose, not in
    placeholders, not in notifications. Add a key to
-   `shared/strings/catalog.en.json` + `catalog.hi.json` (both, always — key parity is
-   tested), commit in the shared repo, bump the submodule, run `./gradlew generateStrings`,
+   `shared/strings/catalog.en.json` + `catalog.hi.json` + `catalog.hi-Latn.json` (all three,
+   always — key parity is tested; Hinglish values are Latin-script, `shared/docs/hinglish.md`),
+   commit in the shared repo, bump the submodule, run `./gradlew generateStrings`,
    and reference the generated resource (`com.itsluminous.samaroh.core.i18n.R.string.*`).
    Android lint `HardcodedText`/`SetTextI18n` are error-severity and CI-blocking.
+   **Dates/numbers**: resolve the formatter locale through `FormatLocale.of(appLocale)` /
+   `FormatLocale.default()` (never `LocalConfiguration.current.locales[0]` or
+   `Locale.getDefault()` directly) — Hinglish formats as `en-IN` (ADR-110).
 3. **Legal hygiene — NEVER mention third-party reference products** in code, comments,
    strings, docs or commit messages. Permitted names: Google, Supabase, WhatsApp (as a
    share target), OSS library attributions. `scripts/legal-check.sh` runs in CI (denylist
@@ -226,16 +230,17 @@ adb shell am start -n com.itsluminous.samaroh/.MainActivity
 ./gradlew connectedDebugAndroidTest   # instrumented tests on the running emulator
 ```
 
-Test in BOTH languages: switch via system per-app language settings (Android 13+) or the
-in-app switcher once W1-F lands.
+Test in ALL THREE languages (English, हिन्दी, Hinglish): switch via system per-app language
+settings (Android 13+) or the in-app switcher (Menu → Settings → Language).
 
 ## End-to-end suite & catalog audit (W2-B)
 
 - `app/src/androidTest` hosts the e2e suite: Compose UI tests with `HiltAndroidRule`
   and the custom `SamarohTestRunner`. Every acceptance flow runs TWICE via `En`/`Hi`
-  subclass pairs of `LocalizedE2eTest` — assertions resolve expected strings from the
-  app's own resources under the run's locale, so tests catch localization regressions
-  without hardcoding either language. **Exception — seeded event-type presets:** their
+  subclass pairs of `LocalizedE2eTest`, and the language-facing flows (Onboarding,
+  LanguageSwitch, HelpScreen) a third time as `HiLatn` (ADR-110 — do NOT triple every class)
+  — assertions resolve expected strings from the app's own resources under the run's locale,
+  so tests catch localization regressions without hardcoding any language. **Exception — seeded event-type presets:** their
   labels are stored in ENGLISH (ADR-032 §3) and rendered verbatim, so assert on them with
   `seededPresetLabel(R.string.…)`, never `string(…)` (the `hi` run otherwise looks for
   "लगन" where the row says "Lagan" — the Oct 2026 nightly break).

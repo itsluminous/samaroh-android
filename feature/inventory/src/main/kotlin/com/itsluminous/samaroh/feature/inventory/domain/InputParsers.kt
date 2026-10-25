@@ -1,8 +1,8 @@
 package com.itsluminous.samaroh.feature.inventory.domain
 
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
-import java.util.Locale
 
 /*
  * Form-input parsing and display helpers. Money is Long paise end to end (ADR-002):
@@ -33,6 +33,6 @@ fun parseRupeesToPaise(text: String): Long? {
 
 /** Formats a quantity for display, trimming trailing zeros (7.0 → "7", 2.5 → "2.5"). */
 fun formatQuantity(value: Double): String {
-    val symbols = DecimalFormatSymbols(Locale.getDefault())
+    val symbols = DecimalFormatSymbols(FormatLocale.default())
     return DecimalFormat("0.###", symbols).format(value)
 }

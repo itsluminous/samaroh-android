@@ -10,7 +10,7 @@ import java.io.File
 /**
  * Drift guards between the shared guide and this repo (ADR-108): the Kotlin id constants
  * mirror `guide.json` / `routes.json`, every `keys` reference in a step is a real catalog
- * key of BOTH locales (the Help screen quotes those labels verbatim), and every screen
+ * key of EVERY locale (the Help screen quotes those labels verbatim), and every screen
  * survives the Android platform filter with at least one task.
  */
 class HelpGuideContractTest {
@@ -18,10 +18,43 @@ class HelpGuideContractTest {
     private val routes = SharedHelpFiles.routes()
 
     @Test
-    fun `guide is schema version 1 with en and hi`() {
+    fun `guide is schema version 1 with en, hi and hi-Latn`() {
         assertThat(guide.version).isEqualTo(1)
-        assertThat(guide.languages).containsAtLeast(HelpLanguage.EN, HelpLanguage.HI)
+        assertThat(guide.languages).containsExactlyElementsIn(HelpLanguage.ALL)
         assertThat(guide.site.baseUrl).startsWith("https://")
+    }
+
+    @Test
+    fun `every text carries all three languages and Hinglish is Latin script`() {
+        val devanagari = Regex("[\\u0900-\\u097F]")
+        val problems = mutableListOf<String>()
+
+        fun check(
+            where: String,
+            text: LocalizedText,
+        ) {
+            if (text.hiLatn.isNullOrBlank()) problems.add("$where has no hi-Latn text")
+            assertThat(text[HelpLanguage.HI_LATN]).isEqualTo(text.hiLatn)
+            assertThat(text[HelpLanguage.HI]).isEqualTo(text.hi)
+            assertThat(text["xx"]).isEqualTo(text.en)
+            assertThat(text.all()).containsExactly(text.en, text.hi, text.hiLatn)
+        }
+        guide.screens.forEach { screen ->
+            check("screen ${screen.id} title", screen.title)
+            check("screen ${screen.id} summary", screen.summary)
+            screen.tasks.forEach { task ->
+                check("task ${screen.id}/${task.id}", task.title)
+                task.steps.forEachIndexed { i, step ->
+                    if (step.hiLatn.isNullOrBlank()) problems.add("step ${screen.id}/${task.id}#$i has no hi-Latn text")
+                    assertThat(step[HelpLanguage.HI_LATN]).isEqualTo(step.hiLatn)
+                    // Devanagari only inside an own-script catalog label a step quotes (e.g. हिन्दी).
+                    if (step.keys.isNullOrEmpty() && devanagari.containsMatchIn(step.hiLatn.orEmpty())) {
+                        problems.add("step ${screen.id}/${task.id}#$i hi-Latn contains Devanagari")
+                    }
+                }
+            }
+        }
+        assertWithMessage("guide hi-Latn texts").that(problems).isEmpty()
     }
 
     @Test
@@ -50,17 +83,17 @@ class HelpGuideContractTest {
     }
 
     @Test
-    fun `every step key is a catalog key present in both locales`() {
-        val en = SharedHelpFiles.catalogKeys("en")
-        val hi = SharedHelpFiles.catalogKeys("hi")
-        assertThat(en).isNotEmpty()
+    fun `every step key is a catalog key present in every locale`() {
+        val catalogs = HelpLanguage.ALL.associateWith(SharedHelpFiles::catalogKeys)
+        catalogs.values.forEach { assertThat(it).isNotEmpty() }
         val missing = mutableListOf<String>()
         guide.screens.forEach { screen ->
             screen.tasks.forEach { task ->
                 task.steps.forEach { step ->
                     step.keys.orEmpty().forEach { key ->
-                        if (key !in en) missing.add("${screen.id}/${task.id}: '$key' not in en catalog")
-                        if (key !in hi) missing.add("${screen.id}/${task.id}: '$key' not in hi catalog")
+                        catalogs.forEach { (locale, keys) ->
+                            if (key !in keys) missing.add("${screen.id}/${task.id}: '$key' not in $locale catalog")
+                        }
                     }
                 }
             }
@@ -94,6 +127,8 @@ class HelpGuideContractTest {
     @Test
     fun `page and index urls follow the site patterns`() {
         assertThat(guide.pageUrl("hi", "booking_card")).isEqualTo("${guide.site.baseUrl}hi/booking_card.html")
+        assertThat(guide.pageUrl("hi-Latn", "booking_card")).isEqualTo("${guide.site.baseUrl}hi-Latn/booking_card.html")
         assertThat(guide.indexUrl("en")).isEqualTo("${guide.site.baseUrl}en/index.html")
+        assertThat(guide.indexUrl("hi-Latn")).isEqualTo("${guide.site.baseUrl}hi-Latn/index.html")
     }
 }

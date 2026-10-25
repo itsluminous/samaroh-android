@@ -20,6 +20,7 @@ import com.itsluminous.samaroh.core.data.repository.MemberRepository
 import com.itsluminous.samaroh.core.data.sync.SyncAuthGate
 import com.itsluminous.samaroh.core.data.sync.SyncAuthState
 import com.itsluminous.samaroh.core.data.sync.SyncScheduler
+import com.itsluminous.samaroh.core.i18n.LocaleManager
 import com.itsluminous.samaroh.core.model.Business
 import com.itsluminous.samaroh.core.model.BusinessMember
 import com.itsluminous.samaroh.core.model.MemberStatus
@@ -122,7 +123,9 @@ class OnboardingViewModel
                     // language, so the flow starts directly at the sign-in step.
                     step = if (startedAtSignIn) OnboardingStep.SIGN_IN else OnboardingStep.LANGUAGE,
                     supportedLocales = localeApplier.supportedLocales,
-                    selectedLanguage = localeApplier.current(),
+                    // Normalised to a supported tag (exact language + script, ADR-110): a
+                    // stored "hi-Latn" must tick Hinglish, not Hindi.
+                    selectedLanguage = LocaleManager.supportedTagOf(localeApplier.current()),
                     supabaseConfigured = authConfig.isSupabaseConfigured,
                     googleSignInConfigured = authConfig.isGoogleSignInConfigured,
                 ),

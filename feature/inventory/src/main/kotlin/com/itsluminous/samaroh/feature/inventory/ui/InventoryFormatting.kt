@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.feature.inventory.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.feature.inventory.UnitOption
 import java.time.Instant
@@ -23,6 +24,7 @@ fun unitOptionLabel(option: UnitOption): String =
 fun formatDate(instant: Instant): String =
     DateTimeFormatter
         .ofLocalizedDate(FormatStyle.MEDIUM)
+        .withLocale(FormatLocale.default())
         .withZone(ZoneId.systemDefault())
         .format(instant)
 
@@ -30,5 +32,6 @@ fun formatDate(instant: Instant): String =
 fun formatDateTime(instant: Instant): String =
     DateTimeFormatter
         .ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+        .withLocale(FormatLocale.default())
         .withZone(ZoneId.systemDefault())
         .format(instant)

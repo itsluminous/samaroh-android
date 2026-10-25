@@ -34,12 +34,12 @@ object HelpCatalog {
         val tokens = normalize(query).split(WHITESPACE).filter(String::isNotEmpty)
         if (tokens.isEmpty()) return screens
         return screens.mapNotNull { screen ->
-            val screenTexts = listOf(screen.title.en, screen.title.hi, screen.summary.en, screen.summary.hi).map(::normalize)
+            val screenTexts = (screen.title.all() + screen.summary.all()).map(::normalize)
             if (tokens.all { token -> screenTexts.any { it.contains(token) } }) return@mapNotNull screen
             val tasks =
                 screen.tasks.filter { task ->
                     val texts =
-                        (listOf(task.title.en, task.title.hi) + task.steps.flatMap { listOf(it.en, it.hi) }).map(::normalize)
+                        (task.title.all() + task.steps.flatMap { it.all() }).map(::normalize)
                     tokens.all { token -> texts.any { it.contains(token) } }
                 }
             if (tasks.isEmpty()) null else screen.copy(tasks = tasks)

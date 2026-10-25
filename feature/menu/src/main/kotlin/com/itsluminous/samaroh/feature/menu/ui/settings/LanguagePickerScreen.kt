@@ -18,12 +18,15 @@ import com.itsluminous.samaroh.feature.menu.ui.MenuScreenScaffold
 
 /**
  * Full-screen language picker (§4.4/§5): each language appears in its OWN script
- * (हिन्दी stays हिन्दी even when the app runs in English). Selection applies immediately
- * via [LocaleManager] per-app locales and persists across restarts (autoStoreLocales).
+ * (हिन्दी stays हिन्दी even when the app runs in English; Hinglish is "Hinglish", ADR-110).
+ * Selection applies immediately via [LocaleManager] per-app locales and persists across
+ * restarts (autoStoreLocales). The ticked row is an EXACT tag match
+ * ([LocaleManager.supportedTagOf]) — `hi-Latn` starts with `hi`, so a prefix test would
+ * tick Hindi for Hinglish.
  */
 @Composable
 fun LanguagePickerScreen(onBack: () -> Unit) {
-    var selectedTag by remember { mutableStateOf(LocaleManager.currentAppLocale()) }
+    var selectedTag by remember { mutableStateOf(LocaleManager.supportedTagOf(LocaleManager.currentAppLocale())) }
 
     MenuScreenScaffold(titleRes = R.string.settings_language_picker_title, onBack = onBack) {
         LanguageRow(
@@ -36,8 +39,8 @@ fun LanguagePickerScreen(onBack: () -> Unit) {
         HorizontalDivider()
         for (tag in LocaleManager.supportedLocales) {
             LanguageRow(
-                label = languageDisplayName(tag),
-                selected = selectedTag?.startsWith(tag) == true,
+                label = stringResource(LocaleManager.settingsNameRes(tag)),
+                selected = selectedTag == tag,
             ) {
                 selectedTag = tag
                 LocaleManager.setAppLocale(tag)
@@ -59,11 +62,3 @@ private fun LanguageRow(
         modifier = Modifier.clickable(onClick = onSelect),
     )
 }
-
-/** Own-script names come from locale-invariant catalog keys (both catalogs carry the same value). */
-@Composable
-private fun languageDisplayName(tag: String): String =
-    when (tag) {
-        "hi" -> stringResource(R.string.settings_language_name_hi)
-        else -> stringResource(R.string.settings_language_name_en)
-    }

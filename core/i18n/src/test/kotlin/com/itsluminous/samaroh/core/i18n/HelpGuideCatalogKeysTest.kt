@@ -8,7 +8,7 @@ import java.io.File
 /**
  * Release-checklist guard (ADR-108, AGENTS.md "guide and UI ship together"): every catalog
  * key a `shared/help/guide.json` step cites in `keys` must exist in the GENERATED Android
- * string resources of both locales — i.e. the label the guide tells the user to tap is a
+ * string resources of every locale — i.e. the label the guide tells the user to tap is a
  * label this build actually renders. A key renamed or removed in the catalog without
  * updating the guide fails here, next to the other catalog audits.
  */
@@ -38,7 +38,7 @@ class HelpGuideCatalogKeysTest {
     fun `every guide key resolves to a generated string in every locale`() {
         val keys = guideKeys()
         val missing = mutableListOf<String>()
-        for (valuesDir in listOf("values", "values-hi")) {
+        for (valuesDir in CatalogTestSupport.locales().map(CatalogTestSupport::valuesDirOf)) {
             val names = generatedStringNames(valuesDir)
             // Non-translatable keys are emitted once in the default values/ only.
             val nonTranslatable = CatalogTestSupport.mergedNonTranslatableKeys("en")
@@ -53,11 +53,12 @@ class HelpGuideCatalogKeysTest {
     }
 
     @Test
-    fun `every guide key is a translatable catalog key of both locales`() {
+    fun `every guide key is a translatable catalog key of every locale`() {
         val keys = guideKeys()
-        val en = CatalogTestSupport.mergedKeys("en")
-        val hi = CatalogTestSupport.mergedKeys("hi")
-        assertWithMessage("not in en catalog").that(en).containsAtLeastElementsIn(keys)
-        assertWithMessage("not in hi catalog").that(hi).containsAtLeastElementsIn(keys)
+        val locales = CatalogTestSupport.locales()
+        assertThat(locales).containsAtLeast("en", "hi", "hi-Latn")
+        for (locale in locales) {
+            assertWithMessage("not in $locale catalog").that(CatalogTestSupport.mergedKeys(locale)).containsAtLeastElementsIn(keys)
+        }
     }
 }

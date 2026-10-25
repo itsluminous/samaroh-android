@@ -67,6 +67,7 @@ import coil.compose.AsyncImage
 import com.itsluminous.samaroh.core.data.repository.AttachmentWithLocalState
 import com.itsluminous.samaroh.core.designsystem.component.ChipRow
 import com.itsluminous.samaroh.core.designsystem.component.ExplainableIcon
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.ExpenseDirection
 import com.itsluminous.samaroh.feature.expenses.attachments.AttachmentCompressor
@@ -327,7 +328,7 @@ private fun EntryDateField(
     var showPicker by remember { mutableStateOf(false) }
     Box(modifier = modifier.fillMaxWidth().clickable { showPicker = true }) {
         OutlinedTextField(
-            value = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
+            value = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(FormatLocale.default())),
             onValueChange = {},
             readOnly = true,
             enabled = false,

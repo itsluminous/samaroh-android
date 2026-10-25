@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import com.itsluminous.samaroh.core.i18n.FormatLocale
 import com.itsluminous.samaroh.core.i18n.R
 import com.itsluminous.samaroh.core.model.BookingSource
 import com.itsluminous.samaroh.feature.reports.domain.AgingBucket
@@ -85,9 +86,9 @@ fun sourceLabel(source: BookingSource?): String =
         null -> stringResource(R.string.reports_sources_unspecified)
     }
 
-/** The app-locale of the current composition (per-app locales, §5). */
+/** The FORMATTING locale of the current composition (per-app locales, §5; Hinglish → en-IN, ADR-110). */
 @Composable
-fun currentLocale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+fun currentLocale(): Locale = FormatLocale.of(LocalConfiguration.current.locales[0])
 
 /** Short month label for chart axes ("Jan" / "जन॰"). */
 fun monthAxisLabel(

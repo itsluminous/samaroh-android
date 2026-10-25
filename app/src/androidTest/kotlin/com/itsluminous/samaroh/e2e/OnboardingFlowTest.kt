@@ -2,6 +2,7 @@ package com.itsluminous.samaroh.e2e
 
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import com.itsluminous.samaroh.core.i18n.LocaleManager
 import com.itsluminous.samaroh.core.i18n.R
 import dagger.hilt.android.testing.HiltAndroidTest
 import org.junit.Test
@@ -19,9 +20,7 @@ abstract class OnboardingFlowTest(
         // Step 1 — language picker is the FIRST screen; pick the run's language
         // (rendered in its own script regardless of current locale).
         waitForText(string(R.string.onboarding_language_title))
-        val ownScriptName =
-            string(if (localeTag == "hi") R.string.common_language_hi else R.string.common_language_en)
-        compose.onNode(hasText(ownScriptName)).tap()
+        compose.onNode(hasText(string(LocaleManager.commonNameRes(localeTag)))).tap()
         compose.onNode(hasText(string(R.string.onboarding_action_continue))).tap()
 
         // Step 2 — welcome carousel, skippable.
@@ -57,3 +56,7 @@ class OnboardingFlowEnTest : OnboardingFlowTest("en")
 
 @HiltAndroidTest
 class OnboardingFlowHiTest : OnboardingFlowTest("hi")
+
+/** Hinglish (ADR-110): the third picker row, and every later screen in Latin-script Hindi. */
+@HiltAndroidTest
+class OnboardingFlowHiLatnTest : OnboardingFlowTest("hi-Latn")
